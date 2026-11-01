@@ -735,90 +735,111 @@
       });
     }
 
-    // --- REALTIME SSE STREAM CONNECTOR (<1s LATENCY) ---
-    const LIVE_TOPIC = "elvenar_live_850474491_radar";
-    let eventSource = null;
+    // --- TELEGRAM CLOUD DIRECT SYNC ENGINE (100% UNBLOCKABLE & NATIVE) ---
+    const BOT_TOKEN = "8800181376:AAG2OenHRk37182rBE6AvtHkaUDCYR49V3A";
 
-    function connectLiveStream() {
-      try {
-        if (eventSource) {
-          eventSource.close();
-        }
+    function decodeCompactPayload(compact) {
+      if (!compact || !compact.t) return null;
+      
+      const milDefs = [
+        { id: "military_production", n: "Barracks", ic: "⚔️" },
+        { id: "training_grounds_production", n: "Training Grounds", ic: "🏹" },
+        { id: "mercenary_camp_production", n: "Mercenary Camp", ic: "🪄" }
+      ];
+      const mil = (compact.m || []).map((arr, idx) => ({
+        id: milDefs[idx]?.id || `mil_${idx}`,
+        n: milDefs[idx]?.n || "Barracks",
+        ic: milDefs[idx]?.ic || "⚔️",
+        f: arr[0] || 0,
+        f1: arr[1] || 0,
+        s: arr[2] || 0,
+        m: arr[3] || 5
+      }));
 
-        eventSource = new EventSource(`https://ntfy.sh/${LIVE_TOPIC}/sse`);
+      const w = compact.w || [0, 15, 0, 0, 0, 0];
+      const ws = {
+        c: w[0] || 0,
+        l: w[1] || 15,
+        f: w[2] || 0,
+        p: w[3] || 0,
+        r: w[4] || 0,
+        pf: w[5] || 0
+      };
 
-        eventSource.onopen = function() {
-          console.log("[Live Stream] Connected to SSE channel.");
-          const badgeText = document.getElementById("liveBadgeText");
-          if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
+      const awDefs = [
+        { n: "Golden Abyss" },
+        { n: "Prosperity Towers" },
+        { n: "Maze of the Dark Matter" }
+      ];
+      const aw = (compact.a || []).map((arr, idx) => {
+        const sChar = arr[1] || "I";
+        const status = sChar === "P" ? "Producing" : (sChar === "R" ? "Ready" : (sChar === "U" ? "Upgrading" : "Idle"));
+        return {
+          n: awDefs[idx]?.n || `AW ${idx+1}`,
+          l: arr[0] || 0,
+          s: status,
+          f: arr[2] || 0
         };
+      });
 
-        function handleSSEMessage(e) {
-          try {
-            const data = JSON.parse(e.data);
-            if (data.event === "message" && data.message) {
-              let freshState = data.message;
-              if (typeof freshState === 'string') {
-                freshState = JSON.parse(freshState);
-              }
-              if (freshState && freshState.t) {
-                applyFreshState(freshState);
-              }
-            }
-          } catch(err) {
-            console.error("Lỗi parse SSE message:", err);
-          }
-        }
+      const petDefs = [
+        { n: "Brown Bear", ic: "🐻" },
+        { n: "Shellux", ic: "🐌" }
+      ];
+      const pet = (compact.p || []).map((f, idx) => ({
+        n: petDefs[idx]?.n || `Pet ${idx+1}`,
+        ic: petDefs[idx]?.ic || "🐾",
+        f: f || 0
+      }));
 
-        eventSource.onmessage = handleSSEMessage;
-        eventSource.addEventListener("message", handleSSEMessage);
-
-        eventSource.onerror = function() {
-          const badgeText = document.getElementById("liveBadgeText");
-          if (badgeText) badgeText.innerText = "RECONNECTING...";
-        };
-      } catch(err) {
-        console.error("SSE connection error:", err);
-      }
+      return { t: compact.t, mil, ws, aw, pet };
     }
 
-    function fetchLatestBufferedState() {
-      fetch(`https://ntfy.sh/${LIVE_TOPIC}/json?poll=1`)
-        .then(res => res.text())
-        .then(text => {
-          const lines = text.trim().split('\n');
-          for (let i = lines.length - 1; i >= 0; i--) {
+    let isFetchingTelegram = false;
+    function syncFromTelegramCloud() {
+      if (isFetchingTelegram) return;
+      isFetchingTelegram = true;
+
+      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMyDescription?t=${Date.now()}`)
+        .then(res => res.json())
+        .then(json => {
+          if (json.ok && json.result && json.result.description) {
             try {
-              const item = JSON.parse(lines[i]);
-              if (item.event === "message" && item.message) {
-                let s = item.message;
-                if (typeof s === 'string') s = JSON.parse(s);
-                if (s && s.t && (state.isDemo || s.t >= (state.t || 0))) {
-                  applyFreshState(s);
-                  break;
-                }
+              const compact = JSON.parse(json.result.description);
+              const decoded = decodeCompactPayload(compact);
+              if (decoded && (state.isDemo || decoded.t > (state.t || 0))) {
+                applyFreshState(decoded);
               }
-            } catch(e) {}
+            } catch(e) {
+              console.error("Lỗi parse Telegram description:", e);
+            }
           }
+          const badgeText = document.getElementById("liveBadgeText");
+          if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
         })
-        .catch(() => {});
+        .catch(err => {
+          console.warn("Telegram sync warning:", err);
+          const badgeText = document.getElementById("liveBadgeText");
+          if (badgeText) badgeText.innerText = "CONNECTING...";
+        })
+        .finally(() => {
+          isFetchingTelegram = false;
+        });
     }
 
     function reconnectStream() {
       triggerHaptic();
       showToast("🔄 Đang đồng bộ lại...");
-      fetchLatestBufferedState();
-      connectLiveStream();
+      syncFromTelegramCloud();
     }
 
     // Initial Execution
     initUI();
     tick();
     setInterval(tick, 1000);
-    fetchLatestBufferedState();
-    connectLiveStream();
-    // Failsafe background polling every 10s if SSE is suspended by OS battery saver
-    setInterval(fetchLatestBufferedState, 10000);
+    syncFromTelegramCloud();
+    // High-frequency Realtime Polling via Telegram Cloud (every 2 seconds)
+    setInterval(syncFromTelegramCloud, 2000);
   </script>
 </body>
 </html>
