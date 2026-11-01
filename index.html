@@ -813,7 +813,7 @@
                 const jsonStr = decodeURIComponent(escape(atob(clean)));
                 const compact = JSON.parse(jsonStr);
                 const decoded = decodeCompactPayload(compact);
-                if (decoded && (state.isDemo || decoded.t > (state.t || 0))) {
+                if (decoded && (state.isDemo || decoded.t !== (state.t || 0))) {
                   applyFreshState(decoded);
                 }
               } catch(e) {
