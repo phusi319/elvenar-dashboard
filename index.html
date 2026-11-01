@@ -107,6 +107,7 @@
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.05em;
+      cursor: pointer;
     }
 
     .pulse-dot {
@@ -352,6 +353,30 @@
       color: #64748b;
       margin-top: 10px;
     }
+
+    /* Live Update Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: rgba(16, 185, 129, 0.95);
+      color: #fff;
+      padding: 8px 18px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28), opacity 0.3s;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -365,9 +390,9 @@
           <p id="syncTime">Đang kết nối dữ liệu...</p>
         </div>
       </div>
-      <div class="live-badge">
+      <div class="live-badge" id="liveBadge" onclick="reconnectStream()">
         <span class="pulse-dot"></span>
-        <span>REALTIME</span>
+        <span id="liveBadgeText">STREAMING (LIVE)</span>
       </div>
     </header>
 
@@ -406,8 +431,11 @@
     <!-- Footer -->
     <footer class="footer">
       <button class="btn-close" onclick="closeWebApp()">Đóng Dashboard</button>
-      <p class="sync-note" id="syncDetails">Dữ liệu tự động đồng bộ từ game qua Telegram Bot</p>
+      <p class="sync-note" id="syncDetails">Kết nối Realtime SSE (<1s) • Dữ liệu từ PC Game Client</p>
     </footer>
+
+    <!-- Toast Notification -->
+    <div id="liveToast" class="toast">✨ Game vừa cập nhật mẻ mới!</div>
   </div>
 
   <script>
@@ -428,6 +456,14 @@
       triggerHaptic();
       if (tg) tg.close();
       else window.close();
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById("liveToast");
+      if (!t) return;
+      t.innerText = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 2500);
     }
 
     // Format Seconds to HH:MM:SS
@@ -490,7 +526,7 @@
       };
     }
 
-    const state = getPayload();
+    let state = getPayload();
 
     // Render Initial UI Shell
     function initUI() {
@@ -569,6 +605,16 @@
       `).join('');
     }
 
+    // Apply Realtime Fresh State from Live Stream
+    function applyFreshState(freshState) {
+      if (!freshState || !freshState.t) return;
+      state = freshState;
+      initUI();
+      tick();
+      showToast("✨ Game vừa cập nhật mẻ mới!");
+      triggerHaptic();
+    }
+
     // Realtime Tick Function (Runs every 1 second)
     function tick() {
       const now = Math.floor(Date.now() / 1000);
@@ -577,7 +623,7 @@
       const age = Math.max(0, now - (state.t || now));
       const syncEl = document.getElementById("syncTime");
       if (syncEl) {
-        if (age < 5) syncEl.innerText = "Vừa cập nhật tức thì";
+        if (age < 5) syncEl.innerText = "Vừa cập nhật tức thì (<5s)";
         else syncEl.innerText = `Cập nhật từ game ${age}s trước`;
       }
 
@@ -647,7 +693,6 @@
       // 3. Ancient Wonders Update
       (state.aw || []).forEach((aw, idx) => {
         const timerEl = document.getElementById(`awTimer_${idx}`);
-        const cardEl = document.getElementById(`awCard_${idx}`);
         const rem = Math.max(0, (aw.f || 0) - now);
 
         if (aw.s === "Producing" && rem > 0) {
@@ -679,10 +724,56 @@
       });
     }
 
-    // Run
+    // --- REALTIME SSE STREAM CONNECTOR (<1s LATENCY) ---
+    const LIVE_TOPIC = "elvenar_live_850474491_radar";
+    let eventSource = null;
+
+    function connectLiveStream() {
+      try {
+        if (eventSource) {
+          eventSource.close();
+        }
+
+        eventSource = new EventSource(`https://ntfy.sh/${LIVE_TOPIC}/sse`);
+
+        eventSource.onopen = function() {
+          console.log("[Live Stream] Connected to SSE channel.");
+          const badgeText = document.getElementById("liveBadgeText");
+          if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
+        };
+
+        eventSource.onmessage = function(e) {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.event === "message" && data.message) {
+              const freshState = JSON.parse(data.message);
+              applyFreshState(freshState);
+            }
+          } catch(err) {
+            console.error("Lỗi parse SSE message:", err);
+          }
+        };
+
+        eventSource.onerror = function() {
+          const badgeText = document.getElementById("liveBadgeText");
+          if (badgeText) badgeText.innerText = "RECONNECTING...";
+        };
+      } catch(err) {
+        console.error("SSE connection error:", err);
+      }
+    }
+
+    function reconnectStream() {
+      triggerHaptic();
+      showToast("🔄 Đang kết nối lại luồng Realtime...");
+      connectLiveStream();
+    }
+
+    // Initial Execution
     initUI();
     tick();
     setInterval(tick, 1000);
+    connectLiveStream();
   </script>
 </body>
 </html>
