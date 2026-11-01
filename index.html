@@ -793,23 +793,32 @@
       return { t: compact.t, mil, ws, aw, pet };
     }
 
+    const CHAT_ID = "-1003909496356";
     let isFetchingTelegram = false;
+
     function syncFromTelegramCloud() {
       if (isFetchingTelegram) return;
       isFetchingTelegram = true;
 
-      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMyDescription?t=${Date.now()}`)
+      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${CHAT_ID}&t=${Date.now()}`)
         .then(res => res.json())
         .then(json => {
-          if (json.ok && json.result && json.result.description) {
-            try {
-              const compact = JSON.parse(json.result.description);
-              const decoded = decodeCompactPayload(compact);
-              if (decoded && (state.isDemo || decoded.t > (state.t || 0))) {
-                applyFreshState(decoded);
+          if (json.ok && json.result && json.result.pinned_message && json.result.pinned_message.text) {
+            const text = json.result.pinned_message.text;
+            const match = text.match(/SYNC:([A-Za-z0-9+/=_-]+)/);
+            if (match) {
+              try {
+                let clean = match[1].replace(/-/g, '+').replace(/_/g, '/');
+                while (clean.length % 4) clean += '=';
+                const jsonStr = decodeURIComponent(escape(atob(clean)));
+                const compact = JSON.parse(jsonStr);
+                const decoded = decodeCompactPayload(compact);
+                if (decoded && (state.isDemo || decoded.t > (state.t || 0))) {
+                  applyFreshState(decoded);
+                }
+              } catch(e) {
+                console.error("Lỗi parse SYNC payload:", e);
               }
-            } catch(e) {
-              console.error("Lỗi parse Telegram description:", e);
             }
           }
           const badgeText = document.getElementById("liveBadgeText");
