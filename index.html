@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Elvenar Live Radar</title>
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card-bg: rgba(22, 30, 46, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-green: #10b981;
+      --accent-green-bg: rgba(16, 185, 129, 0.15);
+      --accent-amber: #f59e0b;
+      --accent-amber-bg: rgba(245, 158, 11, 0.15);
+      --accent-rose: #f43f5e;
+      --accent-rose-bg: rgba(244, 63, 94, 0.15);
+      --accent-blue: #38bdf8;
+      --accent-purple: #c084fc;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 16px 14px 60px 14px;
+      overflow-x: hidden;
+      line-height: 1.4;
+    }
+
+    /* Ambient Glow Background */
+    body::before {
+      content: "";
+      position: fixed;
+      top: -100px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.12) 0%, rgba(0, 0, 0, 0) 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding: 0 4px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-icon {
+      font-size: 26px;
+      line-height: 1;
+      filter: drop-shadow(0 2px 8px rgba(56, 189, 248, 0.4));
+    }
+
+    .brand-text h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+
+    .brand-text p {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent-green-bg);
+      color: var(--accent-green);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Section Styles */
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 18px 4px 8px 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Card Layout */
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 13px 14px;
+      margin-bottom: 9px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      transition: transform 0.15s ease, border-color 0.2s ease;
+    }
+
+    .card:active {
+      transform: scale(0.99);
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .card-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .card-title .icon {
+      font-size: 17px;
+    }
+
+    .pill {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .pill-green {
+      background: var(--accent-green-bg);
+      color: var(--accent-green);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .pill-amber {
+      background: var(--accent-amber-bg);
+      color: var(--accent-amber);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+    }
+
+    .pill-rose {
+      background: var(--accent-rose-bg);
+      color: var(--accent-rose);
+      border: 1px solid rgba(244, 63, 94, 0.25);
+    }
+
+    .pill-blue {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+
+    /* Timer Display */
+    .timer-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-top: 4px;
+    }
+
+    .timer-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 20px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+    }
+
+    .timer-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .status-text {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .status-text.ready {
+      color: var(--accent-amber);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .status-text.idle {
+      color: var(--accent-rose);
+    }
+
+    /* Provision Spell Banner */
+    .spell-banner {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.05) 100%);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: 12px;
+      padding: 10px 12px;
+      margin-top: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .spell-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spell-icon {
+      font-size: 18px;
+      filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
+    }
+
+    .spell-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: #fef08a;
+    }
+
+    .spell-timer {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fef08a;
+    }
+
+    /* Grid for AWs and Pets */
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .mini-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 10px 11px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 82px;
+    }
+
+    .mini-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .mini-timer {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      margin-top: 6px;
+    }
+
+    .mini-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Footer Buttons */
+    .footer {
+      margin-top: 24px;
+      text-align: center;
+    }
+
+    .btn-close {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      border: 1px solid var(--card-border);
+      padding: 10px 24px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-close:active {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+
+    .sync-note {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <span class="brand-icon">🏰</span>
+        <div class="brand-text">
+          <h1>Elvenar Live Radar</h1>
+          <p id="syncTime">Đang kết nối dữ liệu...</p>
+        </div>
+      </div>
+      <div class="live-badge">
+        <span class="pulse-dot"></span>
+        <span>REALTIME</span>
+      </div>
+    </header>
+
+    <!-- 1. Military Queues -->
+    <div class="section-title">
+      <span>⚔️</span> Doanh Trại & Luyện Quân
+    </div>
+    <div id="militaryList">
+      <!-- Injected via JS -->
+    </div>
+
+    <!-- 2. Main Workshops -->
+    <div class="section-title">
+      <span>🏭</span> Xưởng Sản Xuất Chính
+    </div>
+    <div id="workshopCard">
+      <!-- Injected via JS -->
+    </div>
+
+    <!-- 3. Ancient Wonders -->
+    <div class="section-title">
+      <span>🏛️</span> Kỳ Quan Cổ Đại (Ancient Wonders)
+    </div>
+    <div class="two-col-grid" id="awGrid">
+      <!-- Injected via JS -->
+    </div>
+
+    <!-- 4. Pet Food Buffs -->
+    <div class="section-title">
+      <span>🍖</span> Thức Ăn Thú Cưng (Pet Food)
+    </div>
+    <div class="two-col-grid" id="petGrid">
+      <!-- Injected via JS -->
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <button class="btn-close" onclick="closeWebApp()">Đóng Dashboard</button>
+      <p class="sync-note" id="syncDetails">Dữ liệu tự động đồng bộ từ game qua Telegram Bot</p>
+    </footer>
+  </div>
+
+  <script>
+    // Initialize Telegram WebApp
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    function triggerHaptic() {
+      if (tg && tg.HapticFeedback) {
+        tg.HapticFeedback.impactOccurred('light');
+      }
+    }
+
+    function closeWebApp() {
+      triggerHaptic();
+      if (tg) tg.close();
+      else window.close();
+    }
+
+    // Format Seconds to HH:MM:SS
+    function formatDuration(sec) {
+      const s = Math.max(0, Math.floor(sec));
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const remSec = s % 60;
+
+      if (d > 0) {
+        return `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`;
+      }
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(remSec).padStart(2, '0')}`;
+    }
+
+    // Parse Data from URL Hash or Search Params
+    function getPayload() {
+      try {
+        let raw = "";
+        const hash = window.location.hash;
+        const search = window.location.search;
+
+        if (hash && hash.includes("d=")) {
+          raw = hash.split("d=")[1].split("&")[0];
+        } else if (search && search.includes("d=")) {
+          const params = new URLSearchParams(search);
+          raw = params.get("d") || "";
+        }
+
+        if (raw) {
+          const decodedStr = decodeURIComponent(escape(atob(raw)));
+          return JSON.parse(decodedStr);
+        }
+      } catch (e) {
+        console.error("Lỗi giải mã payload:", e);
+      }
+
+      // Sample Demo Data if opened in standard browser
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        t: now,
+        mil: [
+          { id: "b", n: "Barracks", ic: "⚔️", f: now + 3480, f1: now + 650, s: 5, m: 5 },
+          { id: "tg", n: "Training Grounds", ic: "🏹", f: 0, f1: 0, s: 0, m: 5 },
+          { id: "mc", n: "Mercenary Camp", ic: "🪄", f: 0, f1: 0, s: 0, m: 5 }
+        ],
+        ws: { c: 4, l: 15, f: now + 95, p: 4, r: 0, i: 0, st: 0, pf: now + 48200 },
+        aw: [
+          { n: "Golden Abyss", l: 11, s: "Producing", f: now + 7200 },
+          { n: "Prosperity Towers", l: 8, s: "Ready", f: 0 },
+          { n: "Maze of Dark Matter", l: 6, s: "Idle", f: 0 }
+        ],
+        pet: [
+          { n: "Brown Bear", ic: "🐻", f: now + 18500 },
+          { n: "Shellux", ic: "🐌", f: 0 }
+        ]
+      };
+    }
+
+    const state = getPayload();
+
+    // Render Initial UI Shell
+    function initUI() {
+      // 1. Military Queues
+      const milContainer = document.getElementById("militaryList");
+      milContainer.innerHTML = (state.mil || []).map((q, idx) => `
+        <div class="card" id="milCard_${idx}">
+          <div class="card-top">
+            <span class="card-title">
+              <span class="icon">${q.ic || '⚔️'}</span>
+              <span>${q.n}</span>
+            </span>
+            <span class="pill pill-green" id="milSlot_${idx}">${q.s}/${q.m} slots</span>
+          </div>
+          <div class="timer-row">
+            <span class="timer-val" id="milTimer_${idx}">--:--:--</span>
+            <span class="timer-sub" id="milBatch_${idx}"></span>
+          </div>
+        </div>
+      `).join('');
+
+      // 2. Workshop Card
+      const wsContainer = document.getElementById("workshopCard");
+      wsContainer.innerHTML = `
+        <div class="card">
+          <div class="card-top">
+            <span class="card-title">
+              <span class="icon">🏭</span>
+              <span id="wsTitle">Workshops</span>
+            </span>
+            <span class="pill pill-green" id="wsPill">Đang chạy</span>
+          </div>
+          <div class="timer-row">
+            <span class="timer-val" id="wsTimer">--:--:--</span>
+            <span class="timer-sub" id="wsSub"></span>
+          </div>
+          <!-- Power of Provision -->
+          <div class="spell-banner" id="spellBanner">
+            <div class="spell-info">
+              <span class="spell-icon">✨</span>
+              <span class="spell-name">Power of Provision</span>
+            </div>
+            <span class="spell-timer" id="spellTimer">--:--:--</span>
+          </div>
+        </div>
+      `;
+
+      // 3. Ancient Wonders Grid
+      const awContainer = document.getElementById("awGrid");
+      awContainer.innerHTML = (state.aw || []).map((aw, idx) => `
+        <div class="mini-card" id="awCard_${idx}">
+          <div>
+            <div class="mini-title">
+              <span>🏛️</span>
+              <span title="${aw.n}">${aw.n}</span>
+            </div>
+            <div class="mini-sub">Cấp ${aw.l || 1}</div>
+          </div>
+          <div class="mini-timer" id="awTimer_${idx}">--:--:--</div>
+        </div>
+      `).join('');
+
+      // 4. Pet Food Grid
+      const petContainer = document.getElementById("petGrid");
+      petContainer.innerHTML = (state.pet || []).map((pet, idx) => `
+        <div class="mini-card" id="petCard_${idx}">
+          <div>
+            <div class="mini-title">
+              <span>${pet.ic || '🍖'}</span>
+              <span>${pet.n}</span>
+            </div>
+            <div class="mini-sub" id="petSub_${idx}">Thức ăn</div>
+          </div>
+          <div class="mini-timer" id="petTimer_${idx}">--:--:--</div>
+        </div>
+      `).join('');
+    }
+
+    // Realtime Tick Function (Runs every 1 second)
+    function tick() {
+      const now = Math.floor(Date.now() / 1000);
+
+      // Header Sync Time
+      const age = Math.max(0, now - (state.t || now));
+      const syncEl = document.getElementById("syncTime");
+      if (syncEl) {
+        if (age < 5) syncEl.innerText = "Vừa cập nhật tức thì";
+        else syncEl.innerText = `Cập nhật từ game ${age}s trước`;
+      }
+
+      // 1. Military Update
+      (state.mil || []).forEach((q, idx) => {
+        const timerEl = document.getElementById(`milTimer_${idx}`);
+        const slotEl = document.getElementById(`milSlot_${idx}`);
+        const batchEl = document.getElementById(`milBatch_${idx}`);
+
+        const totalRem = Math.max(0, (q.f || 0) - now);
+        const batchRem = Math.max(0, (q.f1 || 0) - now);
+
+        if (totalRem > 0 && q.s > 0) {
+          timerEl.innerHTML = formatDuration(totalRem);
+          timerEl.style.color = "#fff";
+          slotEl.className = "pill pill-green";
+          slotEl.innerText = `${q.s}/${q.m} slots`;
+          batchEl.innerText = `Lô 1: ${formatDuration(batchRem)}`;
+        } else {
+          timerEl.innerHTML = '<span class="status-text idle">🔴 Đang Trống</span>';
+          slotEl.className = "pill pill-rose";
+          slotEl.innerText = `0/${q.m} slots`;
+          batchEl.innerText = "Cần nạp lính";
+        }
+      });
+
+      // 2. Workshops Update
+      const ws = state.ws || {};
+      const wsTitle = document.getElementById("wsTitle");
+      const wsPill = document.getElementById("wsPill");
+      const wsTimer = document.getElementById("wsTimer");
+      const wsSub = document.getElementById("wsSub");
+
+      if (wsTitle) wsTitle.innerText = `${ws.c || 0}x Workshops (Lv.${ws.l || 15})`;
+
+      const wsRem = Math.max(0, (ws.f || 0) - now);
+      if (wsRem > 0 && ws.p > 0) {
+        wsTimer.innerHTML = formatDuration(wsRem);
+        wsTimer.style.color = "#fff";
+        wsPill.className = "pill pill-green";
+        wsPill.innerText = `Đang chạy (${ws.p}/${ws.c})`;
+        wsSub.innerText = ws.r > 0 ? `+ ${ws.r} đã xong` : "Đang sản xuất";
+      } else if (ws.r > 0 || (ws.f > 0 && wsRem === 0)) {
+        wsTimer.innerHTML = '<span class="status-text ready">🟡 Ready to collect!</span>';
+        wsPill.className = "pill pill-amber";
+        wsPill.innerText = `Sẵn sàng (${ws.r || ws.c}/${ws.c})`;
+        wsSub.innerText = "Chờ gom hàng";
+      } else {
+        wsTimer.innerHTML = '<span class="status-text idle">🔴 Bị Bỏ Trống</span>';
+        wsPill.className = "pill pill-rose";
+        wsPill.innerText = "Idle";
+        wsSub.innerText = "Không có sản xuất";
+      }
+
+      // Power of Provision Spell
+      const spellBanner = document.getElementById("spellBanner");
+      const spellTimer = document.getElementById("spellTimer");
+      const spellRem = Math.max(0, (ws.pf || 0) - now);
+      if (spellRem > 0) {
+        spellTimer.innerHTML = formatDuration(spellRem);
+        spellBanner.style.display = "flex";
+      } else {
+        spellTimer.innerHTML = "⚠️ Hết hạn";
+        spellTimer.style.color = "#f43f5e";
+      }
+
+      // 3. Ancient Wonders Update
+      (state.aw || []).forEach((aw, idx) => {
+        const timerEl = document.getElementById(`awTimer_${idx}`);
+        const cardEl = document.getElementById(`awCard_${idx}`);
+        const rem = Math.max(0, (aw.f || 0) - now);
+
+        if (aw.s === "Producing" && rem > 0) {
+          timerEl.innerHTML = formatDuration(rem);
+          timerEl.style.color = "#fff";
+        } else if (aw.s === "Ready" || (aw.s === "Producing" && aw.f > 0 && rem === 0)) {
+          timerEl.innerHTML = '<span style="color:var(--accent-amber);font-size:12px;">🟡 Ready!</span>';
+        } else if (aw.s === "Upgrading") {
+          timerEl.innerHTML = `<span style="color:var(--accent-blue);font-size:12px;">🔨 Upgrading</span>`;
+        } else {
+          timerEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">⚪ Idle</span>';
+        }
+      });
+
+      // 4. Pet Food Update
+      (state.pet || []).forEach((pet, idx) => {
+        const timerEl = document.getElementById(`petTimer_${idx}`);
+        const subEl = document.getElementById(`petSub_${idx}`);
+        const rem = Math.max(0, (pet.f || 0) - now);
+
+        if (rem > 0) {
+          timerEl.innerHTML = formatDuration(rem);
+          timerEl.style.color = "#34d399";
+          subEl.innerText = "🟢 Đang có buff";
+        } else {
+          timerEl.innerHTML = '<span style="color:var(--accent-rose);font-size:12px;">🔴 Hết thức ăn</span>';
+          subEl.innerText = "Đã hết hạn";
+        }
+      });
+    }
+
+    // Run
+    initUI();
+    tick();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
