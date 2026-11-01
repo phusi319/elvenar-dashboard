@@ -605,15 +605,13 @@
       `).join('');
     }
 
-    // Apply Realtime Fresh State from Live Stream
+    // Apply Realtime Fresh State from Live Stream (Silent & Seamless)
     function applyFreshState(freshState) {
       if (!freshState || !freshState.t) return;
       freshState.isDemo = false;
       state = freshState;
       initUI();
       tick();
-      showToast("⚡ Game vừa cập nhật mẻ mới!");
-      triggerHaptic();
 
       const badge = document.getElementById("liveBadgeText");
       if (badge) {
