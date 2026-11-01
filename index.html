@@ -504,23 +504,23 @@
         console.error("Lỗi giải mã payload:", e);
       }
 
-      // Sample Demo Data if opened in standard browser
-      const now = Math.floor(Date.now() / 1000);
+      // Fallback if opened directly without URL hash
       return {
-        t: now,
+        isDemo: true,
+        t: 0,
         mil: [
-          { id: "b", n: "Barracks", ic: "⚔️", f: now + 3480, f1: now + 650, s: 5, m: 5 },
+          { id: "b", n: "Barracks", ic: "⚔️", f: 0, f1: 0, s: 0, m: 5 },
           { id: "tg", n: "Training Grounds", ic: "🏹", f: 0, f1: 0, s: 0, m: 5 },
           { id: "mc", n: "Mercenary Camp", ic: "🪄", f: 0, f1: 0, s: 0, m: 5 }
         ],
-        ws: { c: 4, l: 15, f: now + 95, p: 4, r: 0, i: 0, st: 0, pf: now + 48200 },
+        ws: { c: 4, l: 15, f: 0, p: 0, r: 0, i: 0, st: 0, pf: 0 },
         aw: [
-          { n: "Golden Abyss", l: 11, s: "Producing", f: now + 7200 },
-          { n: "Prosperity Towers", l: 8, s: "Ready", f: 0 },
-          { n: "Maze of Dark Matter", l: 6, s: "Idle", f: 0 }
+          { n: "Golden Abyss", l: 0, s: "Idle", f: 0 },
+          { n: "Prosperity Towers", l: 0, s: "Idle", f: 0 },
+          { n: "Maze of Dark Matter", l: 0, s: "Idle", f: 0 }
         ],
         pet: [
-          { n: "Brown Bear", ic: "🐻", f: now + 18500 },
+          { n: "Brown Bear", ic: "🐻", f: 0 },
           { n: "Shellux", ic: "🐌", f: 0 }
         ]
       };
@@ -608,11 +608,18 @@
     // Apply Realtime Fresh State from Live Stream
     function applyFreshState(freshState) {
       if (!freshState || !freshState.t) return;
+      freshState.isDemo = false;
       state = freshState;
       initUI();
       tick();
-      showToast("✨ Game vừa cập nhật mẻ mới!");
+      showToast("⚡ Game vừa cập nhật mẻ mới!");
       triggerHaptic();
+
+      const badge = document.getElementById("liveBadgeText");
+      if (badge) {
+        badge.innerText = "STREAMING (LIVE)";
+        badge.style.color = "#34d399";
+      }
     }
 
     // Realtime Tick Function (Runs every 1 second)
@@ -620,11 +627,15 @@
       const now = Math.floor(Date.now() / 1000);
 
       // Header Sync Time
-      const age = Math.max(0, now - (state.t || now));
       const syncEl = document.getElementById("syncTime");
       if (syncEl) {
-        if (age < 5) syncEl.innerText = "Vừa cập nhật tức thì (<5s)";
-        else syncEl.innerText = `Cập nhật từ game ${age}s trước`;
+        if (state.isDemo) {
+          syncEl.innerText = "⏳ Đang kết nối nạp dữ liệu từ game...";
+        } else {
+          const age = Math.max(0, now - (state.t || now));
+          if (age < 5) syncEl.innerText = "⚡ Vừa cập nhật tức thì (<5s)";
+          else syncEl.innerText = `🟢 Cập nhật từ game ${age}s trước`;
+        }
       }
 
       // 1. Military Update
@@ -742,7 +753,7 @@
           if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
         };
 
-        eventSource.onmessage = function(e) {
+        function handleSSEMessage(e) {
           try {
             const data = JSON.parse(e.data);
             if (data.event === "message" && data.message) {
@@ -757,7 +768,10 @@
           } catch(err) {
             console.error("Lỗi parse SSE message:", err);
           }
-        };
+        }
+
+        eventSource.onmessage = handleSSEMessage;
+        eventSource.addEventListener("message", handleSSEMessage);
 
         eventSource.onerror = function() {
           const badgeText = document.getElementById("liveBadgeText");
@@ -779,7 +793,7 @@
               if (item.event === "message" && item.message) {
                 let s = item.message;
                 if (typeof s === 'string') s = JSON.parse(s);
-                if (s && s.t && s.t > (state.t || 0)) {
+                if (s && s.t && (state.isDemo || s.t >= (state.t || 0))) {
                   applyFreshState(s);
                   break;
                 }
