@@ -459,7 +459,9 @@
         }
 
         if (raw) {
-          const decodedStr = decodeURIComponent(escape(atob(raw)));
+          let clean = raw.replace(/-/g, '+').replace(/_/g, '/');
+          while (clean.length % 4) clean += '=';
+          const decodedStr = decodeURIComponent(escape(atob(clean)));
           return JSON.parse(decodedStr);
         }
       } catch (e) {
