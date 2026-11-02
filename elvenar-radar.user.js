@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Telegram Production Live Dashboard (Strict Single Message & Auto-Pin)
 // @namespace    http://tampermonkey.net/
-// @version      6.1.3
+// @version      6.1.4
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://raw.githubusercontent.com/phusi319/elvenar-dashboard/main/elvenar-radar.user.js
 // @downloadURL  https://raw.githubusercontent.com/phusi319/elvenar-dashboard/main/elvenar-radar.user.js
@@ -741,14 +741,14 @@
             badge.id = "elvenarLiveRadarBadge";
             badge.style.cssText = `
                 position: fixed;
-                bottom: 12px;
-                right: 140px;
+                top: 6px;
+                left: 6px;
                 z-index: 9999999;
                 background: rgba(15, 23, 42, 0.88);
                 color: #38bdf8;
                 border: 1px solid rgba(56, 189, 248, 0.4);
                 border-radius: 9999px;
-                padding: 5px 14px;
+                padding: 4px 10px;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                 font-size: 11px;
                 font-weight: 700;
@@ -756,15 +756,15 @@
                 box-shadow: 0 4px 16px rgba(0,0,0,0.6);
                 display: flex;
                 align-items: center;
-                gap: 6px;
+                gap: 5px;
                 backdrop-filter: blur(8px);
                 user-select: none;
                 transition: all 0.2s ease;
             `;
-            badge.innerText = "⚡ Live Radar: Đang chờ dữ liệu...";
-            badge.title = "Bấm để ép gửi dữ liệu Live lên Telegram ngay lập tức";
+            badge.innerText = "Radar: Waiting...";
+            badge.title = "Click to force sync live data";
             badge.onclick = function() {
-                badge.innerText = "⚡ Đang gửi...";
+                badge.innerText = "Syncing...";
                 syncLiveTelegramDashboard(true);
             };
             document.body.appendChild(badge);
@@ -815,7 +815,7 @@
                                 lastSentDataSignature = currentSignature;
                                 lastSuccessfulSyncTime = Date.now();
                                 const timeStr = new Date().toLocaleTimeString('vi-VN', { hour12: false });
-                                updateGameBadge(true, `🟢 Live Radar: Firebase (${timeStr})`);
+                                updateGameBadge(true, `Radar: Live (${timeStr})`);
                             }
                         } catch(e) {}
                     },
@@ -879,7 +879,7 @@
             }
         } catch (err) {
             console.error("[Live Radar] Lỗi trong syncLiveTelegramDashboard:", err);
-            updateGameBadge(false, "🔴 Live Radar: Lỗi xử lý");
+            updateGameBadge(false, "Radar: Error");
             isUpdating = false;
         }
     }
@@ -903,7 +903,7 @@
                         const timeStr = new Date().toLocaleTimeString('vi-VN', { hour12: false });
                         if (json.ok) {
                             lastSentText = text;
-                            updateGameBadge(true, `🟢 Live Radar: Đã gửi (${timeStr})`);
+                            updateGameBadge(true, `Radar: Sent (${timeStr})`);
                             if (shouldPin) {
                                 console.log("[Telegram Live] Đồng bộ Chat riêng thành công lúc " + timeStr);
                                 if (Date.now() - lastPinCheckTime > 120000) {
@@ -915,7 +915,7 @@
                             }
                         } else {
                             if (json.description && json.description.includes("message is not modified")) {
-                                updateGameBadge(true, `🟢 Live Radar: Đồng bộ (${timeStr})`);
+                                updateGameBadge(true, `Radar: Synced (${timeStr})`);
                                 return;
                             }
                             if (json.error_code === 429) {
@@ -967,7 +967,7 @@
                     if (json.ok && json.result && json.result.message_id) {
                         const newMsgId = json.result.message_id;
                         const timeStr = new Date().toLocaleTimeString('vi-VN', { hour12: false });
-                        updateGameBadge(true, `🟢 Live Radar: Đã tạo (${timeStr})`);
+                        updateGameBadge(true, `Radar: Created (${timeStr})`);
                         if (shouldPin) {
                             livePrivateMsgId = newMsgId;
                             GM_setValue("ELVENAR_LIVE_PRIVATE_MSG_ID", newMsgId);
