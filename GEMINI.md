@@ -14,8 +14,10 @@ Mỗi khi có bất kỳ chỉnh sửa hoặc cập nhật nào trong dự án *
      git -C "D:\ElvenarAuto\elvenar-dashboard" add -A
      git -C "D:\ElvenarAuto\elvenar-dashboard" commit -m "<Mô tả chi tiết thay đổi>"
      git -C "D:\ElvenarAuto\elvenar-dashboard" push origin main
+     curl -s "https://purge.jsdelivr.net/gh/phusi319/elvenar-dashboard@main/elvenar-radar.user.js"
      ```
-   - Đảm bảo GitHub Pages và link Raw của script luôn cập nhật bản mới nhất.
+   - Đảm bảo GitHub Pages, link Raw và jsDelivr CDN của script luôn cập nhật bản mới nhất.
 
 3. **Tăng Version Script để Tampermonkey Auto-Update**:
    - Khi sửa `elvenar-radar.user.js`, luôn tăng giá trị `@version` (ví dụ: `6.1.0` -> `6.1.1`) để Tampermonkey trên trình duyệt tự động cập nhật mà không cần cài lại thủ công.
+   - Script sử dụng CDN jsDelivr (`cdn.jsdelivr.net`) kết hợp Purge API (`purge.jsdelivr.net`) để nhận cập nhật tức thì (0s delay), không bị dính cache 5 phút của GitHub.

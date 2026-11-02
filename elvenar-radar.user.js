@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.1.7
+// @version      6.1.8
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
-// @updateURL    https://raw.githubusercontent.com/phusi319/elvenar-dashboard/main/elvenar-radar.user.js
-// @downloadURL  https://raw.githubusercontent.com/phusi319/elvenar-dashboard/main/elvenar-radar.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/phusi319/elvenar-dashboard@main/elvenar-radar.user.js
+// @downloadURL  https://cdn.jsdelivr.net/gh/phusi319/elvenar-dashboard@main/elvenar-radar.user.js
 // @match        https://*.elvenar.com/*
 // @connect      elvenar-radar-default-rtdb.europe-west1.firebasedatabase.app
 // @connect      elvenar-radar.phusi-319.workers.dev
