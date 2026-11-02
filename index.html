@@ -807,7 +807,7 @@
         mil: [
           { id: "b", n: "Barracks", ic: "⚔️", f: 0, f1: 0, s: 0, m: 5 },
           { id: "tg", n: "Training Grounds", ic: "🏹", f: 0, f1: 0, s: 0, m: 5 },
-          { id: "mc", n: "Mercenary Camp", ic: "🪄", f: 0, f1: 0, s: 0, m: 5 }
+          { id: "mc", n: "Mercenary Camp", ic: "🪓", f: 0, f1: 0, s: 0, m: 5 }
         ],
         ws: { c: 4, l: 15, f: 0, p: 0, r: 0, i: 0, st: 0, pf: 0 },
         aw: [
@@ -1225,7 +1225,7 @@
       const milDefs = [
         { id: "military_production", n: "Barracks", ic: "⚔️" },
         { id: "training_grounds_production", n: "Training Grounds", ic: "🏹" },
-        { id: "mercenary_camp_production", n: "Mercenary Camp", ic: "🪄" }
+        { id: "mercenary_camp_production", n: "Mercenary Camp", ic: "🪓" }
       ];
       const mil = (compact.m || []).map((arr, idx) => ({
         id: milDefs[idx]?.id || `mil_${idx}`,
