@@ -1458,8 +1458,8 @@
     tick();
     setInterval(tick, 1000);
     syncFromTelegramCloud();
-    // Smart Realtime Polling via Cloudflare Edge (every 30s while tab visible; 0 reqs when screen locked)
-    setInterval(syncFromTelegramCloud, 30000);
+    // Smart Realtime Polling via Cloudflare Edge (every 5s while tab visible; 0 reqs when screen locked)
+    setInterval(syncFromTelegramCloud, 5000);
   </script>
 </body>
 </html>
