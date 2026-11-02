@@ -20,4 +20,4 @@ Mỗi khi có bất kỳ chỉnh sửa hoặc cập nhật nào trong dự án *
 
 3. **Tăng Version Script để Tampermonkey Auto-Update**:
    - Khi sửa `elvenar-radar.user.js`, luôn tăng giá trị `@version` (ví dụ: `6.1.0` -> `6.1.1`) để Tampermonkey trên trình duyệt tự động cập nhật mà không cần cài lại thủ công.
-   - Script sử dụng CDN jsDelivr (`cdn.jsdelivr.net`) kết hợp Purge API (`purge.jsdelivr.net`) để nhận cập nhật tức thì (0s delay), không bị dính cache 5 phút của GitHub.
+   - Script sử dụng link GitHub Pages (`https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js`) cho `@updateURL` và `@downloadURL` để Tampermonkey tự động bắt bản mới chỉ sau ~20s, hoàn toàn không bị kẹt cache 5 phút của raw.githubusercontent.com.
