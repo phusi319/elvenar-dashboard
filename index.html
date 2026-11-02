@@ -1371,6 +1371,7 @@
     }
 
     function syncFromTelegramCloud(force = false) {
+      if (document.hidden && !force) return; // Silent pause when phone screen is off or tab hidden
       if (isFetchingTelegram && !force) {
         // Auto-release lock if previous request was hanging >6s due to poor network or sleep
         if (Date.now() - fetchStartTime > 6000) {
@@ -1457,8 +1458,8 @@
     tick();
     setInterval(tick, 1000);
     syncFromTelegramCloud();
-    // High-frequency Realtime Polling via Telegram Cloud (every 2 seconds)
-    setInterval(syncFromTelegramCloud, 2000);
+    // Smart Realtime Polling via Cloudflare Edge (every 10s while tab visible; 0 reqs when screen locked)
+    setInterval(syncFromTelegramCloud, 10000);
   </script>
 </body>
 </html>
