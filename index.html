@@ -793,6 +793,28 @@
       return { t: compact.t, mil, ws, aw, pet };
     }
 
+    const ZW_CHARS = ['\u200B', '\u200C', '\u200D', '\u2060'];
+    const ZW_START = '\uFEFF';
+
+    function decodeZeroWidthPayload(text) {
+      if (!text) return null;
+      const start = text.indexOf(ZW_START);
+      if (start === -1) return null;
+      const chars = text.slice(start + 1);
+      let binaryStr = '';
+      for (let i = 0; i < chars.length; i += 4) {
+        if (i + 3 >= chars.length) break;
+        const v0 = ZW_CHARS.indexOf(chars[i]);
+        const v1 = ZW_CHARS.indexOf(chars[i+1]);
+        const v2 = ZW_CHARS.indexOf(chars[i+2]);
+        const v3 = ZW_CHARS.indexOf(chars[i+3]);
+        if (v0 === -1 || v1 === -1 || v2 === -1 || v3 === -1) break;
+        const code = (v0 << 6) | (v1 << 4) | (v2 << 2) | v3;
+        binaryStr += String.fromCharCode(code);
+      }
+      return decodeURIComponent(escape(binaryStr));
+    }
+
     const CHAT_ID = "-1003909496356";
     let isFetchingTelegram = false;
 
@@ -805,19 +827,33 @@
         .then(json => {
           if (json.ok && json.result && json.result.pinned_message && json.result.pinned_message.text) {
             const text = json.result.pinned_message.text;
-            const match = text.match(/SYNC:([A-Za-z0-9+/=_-]+)/);
-            if (match) {
-              try {
-                let clean = match[1].replace(/-/g, '+').replace(/_/g, '/');
-                while (clean.length % 4) clean += '=';
-                const jsonStr = decodeURIComponent(escape(atob(clean)));
-                const compact = JSON.parse(jsonStr);
-                const decoded = decodeCompactPayload(compact);
-                if (decoded && (state.isDemo || decoded.t !== (state.t || 0))) {
-                  applyFreshState(decoded);
-                }
-              } catch(e) {
-                console.error("Lỗi parse SYNC payload:", e);
+            let compact = null;
+
+            // 1. Thử giải mã tàng hình (Zero-Width Steganography)
+            try {
+              const zwDecoded = decodeZeroWidthPayload(text);
+              if (zwDecoded) {
+                compact = JSON.parse(zwDecoded);
+              }
+            } catch(e) {}
+
+            // 2. Dự phòng giải mã định dạng cũ (SYNC:...)
+            if (!compact) {
+              const match = text.match(/SYNC:([A-Za-z0-9+/=_-]+)/);
+              if (match) {
+                try {
+                  let clean = match[1].replace(/-/g, '+').replace(/_/g, '/');
+                  while (clean.length % 4) clean += '=';
+                  const jsonStr = decodeURIComponent(escape(atob(clean)));
+                  compact = JSON.parse(jsonStr);
+                } catch(e) {}
+              }
+            }
+
+            if (compact) {
+              const decoded = decodeCompactPayload(compact);
+              if (decoded && (state.isDemo || decoded.t !== (state.t || 0))) {
+                applyFreshState(decoded);
               }
             }
           }
