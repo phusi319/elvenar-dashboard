@@ -623,9 +623,20 @@
       }
     }
 
+    let lastTickTimestamp = Date.now();
+
     // Realtime Tick Function (Runs every 1 second)
     function tick() {
-      const now = Math.floor(Date.now() / 1000);
+      const nowMs = Date.now();
+      const elapsedSinceLastTick = nowMs - lastTickTimestamp;
+      lastTickTimestamp = nowMs;
+
+      // Nhận diện điện thoại vừa mở khóa màn hình hoặc ứng dụng vừa resume từ background (>3.5s)
+      if (elapsedSinceLastTick > 3500) {
+        onWakeUp("phát hiện sleep gap " + Math.round(elapsedSinceLastTick / 1000) + "s");
+      }
+
+      const now = Math.floor(nowMs / 1000);
 
       // Header Sync Time
       const syncEl = document.getElementById("syncTime");
@@ -821,15 +832,33 @@
     const PRIMARY_CHAT_ID = "7620170971";
     const FALLBACK_CHAT_ID = "-1003909496356";
     let isFetchingTelegram = false;
+    let fetchStartTime = 0;
 
-    function syncFromTelegramCloud() {
-      if (isFetchingTelegram) return;
+    function syncFromTelegramCloud(force = false) {
+      if (isFetchingTelegram && !force) {
+        // Tự động phá khóa nếu yêu cầu trước bị treo quá 6 giây do mạng yếu hoặc điện thoại ngủ
+        if (Date.now() - fetchStartTime > 6000) {
+          console.warn("[Telegram Cloud] Khóa bị treo quá 6s, tự động mở khóa");
+          isFetchingTelegram = false;
+        } else {
+          return;
+        }
+      }
       isFetchingTelegram = true;
+      fetchStartTime = Date.now();
 
       // Ưu tiên đọc từ Chat riêng tư (Pinned)
       const targetChatId = PRIMARY_CHAT_ID;
 
-      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${targetChatId}&t=${Date.now()}`)
+      // AbortController ngăn chặn fetch bị treo vô tận khi ngắt mạng 4G/WiFi lúc tắt màn hình
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        try { controller.abort(); } catch(e) {}
+      }, 5000);
+
+      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${targetChatId}&t=${Date.now()}`, {
+        signal: controller.signal
+      })
         .then(res => res.json())
         .then(json => {
           if (json.ok && json.result && json.result.pinned_message && json.result.pinned_message.text) {
@@ -868,19 +897,48 @@
           if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
         })
         .catch(err => {
-          console.warn("Telegram sync warning:", err);
+          if (err.name !== 'AbortError') {
+            console.warn("Telegram sync warning:", err);
+          }
           const badgeText = document.getElementById("liveBadgeText");
           if (badgeText) badgeText.innerText = "CONNECTING...";
         })
         .finally(() => {
+          clearTimeout(timeoutId);
           isFetchingTelegram = false;
         });
+    }
+
+    // --- CƠ CHẾ ĐÁNH THỨC VÀ TỰ ĐỘNG TÁI KẾT NỐI KHI MỞ LẠI ĐIỆN THOẠI ---
+    function onWakeUp(reason) {
+      console.log(`[Lifecycle] Đánh thức (${reason}) -> Đồng bộ lại dữ liệu tức thì`);
+      isFetchingTelegram = false;
+      syncFromTelegramCloud(true);
+      tick();
+    }
+
+    // 1. Nhận diện người dùng mở khóa màn hình hoặc quay lại tab trình duyệt
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        onWakeUp("visibilitychange - visible");
+      }
+    });
+
+    // 2. Nhận diện người dùng chuyển app quay lại Telegram
+    window.addEventListener("focus", () => onWakeUp("window focus"));
+    window.addEventListener("pageshow", () => onWakeUp("pageshow / bfcache"));
+
+    // 3. Nhận diện sự kiện của Telegram WebApp SDK
+    if (tg && typeof tg.onEvent === 'function') {
+      try {
+        tg.onEvent('viewportChanged', () => onWakeUp("tg viewportChanged"));
+      } catch(e) {}
     }
 
     function reconnectStream() {
       triggerHaptic();
       showToast("🔄 Đang đồng bộ lại...");
-      syncFromTelegramCloud();
+      onWakeUp("bấm nút thủ công");
     }
 
     // Initial Execution
