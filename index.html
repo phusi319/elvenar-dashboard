@@ -730,13 +730,10 @@
     }
 
     function triggerHaptic() {
-      if (tg && tg.HapticFeedback) {
-        tg.HapticFeedback.impactOccurred('light');
-      }
+      // Disabled completely per user request - no vibration on update or interactions
     }
 
     function closeWebApp() {
-      triggerHaptic();
       if (tg) tg.close();
       else window.close();
     }
@@ -850,7 +847,6 @@
     function switchTab(tabId) {
       currentTabId = tabId;
       try { localStorage.setItem("elvenar_active_tab", tabId); } catch(e) {}
-      triggerHaptic();
 
       document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.remove("active"));
       const activeBtn = document.getElementById(`tabBtn_${tabId}`);
@@ -867,7 +863,6 @@
 
     function switchPeriod(period) {
       currentPeriod = period;
-      triggerHaptic();
       document.querySelectorAll(".period-btn").forEach(btn => btn.classList.remove("active"));
       const activeBtn = document.getElementById(`periodBtn_${period}`);
       if (activeBtn) activeBtn.classList.add("active");
@@ -1418,7 +1413,6 @@
     }
 
     function reconnectStream() {
-      triggerHaptic();
       showToast("🔄 Re-syncing...");
       onWakeUp("manual click");
     }
