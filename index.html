@@ -818,14 +818,18 @@
       return decodeURIComponent(escape(binaryStr));
     }
 
-    const CHAT_ID = "-1003909496356";
+    const PRIMARY_CHAT_ID = "7620170971";
+    const FALLBACK_CHAT_ID = "-1003909496356";
     let isFetchingTelegram = false;
 
     function syncFromTelegramCloud() {
       if (isFetchingTelegram) return;
       isFetchingTelegram = true;
 
-      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${CHAT_ID}&t=${Date.now()}`)
+      // Ưu tiên đọc từ Chat riêng tư (Pinned)
+      const targetChatId = PRIMARY_CHAT_ID;
+
+      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${targetChatId}&t=${Date.now()}`)
         .then(res => res.json())
         .then(json => {
           if (json.ok && json.result && json.result.pinned_message && json.result.pinned_message.text) {
