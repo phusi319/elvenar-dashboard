@@ -702,7 +702,7 @@
     <!-- Footer -->
     <footer class="footer">
       <button class="btn-close" onclick="closeWebApp()">Close Dashboard</button>
-      <p class="sync-note" id="syncDetails">Realtime Stream (&lt;1s) • Synced from PC Game Client</p>
+      <p class="sync-note" id="syncDetails">Cloudflare Edge Realtime Stream (&lt;50ms) • Synced from PC Game Client</p>
     </footer>
 
     <!-- Toast Notification -->
@@ -1306,10 +1306,29 @@
       return decodeURIComponent(escape(binaryStr));
     }
 
-    const PRIMARY_CHAT_ID = "-1003909496356"; // Group Chat (Topic 26 pinned message 1038) - 100% operational, zero rate limits
+    const CLOUDFLARE_WORKER_URL = "https://elvenar-radar.phusi-319.workers.dev/";
+    const PRIMARY_CHAT_ID = "-1003909496356"; // Group Chat (Topic 26 pinned message 1038)
     const FALLBACK_CHAT_ID = "7620170971";    // Private Chat (Pinned message 27)
     let isFetchingTelegram = false;
     let fetchStartTime = 0;
+
+    function fetchCloudflarePayload(signal) {
+      if (!CLOUDFLARE_WORKER_URL) return Promise.resolve(null);
+      return fetch(`${CLOUDFLARE_WORKER_URL}?t=${Date.now()}`, { signal })
+        .then(res => res.json())
+        .then(json => {
+          if (json.ok && json.data && json.data.t) {
+            return decodeCompactPayload(json.data);
+          }
+          return null;
+        })
+        .catch(err => {
+          if (err.name !== 'AbortError') {
+            console.warn("[Cloudflare Relay] Fetch error:", err);
+          }
+          return null;
+        });
+    }
 
     function fetchChatPayload(chatId, signal) {
       return fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${chatId}&t=${Date.now()}`, { signal })
@@ -1355,7 +1374,7 @@
       if (isFetchingTelegram && !force) {
         // Auto-release lock if previous request was hanging >6s due to poor network or sleep
         if (Date.now() - fetchStartTime > 6000) {
-          console.warn("[Telegram Cloud] Lock held >6s, auto-releasing");
+          console.warn("[Sync Engine] Lock held >6s, auto-releasing");
           isFetchingTelegram = false;
         } else {
           return;
@@ -1370,11 +1389,16 @@
         try { controller.abort(); } catch(e) {}
       }, 5000);
 
-      // Dual-Source Failover: Try Group Chat Topic 26 first (bulletproof), fallback to Private Chat
-      fetchChatPayload(PRIMARY_CHAT_ID, controller.signal)
+      // Priority 1: Cloudflare Edge Worker (<30ms, no rate limits, no pin)
+      fetchCloudflarePayload(controller.signal)
         .then(data => {
           if (data && data.t) return data;
-          // Fallback to Private Chat if Group Chat returned null
+          // Priority 2 (Fallback): Telegram Group Chat Topic 26
+          return fetchChatPayload(PRIMARY_CHAT_ID, controller.signal);
+        })
+        .then(data => {
+          if (data && data.t) return data;
+          // Priority 3 (Fallback): Telegram Private Chat
           return fetchChatPayload(FALLBACK_CHAT_ID, controller.signal);
         })
         .then(decoded => {
@@ -1386,7 +1410,7 @@
         })
         .catch(err => {
           if (err.name !== 'AbortError') {
-            console.warn("Telegram sync warning:", err);
+            console.warn("Sync warning:", err);
           }
           const badgeText = document.getElementById("liveBadgeText");
           if (badgeText && state.isDemo) badgeText.innerText = "CONNECTING...";
