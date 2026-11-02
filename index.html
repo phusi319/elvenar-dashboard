@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -637,7 +637,7 @@
         <span class="brand-icon">🏰</span>
         <div class="brand-text">
           <h1>Elvenar Live Radar</h1>
-          <p id="syncTime">Đang kết nối dữ liệu...</p>
+          <p id="syncTime">Connecting to game data...</p>
         </div>
       </div>
       <div class="live-badge" id="liveBadge" onclick="reconnectStream()">
@@ -651,11 +651,11 @@
       <!-- Injected dynamically via JS based on APP_TABS config -->
     </nav>
 
-    <!-- Tab 1: Production (Dashboard Sản Xuất) -->
+    <!-- Tab 1: Production -->
     <div id="tabPanel_production" class="tab-panel active">
       <!-- 1. Military Queues -->
       <div class="section-title">
-        <span>⚔️</span> Doanh Trại & Luyện Quân
+        <span>⚔️</span> Military Queues
       </div>
       <div id="militaryList">
         <!-- Injected via JS -->
@@ -663,7 +663,7 @@
 
       <!-- 2. Main Workshops -->
       <div class="section-title">
-        <span>🏭</span> Xưởng Sản Xuất Chính
+        <span>🏭</span> Workshops
       </div>
       <div id="workshopCard">
         <!-- Injected via JS -->
@@ -671,7 +671,7 @@
 
       <!-- 3. Ancient Wonders -->
       <div class="section-title">
-        <span>🏛️</span> Kỳ Quan Cổ Đại (Ancient Wonders)
+        <span>🏛️</span> Ancient Wonders
       </div>
       <div class="two-col-grid" id="awGrid">
         <!-- Injected via JS -->
@@ -679,48 +679,48 @@
 
       <!-- 4. Pet Food Buffs -->
       <div class="section-title">
-        <span>🍖</span> Thức Ăn Thú Cưng (Pet Food)
+        <span>🍖</span> Pet Food Buffs
       </div>
       <div class="two-col-grid" id="petGrid">
         <!-- Injected via JS -->
       </div>
     </div>
 
-    <!-- Tab 2: Resources (Kho Tài Nguyên Tiêu Chuẩn) -->
+    <!-- Tab 2: Resources -->
     <div id="tabPanel_resources" class="tab-panel" style="display: none;">
-      <!-- Period Selector: Hôm nay vs Tuần này -->
+      <!-- Period Selector: Today vs This Week -->
       <div class="period-toggle-bar">
-        <button class="period-btn active" id="periodBtn_today" onclick="switchPeriod('today')">📅 Hôm Nay (00:00 - 23:59)</button>
-        <button class="period-btn" id="periodBtn_week" onclick="switchPeriod('week')">📊 Tuần Này (CN - T7)</button>
+        <button class="period-btn active" id="periodBtn_today" onclick="switchPeriod('today')">📅 Today (00:00 - 23:59)</button>
+        <button class="period-btn" id="periodBtn_week" onclick="switchPeriod('week')">📊 This Week (Sun - Sat)</button>
       </div>
 
       <div id="resourcesContent">
-        <!-- Injected dynamically via JS: Grand Total + Tier 1 + Tier 2 + Tier 3 -->
+        <!-- Injected dynamically via JS: Tier 1 + Tier 2 + Tier 3 -->
       </div>
     </div>
 
     <!-- Footer -->
     <footer class="footer">
-      <button class="btn-close" onclick="closeWebApp()">Đóng Dashboard</button>
-      <p class="sync-note" id="syncDetails">Kết nối Realtime SSE (<1s) • Dữ liệu từ PC Game Client</p>
+      <button class="btn-close" onclick="closeWebApp()">Close Dashboard</button>
+      <p class="sync-note" id="syncDetails">Realtime Stream (&lt;1s) • Synced from PC Game Client</p>
     </footer>
 
     <!-- Toast Notification -->
-    <div id="liveToast" class="toast">✨ Game vừa cập nhật mẻ mới!</div>
+    <div id="liveToast" class="toast">✨ Game data updated!</div>
   </div>
 
   <script>
     // =========================================================================
-    // 🗂️ CẤU HÌNH THỨ TỰ VÀ DANH SÁCH CÁC TAB (CONFIG-DRIVEN UI)
-    // Đổi thứ tự hiển thị bằng cách hoán đổi vị trí các dòng dưới đây
+    // 🗂️ TAB CONFIGURATION & ORDER (CONFIG-DRIVEN UI)
+    // Easily reorder tabs by swapping items in the array below
     // =========================================================================
     const APP_TABS = [
-      { id: "production", title: "Sản Xuất",  icon: "⚔️", enabled: true },
-      { id: "resources",  title: "Tài Nguyên", icon: "💎", enabled: true }
+      { id: "production", title: "Production", icon: "⚔️", enabled: true },
+      { id: "resources",  title: "Resources",  icon: "💎", enabled: true }
     ];
 
     let currentTabId = localStorage.getItem("elvenar_active_tab") || APP_TABS[0].id;
-    let currentPeriod = "today"; // "today" (00:00 - 23:59) hoặc "week" (Chủ nhật - Thứ bảy)
+    let currentPeriod = "today"; // "today" (00:00 - 23:59) or "week" (Sun - Sat)
 
     // Initialize Telegram WebApp
     const tg = window.Telegram?.WebApp;
@@ -768,12 +768,12 @@
       const n = Math.abs(num);
       if (n >= 1000000) return (num / 1000000).toFixed(2) + "M";
       if (n >= 1000) return (num / 1000).toFixed(1) + "K";
-      return Number(num).toLocaleString('vi-VN');
+      return Number(num).toLocaleString('en-US');
     }
 
     function formatNumber(num) {
       if (num === null || num === undefined) return "0";
-      return Number(num).toLocaleString('vi-VN');
+      return Number(num).toLocaleString('en-US');
     }
 
     // Parse Data from URL Hash or Search Params
@@ -797,7 +797,7 @@
           return JSON.parse(decodedStr);
         }
       } catch (e) {
-        console.error("Lỗi giải mã payload:", e);
+        console.error("Payload decoding error:", e);
       }
 
       // Fallback if opened directly without URL hash
@@ -820,15 +820,15 @@
           { n: "Shellux", ic: "🐌", f: 0 }
         ],
         res: [
-          { id: "marble", name: "Cẩm thạch", icon: "🏛️", tier: 1, cur: 12329922, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "steel", name: "Thép", icon: "⚔️", tier: 1, cur: 11593828, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "planks", name: "Gỗ", icon: "🪵", tier: 1, cur: 9270106, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "crystal", name: "Pha lê", icon: "🔮", tier: 2, cur: 8852670, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "scrolls", name: "Cuộn giấy", icon: "📜", tier: 2, cur: 8073329, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "silk", name: "Lụa", icon: "🧵", tier: 2, cur: 6404746, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "elixir", name: "Thuốc tiên", icon: "🧪", tier: 3, cur: 7994560, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "magic_dust", name: "Bụi ma thuật", icon: "✨", tier: 3, cur: 8682281, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "gems", name: "Đá quý", icon: "💎", tier: 3, cur: 10006642, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 }
+          { id: "marble", name: "Marble", icon: "🏛️", tier: 1, cur: 12329922, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "steel", name: "Steel", icon: "⚔️", tier: 1, cur: 11593828, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "planks", name: "Planks", icon: "🪵", tier: 1, cur: 9270106, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "crystal", name: "Crystal", icon: "🔮", tier: 2, cur: 8852670, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "scrolls", name: "Scrolls", icon: "📜", tier: 2, cur: 8073329, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "silk", name: "Silk", icon: "🧵", tier: 2, cur: 6404746, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "elixir", name: "Elixir", icon: "🧪", tier: 3, cur: 7994560, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "magic_dust", name: "Magic Dust", icon: "✨", tier: 3, cur: 8682281, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "gems", name: "Gems", icon: "💎", tier: 3, cur: 10006642, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 }
         ]
       };
     }
@@ -889,14 +889,14 @@
       }
 
       const tiers = [
-        { id: 1, title: "Tier 1: Hàng Hóa Cơ Bản", icon: "📦", goods: goods.filter(g => g.tier === 1) },
-        { id: 2, title: "Tier 2: Hàng Hóa Chế Tác", icon: "🔮", goods: goods.filter(g => g.tier === 2) },
-        { id: 3, title: "Tier 3: Hàng Hóa Phép Thuật", icon: "🧪", goods: goods.filter(g => g.tier === 3) }
+        { id: 1, title: "Tier 1: Basic Goods", icon: "📦", goods: goods.filter(g => g.tier === 1) },
+        { id: 2, title: "Tier 2: Crafted Goods", icon: "🔮", goods: goods.filter(g => g.tier === 2) },
+        { id: 3, title: "Tier 3: Magical Goods", icon: "🧪", goods: goods.filter(g => g.tier === 3) }
       ];
 
       let html = "";
 
-      // Danh sách từng Tier kèm tổng hợp riêng cho mỗi Tier
+      // Render each Tier card with summary and individual goods
       tiers.forEach(t => {
         let tEarn = 0, tSpent = 0;
         t.goods.forEach(g => {
@@ -915,9 +915,9 @@
               </div>
             </div>
 
-            <!-- Tier Summary Row (Gom chung cả 3 loại vào làm 1 lấy tổng) -->
+            <!-- Tier Summary Row (Aggregated for all 3 goods in this tier) -->
             <div class="tier-summary-row">
-              <span class="tier-sum-title">📊 Tổng Tier ${t.id}</span>
+              <span class="tier-sum-title">📊 Tier ${t.id} Total</span>
               <div class="tier-sum-stats">
                 <span class="val-green">+${formatCompact(tEarn)}</span>
                 <span class="val-red">-${formatCompact(tSpent)}</span>
@@ -937,16 +937,16 @@
                 <span class="res-icon">${g.icon}</span>
                 <div>
                   <div class="res-name">${g.name}</div>
-                  <div style="font-size:10px; color:#64748b;">Kho: ${formatCompact(s.cur)}</div>
+                  <div style="font-size:10px; color:#64748b;">Stock: ${formatCompact(s.cur)}</div>
                 </div>
               </div>
               <div class="res-stats-col">
                 <div class="res-stat-item">
-                  <span class="res-stat-label">Kiếm</span>
+                  <span class="res-stat-label">Earned</span>
                   <span class="res-stat-val val-green">+${formatCompact(s.earn)}</span>
                 </div>
                 <div class="res-stat-item">
-                  <span class="res-stat-label">Xài</span>
+                  <span class="res-stat-label">Spent</span>
                   <span class="res-stat-val val-red">-${formatCompact(s.spent)}</span>
                 </div>
                 <div class="res-stat-item">
@@ -1002,7 +1002,7 @@
                 <span class="icon">🏭</span>
                 <span id="wsTitle">Workshops</span>
               </span>
-              <span class="pill pill-green" id="wsPill">Đang chạy</span>
+              <span class="pill pill-green" id="wsPill">Producing</span>
             </div>
             <div class="timer-row">
               <span class="timer-val" id="wsTimer">--:--:--</span>
@@ -1030,7 +1030,7 @@
                 <span>🏛️</span>
                 <span title="${aw.n}">${aw.n}</span>
               </div>
-              <div class="mini-sub">Cấp ${aw.l || 1}</div>
+              <div class="mini-sub">Level ${aw.l || 1}</div>
             </div>
             <div class="mini-timer" id="awTimer_${idx}">--:--:--</div>
           </div>
@@ -1047,7 +1047,7 @@
                 <span>${pet.ic || '🍖'}</span>
                 <span>${pet.n}</span>
               </div>
-              <div class="mini-sub" id="petSub_${idx}">Thức ăn</div>
+              <div class="mini-sub" id="petSub_${idx}">Pet Food</div>
             </div>
             <div class="mini-timer" id="petTimer_${idx}">--:--:--</div>
           </div>
@@ -1084,9 +1084,9 @@
       const elapsedSinceLastTick = nowMs - lastTickTimestamp;
       lastTickTimestamp = nowMs;
 
-      // Nhận diện điện thoại vừa mở khóa màn hình hoặc ứng dụng vừa resume từ background (>3.5s)
+      // Detect phone unlock or app resume from background (>3.5s sleep gap)
       if (elapsedSinceLastTick > 3500) {
-        onWakeUp("phát hiện sleep gap " + Math.round(elapsedSinceLastTick / 1000) + "s");
+        onWakeUp("detected sleep gap " + Math.round(elapsedSinceLastTick / 1000) + "s");
       }
 
       const now = Math.floor(nowMs / 1000);
@@ -1095,11 +1095,11 @@
       const syncEl = document.getElementById("syncTime");
       if (syncEl) {
         if (state.isDemo) {
-          syncEl.innerText = "⏳ Đang kết nối nạp dữ liệu từ game...";
+          syncEl.innerText = "⏳ Connecting to game data...";
         } else {
           const age = Math.max(0, now - (state.t || now));
-          if (age < 5) syncEl.innerText = "⚡ Vừa cập nhật tức thì (<5s)";
-          else syncEl.innerText = `🟢 Cập nhật từ game ${age}s trước`;
+          if (age < 5) syncEl.innerText = "⚡ Just updated (<5s)";
+          else syncEl.innerText = `🟢 Synced ${age}s ago`;
         }
       }
 
@@ -1117,12 +1117,12 @@
           timerEl.style.color = "#fff";
           slotEl.className = "pill pill-green";
           slotEl.innerText = `${q.s}/${q.m} slots`;
-          batchEl.innerText = `Lô 1: ${formatDuration(batchRem)}`;
+          batchEl.innerText = `Batch 1: ${formatDuration(batchRem)}`;
         } else {
-          timerEl.innerHTML = '<span class="status-text idle">🔴 Đang Trống</span>';
+          timerEl.innerHTML = '<span class="status-text idle">🔴 Queue Empty</span>';
           slotEl.className = "pill pill-rose";
           slotEl.innerText = `0/${q.m} slots`;
-          batchEl.innerText = "Cần nạp lính";
+          batchEl.innerText = "Queue empty";
         }
       });
 
@@ -1140,18 +1140,18 @@
         wsTimer.innerHTML = formatDuration(wsRem);
         wsTimer.style.color = "#fff";
         wsPill.className = "pill pill-green";
-        wsPill.innerText = `Đang chạy (${ws.p}/${ws.c})`;
-        wsSub.innerText = ws.r > 0 ? `+ ${ws.r} đã xong` : "Đang sản xuất";
+        wsPill.innerText = `Producing (${ws.p}/${ws.c})`;
+        wsSub.innerText = ws.r > 0 ? `+ ${ws.r} ready` : "Producing";
       } else if (ws.r > 0 || (ws.f > 0 && wsRem === 0)) {
         wsTimer.innerHTML = '<span class="status-text ready">🟡 Ready to collect!</span>';
         wsPill.className = "pill pill-amber";
-        wsPill.innerText = `Sẵn sàng (${ws.r || ws.c}/${ws.c})`;
-        wsSub.innerText = "Chờ gom hàng";
+        wsPill.innerText = `Ready (${ws.r || ws.c}/${ws.c})`;
+        wsSub.innerText = "Ready to collect";
       } else {
-        wsTimer.innerHTML = '<span class="status-text idle">🔴 Bị Bỏ Trống</span>';
+        wsTimer.innerHTML = '<span class="status-text idle">🔴 Idle</span>';
         wsPill.className = "pill pill-rose";
         wsPill.innerText = "Idle";
-        wsSub.innerText = "Không có sản xuất";
+        wsSub.innerText = "No active production";
       }
 
       // Power of Provision Spell
@@ -1162,7 +1162,7 @@
         spellTimer.innerHTML = formatDuration(spellRem);
         spellBanner.style.display = "flex";
       } else {
-        spellTimer.innerHTML = "⚠️ Hết hạn";
+        spellTimer.innerHTML = "⚠️ Expired";
         spellTimer.style.color = "#f43f5e";
       }
 
@@ -1192,10 +1192,10 @@
         if (rem > 0) {
           timerEl.innerHTML = formatDuration(rem);
           timerEl.style.color = "#34d399";
-          subEl.innerText = "🟢 Đang có buff";
+          subEl.innerText = "🟢 Buff active";
         } else {
-          timerEl.innerHTML = '<span style="color:var(--accent-rose);font-size:12px;">🔴 Hết thức ăn</span>';
-          subEl.innerText = "Đã hết hạn";
+          timerEl.innerHTML = '<span style="color:var(--accent-rose);font-size:12px;">🔴 Expired</span>';
+          subEl.innerText = "Buff expired";
         }
       });
     }
@@ -1260,15 +1260,15 @@
       // 5. Standard Goods Resources (T1, T2, T3)
       const rawR = compact.r || [];
       const goodsMeta = [
-        { id: "marble", name: "Cẩm thạch", icon: "🏛️", tier: 1 },
-        { id: "steel", name: "Thép", icon: "⚔️", tier: 1 },
-        { id: "planks", name: "Gỗ", icon: "🪵", tier: 1 },
-        { id: "crystal", name: "Pha lê", icon: "🔮", tier: 2 },
-        { id: "scrolls", name: "Cuộn giấy", icon: "📜", tier: 2 },
-        { id: "silk", name: "Lụa", icon: "🧵", tier: 2 },
-        { id: "elixir", name: "Thuốc tiên", icon: "🧪", tier: 3 },
-        { id: "magic_dust", name: "Bụi ma thuật", icon: "✨", tier: 3 },
-        { id: "gems", name: "Đá quý", icon: "💎", tier: 3 }
+        { id: "marble", name: "Marble", icon: "🏛️", tier: 1 },
+        { id: "steel", name: "Steel", icon: "⚔️", tier: 1 },
+        { id: "planks", name: "Planks", icon: "🪵", tier: 1 },
+        { id: "crystal", name: "Crystal", icon: "🔮", tier: 2 },
+        { id: "scrolls", name: "Scrolls", icon: "📜", tier: 2 },
+        { id: "silk", name: "Silk", icon: "🧵", tier: 2 },
+        { id: "elixir", name: "Elixir", icon: "🧪", tier: 3 },
+        { id: "magic_dust", name: "Magic Dust", icon: "✨", tier: 3 },
+        { id: "gems", name: "Gems", icon: "💎", tier: 3 }
       ];
 
       const res = goodsMeta.map((item, idx) => {
@@ -1318,9 +1318,9 @@
 
     function syncFromTelegramCloud(force = false) {
       if (isFetchingTelegram && !force) {
-        // Tự động phá khóa nếu yêu cầu trước bị treo quá 6 giây do mạng yếu hoặc điện thoại ngủ
+        // Auto-release lock if previous request was hanging >6s due to poor network or sleep
         if (Date.now() - fetchStartTime > 6000) {
-          console.warn("[Telegram Cloud] Khóa bị treo quá 6s, tự động mở khóa");
+          console.warn("[Telegram Cloud] Lock held >6s, auto-releasing");
           isFetchingTelegram = false;
         } else {
           return;
@@ -1329,10 +1329,10 @@
       isFetchingTelegram = true;
       fetchStartTime = Date.now();
 
-      // Ưu tiên đọc từ Chat riêng tư (Pinned)
+      // Read from Private Chat (Pinned message)
       const targetChatId = PRIMARY_CHAT_ID;
 
-      // AbortController ngăn chặn fetch bị treo vô tận khi ngắt mạng 4G/WiFi lúc tắt màn hình
+      // AbortController prevents hanging indefinitely on network loss
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         try { controller.abort(); } catch(e) {}
@@ -1347,7 +1347,7 @@
             const text = json.result.pinned_message.text;
             let compact = null;
 
-            // 1. Thử giải mã tàng hình (Zero-Width Steganography)
+            // 1. Zero-Width Steganography decoding
             try {
               const zwDecoded = decodeZeroWidthPayload(text);
               if (zwDecoded) {
@@ -1355,7 +1355,7 @@
               }
             } catch(e) {}
 
-            // 2. Dự phòng giải mã định dạng cũ (SYNC:...)
+            // 2. Fallback legacy SYNC:...
             if (!compact) {
               const match = text.match(/SYNC:([A-Za-z0-9+/=_-]+)/);
               if (match) {
@@ -1391,26 +1391,26 @@
         });
     }
 
-    // --- CƠ CHẾ ĐÁNH THỨC VÀ TỰ ĐỘNG TÁI KẾT NỐI KHI MỞ LẠI ĐIỆN THOẠI ---
+    // --- SLEEP / RESUME LIFECYCLE & AUTOMATIC RECONNECTION ENGINE ---
     function onWakeUp(reason) {
-      console.log(`[Lifecycle] Đánh thức (${reason}) -> Đồng bộ lại dữ liệu tức thì`);
+      console.log(`[Lifecycle] Wake up (${reason}) -> Resyncing immediately`);
       isFetchingTelegram = false;
       syncFromTelegramCloud(true);
       tick();
     }
 
-    // 1. Nhận diện người dùng mở khóa màn hình hoặc quay lại tab trình duyệt
+    // 1. Detect screen unlock or tab visibility change
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         onWakeUp("visibilitychange - visible");
       }
     });
 
-    // 2. Nhận diện người dùng chuyển app quay lại Telegram
+    // 2. Detect app resume when switching back to Telegram
     window.addEventListener("focus", () => onWakeUp("window focus"));
     window.addEventListener("pageshow", () => onWakeUp("pageshow / bfcache"));
 
-    // 3. Nhận diện sự kiện của Telegram WebApp SDK
+    // 3. Listen to Telegram WebApp SDK viewport change event
     if (tg && typeof tg.onEvent === 'function') {
       try {
         tg.onEvent('viewportChanged', () => onWakeUp("tg viewportChanged"));
@@ -1419,8 +1419,8 @@
 
     function reconnectStream() {
       triggerHaptic();
-      showToast("🔄 Đang đồng bộ lại...");
-      onWakeUp("bấm nút thủ công");
+      showToast("🔄 Re-syncing...");
+      onWakeUp("manual click");
     }
 
     // Initial Execution
