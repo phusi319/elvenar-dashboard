@@ -1004,7 +1004,6 @@
             </div>
             <div class="timer-row">
               <span class="timer-val" id="wsTimer">--:--:--</span>
-              <span class="timer-sub" id="wsSub"></span>
             </div>
             <!-- Power of Provision -->
             <div class="spell-banner" id="spellBanner">
@@ -1093,11 +1092,11 @@
       const syncEl = document.getElementById("syncTime");
       if (syncEl) {
         if (state.isDemo) {
-          syncEl.innerText = "⏳ Connecting to game data...";
+          syncEl.innerText = "Connecting to game data...";
         } else {
           const age = Math.max(0, now - (state.t || now));
-          if (age < 5) syncEl.innerText = "⚡ Just updated (<5s)";
-          else syncEl.innerText = `🟢 Synced ${age}s ago`;
+          if (age < 5) syncEl.innerText = "Just updated (<5s)";
+          else syncEl.innerText = `Synced ${age}s ago`;
         }
       }
 
@@ -1117,7 +1116,7 @@
           slotEl.innerText = `${q.s}/${q.m} slots`;
           batchEl.innerText = `Batch 1: ${formatDuration(batchRem)}`;
         } else {
-          timerEl.innerHTML = '<span class="status-text idle">🔴 Queue Empty</span>';
+          timerEl.innerHTML = '<span class="status-text idle">Queue Empty</span>';
           slotEl.className = "pill pill-rose";
           slotEl.innerText = `0/${q.m} slots`;
           batchEl.innerText = "Queue empty";
@@ -1129,7 +1128,6 @@
       const wsTitle = document.getElementById("wsTitle");
       const wsPill = document.getElementById("wsPill");
       const wsTimer = document.getElementById("wsTimer");
-      const wsSub = document.getElementById("wsSub");
 
       const wsRem = Math.max(0, (ws.f || 0) - now);
       const totalWs = ws.c || 0;
@@ -1142,49 +1140,34 @@
 
         if (ws.i > 0 && ws.r > 0) {
           wsPill.className = "pill pill-amber";
-          wsPill.innerText = "Mixed";
-          wsSub.innerHTML = `<span style="color:var(--accent-amber);">↳ 🟡 ${ws.r} ready</span> • <span style="color:var(--accent-rose);font-weight:600;">↳ 🔴 ${ws.i} idle!</span>`;
+          wsPill.innerText = `${ws.i} Idle`;
         } else if (ws.i > 0) {
           wsPill.className = "pill pill-rose";
           wsPill.innerText = `${ws.i} Idle`;
-          wsSub.innerHTML = `<span style="color:var(--accent-rose);font-weight:600;">↳ 🔴 ${ws.i} idle!</span>`;
         } else if (ws.r > 0) {
           wsPill.className = "pill pill-amber";
           wsPill.innerText = `${ws.r} Ready`;
-          wsSub.innerHTML = `<span style="color:var(--accent-amber);">↳ 🟡 ${ws.r} ready to collect!</span>`;
         } else {
           wsPill.className = "pill pill-green";
           wsPill.innerText = "Producing";
-          wsSub.innerText = "All active";
         }
       } else if (ws.r > 0 || (ws.f > 0 && wsRem === 0)) {
         const readyCount = ws.r || totalWs;
         if (wsTitle) wsTitle.innerText = totalWs > 0 ? `${totalWs}x Workshops (Lv.${wsLevel}) [${readyCount}/${totalWs}]` : "Workshops";
-        wsTimer.innerHTML = '<span class="status-text ready">🟡 Ready to collect!</span>';
-
-        const finishBase = ws.st || ws.f || now;
-        const stoppedDuration = Math.max(0, now - finishBase);
-        const finText = `Finished: <b>${formatDuration(stoppedDuration)}</b> ago`;
+        wsTimer.innerHTML = '<span class="status-text ready">Ready to collect</span>';
 
         if (ws.i > 0) {
           wsPill.className = "pill pill-rose";
           wsPill.innerText = `${ws.i} Idle`;
-          wsSub.innerHTML = `${finText} • <span style="color:var(--accent-rose);font-weight:600;">↳ 🔴 ${ws.i} idle!</span>`;
         } else {
           wsPill.className = "pill pill-amber";
           wsPill.innerText = "Ready";
-          wsSub.innerHTML = finText;
         }
       } else {
         if (wsTitle) wsTitle.innerText = totalWs > 0 ? `${totalWs}x Workshops (Lv.${wsLevel}) [0/${totalWs}]` : "Workshops";
-        wsTimer.innerHTML = '<span class="status-text idle">🔴 Idle (All empty)</span>';
+        wsTimer.innerHTML = '<span class="status-text idle">Idle</span>';
         wsPill.className = "pill pill-rose";
         wsPill.innerText = "Idle";
-
-        const stopBase = ws.st || now;
-        const stoppedDuration = Math.max(0, now - stopBase);
-        const alertTag = stoppedDuration >= 1800 ? ' <span style="color:var(--accent-rose);font-weight:600;">(Check Macro!)</span>' : '';
-        wsSub.innerHTML = `Stopped: <b>${formatDuration(stoppedDuration)}</b> ago${alertTag}`;
       }
 
       // Power of Provision Spell
@@ -1195,7 +1178,7 @@
         spellTimer.innerHTML = formatDuration(spellRem);
         spellBanner.style.display = "flex";
       } else {
-        spellTimer.innerHTML = "⚠️ Expired";
+        spellTimer.innerHTML = "Expired";
         spellTimer.style.color = "#f43f5e";
       }
 
@@ -1208,11 +1191,11 @@
           timerEl.innerHTML = formatDuration(rem);
           timerEl.style.color = "#fff";
         } else if (aw.s === "Ready" || (aw.s === "Producing" && aw.f > 0 && rem === 0)) {
-          timerEl.innerHTML = '<span style="color:var(--accent-amber);font-size:12px;">🟡 Ready!</span>';
+          timerEl.innerHTML = '<span style="color:var(--accent-amber);font-size:12px;">Ready</span>';
         } else if (aw.s === "Upgrading") {
-          timerEl.innerHTML = `<span style="color:var(--accent-blue);font-size:12px;">🔨 Upgrading</span>`;
+          timerEl.innerHTML = `<span style="color:var(--accent-blue);font-size:12px;">Upgrading</span>`;
         } else {
-          timerEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">⚪ Idle</span>';
+          timerEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">Idle</span>';
         }
       });
 
@@ -1225,9 +1208,9 @@
         if (rem > 0) {
           timerEl.innerHTML = formatDuration(rem);
           timerEl.style.color = "#34d399";
-          subEl.innerText = "🟢 Buff active";
+          subEl.innerText = "Buff active";
         } else {
-          timerEl.innerHTML = '<span style="color:var(--accent-rose);font-size:12px;">🔴 Expired</span>';
+          timerEl.innerHTML = '<span style="color:var(--accent-rose);font-size:12px;">Expired</span>';
           subEl.innerText = "Buff expired";
         }
       });
