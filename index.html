@@ -551,13 +551,39 @@
       gap: 7px;
     }
 
-    .resource-row {
-      display: flex;
+    /* Tier Ledger Columns */
+    .tier-col-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 56px 56px 64px;
+      column-gap: 8px;
       align-items: center;
-      justify-content: space-between;
-      padding: 8px 0;
+      padding: 6px 10px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      margin-bottom: 2px;
+    }
+
+    .tier-col-header .col-h {
+      text-align: right;
+    }
+
+    .resource-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 56px 56px 64px;
+      column-gap: 8px;
+      align-items: center;
+      padding: 7px 10px;
       border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
       font-size: 12px;
+      transition: background 0.15s ease;
+    }
+
+    .resource-row:hover {
+      background: rgba(255, 255, 255, 0.02);
     }
 
     .resource-row:last-child {
@@ -568,52 +594,58 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      min-width: 105px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .res-name-col .res-icon {
       font-size: 17px;
+      flex-shrink: 0;
+    }
+
+    .res-name-col .res-info {
+      min-width: 0;
+      overflow: hidden;
     }
 
     .res-name-col .res-name {
       font-weight: 600;
       color: #f1f5f9;
       font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    .res-stats-col {
-      display: flex;
-      gap: 12px;
+    .res-name-col .res-stock {
+      font-size: 10px;
+      color: #64748b;
+      white-space: nowrap;
+    }
+
+    .stat-cell {
       text-align: right;
-    }
-
-    .res-stat-item {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-    }
-
-    .res-stat-label {
-      font-size: 9px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      font-weight: 600;
-    }
-
-    .res-stat-val {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum";
       font-size: 11px;
       font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .tier-summary-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 56px 56px 64px;
+      column-gap: 8px;
+      align-items: center;
       background: rgba(255, 255, 255, 0.035);
       border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: 9px;
       padding: 8px 10px;
-      margin-top: 8px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      margin-top: 6px;
+      font-size: 11px;
+      font-weight: 700;
     }
 
     .tier-sum-title {
@@ -622,13 +654,11 @@
       color: #94a3b8;
       text-transform: uppercase;
       letter-spacing: 0.03em;
-    }
-
-    .tier-sum-stats {
       display: flex;
-      gap: 10px;
-      font-size: 11px;
-      font-weight: 700;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      overflow: hidden;
     }
   </style>
 </head>
@@ -913,18 +943,16 @@
               </div>
             </div>
 
-            <!-- Tier Summary Row (Aggregated for all 3 goods in this tier) -->
-            <div class="tier-summary-row">
-              <span class="tier-sum-title">📊 Tier ${t.id} Total</span>
-              <div class="tier-sum-stats">
-                <span class="val-green">+${formatCompact(tEarn)}</span>
-                <span class="val-red">-${formatCompact(tSpent)}</span>
-                <span class="${tNet >= 0 ? 'val-green' : 'val-red'}">Net: ${tNet >= 0 ? '+' : ''}${formatCompact(tNet)}</span>
-              </div>
+            <!-- Table Header -->
+            <div class="tier-col-header">
+              <div>Goods</div>
+              <div class="col-h">Earned</div>
+              <div class="col-h">Spent</div>
+              <div class="col-h">Net</div>
             </div>
 
             <!-- 3 Rows for the 3 Goods in this Tier -->
-            <div style="margin-top: 6px;">
+            <div>
         `;
 
         t.goods.forEach(g => {
@@ -933,30 +961,29 @@
             <div class="resource-row">
               <div class="res-name-col">
                 <span class="res-icon">${g.icon}</span>
-                <div>
+                <div class="res-info">
                   <div class="res-name">${g.name}</div>
-                  <div style="font-size:10px; color:#64748b;">Stock: ${formatCompact(s.cur)}</div>
+                  <div class="res-stock">Stock: ${formatCompact(s.cur)}</div>
                 </div>
               </div>
-              <div class="res-stats-col">
-                <div class="res-stat-item">
-                  <span class="res-stat-label">Earned</span>
-                  <span class="res-stat-val val-green">+${formatCompact(s.earn)}</span>
-                </div>
-                <div class="res-stat-item">
-                  <span class="res-stat-label">Spent</span>
-                  <span class="res-stat-val val-red">-${formatCompact(s.spent)}</span>
-                </div>
-                <div class="res-stat-item">
-                  <span class="res-stat-label">Net</span>
-                  <span class="res-stat-val ${s.net >= 0 ? 'val-green' : 'val-red'}">${s.net >= 0 ? '+' : ''}${formatCompact(s.net)}</span>
-                </div>
-              </div>
+              <div class="stat-cell val-green">+${formatCompact(s.earn)}</div>
+              <div class="stat-cell val-red">-${formatCompact(s.spent)}</div>
+              <div class="stat-cell ${s.net >= 0 ? 'val-green' : 'val-red'}">${s.net >= 0 ? '+' : ''}${formatCompact(s.net)}</div>
             </div>
           `;
         });
 
         html += `
+            </div>
+
+            <!-- Tier Summary Row (Total at bottom) -->
+            <div class="tier-summary-row">
+              <div class="tier-sum-title">
+                <span>📊</span> Total
+              </div>
+              <div class="stat-cell val-green">+${formatCompact(tEarn)}</div>
+              <div class="stat-cell val-red">-${formatCompact(tSpent)}</div>
+              <div class="stat-cell ${tNet >= 0 ? 'val-green' : 'val-red'}">${tNet >= 0 ? '+' : ''}${formatCompact(tNet)}</div>
             </div>
           </div>
         `;
