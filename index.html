@@ -1144,12 +1144,17 @@
         wsTimer.innerHTML = '<span class="status-text ready">🟡 Ready to collect!</span>';
         wsPill.className = "pill pill-amber";
         wsPill.innerText = `Ready (${ws.r || ws.c}/${ws.c})`;
-        wsSub.innerText = "Ready to collect";
+        const finishBase = ws.st || ws.f || now;
+        const stoppedDuration = Math.max(0, now - finishBase);
+        wsSub.innerHTML = `Finished: <b>${formatDuration(stoppedDuration)}</b> ago`;
       } else {
         wsTimer.innerHTML = '<span class="status-text idle">🔴 Idle</span>';
         wsPill.className = "pill pill-rose";
         wsPill.innerText = "Idle";
-        wsSub.innerText = "No active production";
+        const stopBase = ws.st || now;
+        const stoppedDuration = Math.max(0, now - stopBase);
+        const alertTag = stoppedDuration >= 1800 ? ' <span style="color:#f43f5e;font-weight:600;">(Check Macro!)</span>' : '';
+        wsSub.innerHTML = `Stopped: <b>${formatDuration(stoppedDuration)}</b> ago${alertTag}`;
       }
 
       // Power of Provision Spell
@@ -1219,14 +1224,15 @@
         m: arr[3] || 5
       }));
 
-      const w = compact.w || [0, 15, 0, 0, 0, 0];
+      const w = compact.w || [0, 15, 0, 0, 0, 0, 0];
       const ws = {
         c: w[0] || 0,
         l: w[1] || 15,
         f: w[2] || 0,
         p: w[3] || 0,
         r: w[4] || 0,
-        pf: w[5] || 0
+        pf: w[5] || 0,
+        st: w[6] || 0
       };
 
       const awDefs = [

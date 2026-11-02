@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Telegram Production Live Dashboard (Strict Single Message & Auto-Pin)
 // @namespace    http://tampermonkey.net/
-// @version      6.1.0
+// @version      6.1.1
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://raw.githubusercontent.com/phusi319/elvenar-dashboard/main/elvenar-radar.user.js
 // @downloadURL  https://raw.githubusercontent.com/phusi319/elvenar-dashboard/main/elvenar-radar.user.js
@@ -652,9 +652,9 @@
             ]);
         }
 
-        // 2. Workshops: [c, l, f, p, r, pf]
+        // 2. Workshops: [c, l, f, p, r, pf, st]
         const wsList = Object.values(workshops);
-        let w = [0, 15, 0, 0, 0, provisionSpellFinishTime || 0];
+        let w = [0, 15, 0, 0, 0, provisionSpellFinishTime || 0, wsStoppedSince || 0];
         if (wsList.length > 0) {
             const maxLevel = Math.max(...wsList.map(item => item.level));
             const topWs = wsList.filter(item => item.level === maxLevel);
@@ -667,13 +667,28 @@
                 else if (item.status === "Ready" || (item.finishTime > 0 && rem === 0)) rCount++;
                 else iCount++;
             });
+
+            // Đồng bộ mốc dừng wsStoppedSince
+            if (pTimes.length > 0) {
+                if (wsStoppedSince !== 0) {
+                    wsStoppedSince = 0;
+                    GM_setValue("ELVENAR_WS_STOPPED_SINCE", 0);
+                }
+            } else {
+                if (wsStoppedSince === 0) {
+                    wsStoppedSince = now;
+                    GM_setValue("ELVENAR_WS_STOPPED_SINCE", now);
+                }
+            }
+
             w = [
                 topWs.length,
                 maxLevel,
                 pTimes.length > 0 ? Math.max(...pTimes) : 0,
                 pTimes.length,
                 rCount,
-                provisionSpellFinishTime || 0
+                provisionSpellFinishTime || 0,
+                wsStoppedSince || 0
             ];
         }
 
