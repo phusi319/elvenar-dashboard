@@ -1131,29 +1131,59 @@
       const wsTimer = document.getElementById("wsTimer");
       const wsSub = document.getElementById("wsSub");
 
-      if (wsTitle) wsTitle.innerText = `${ws.c || 0}x Workshops (Lv.${ws.l || 15})`;
-
       const wsRem = Math.max(0, (ws.f || 0) - now);
+      const totalWs = ws.c || 0;
+      const wsLevel = ws.l || 15;
+
       if (wsRem > 0 && ws.p > 0) {
+        if (wsTitle) wsTitle.innerText = totalWs > 0 ? `${totalWs}x Workshops (Lv.${wsLevel}) [${ws.p}/${totalWs}]` : "Workshops";
         wsTimer.innerHTML = formatDuration(wsRem);
         wsTimer.style.color = "#fff";
-        wsPill.className = "pill pill-green";
-        wsPill.innerText = `Producing (${ws.p}/${ws.c})`;
-        wsSub.innerText = ws.r > 0 ? `+ ${ws.r} ready` : "Producing";
+
+        if (ws.i > 0 && ws.r > 0) {
+          wsPill.className = "pill pill-amber";
+          wsPill.innerText = "Mixed";
+          wsSub.innerHTML = `<span style="color:var(--accent-amber);">↳ 🟡 ${ws.r} ready</span> • <span style="color:var(--accent-rose);font-weight:600;">↳ 🔴 ${ws.i} idle!</span>`;
+        } else if (ws.i > 0) {
+          wsPill.className = "pill pill-rose";
+          wsPill.innerText = `${ws.i} Idle`;
+          wsSub.innerHTML = `<span style="color:var(--accent-rose);font-weight:600;">↳ 🔴 ${ws.i} idle!</span>`;
+        } else if (ws.r > 0) {
+          wsPill.className = "pill pill-amber";
+          wsPill.innerText = `${ws.r} Ready`;
+          wsSub.innerHTML = `<span style="color:var(--accent-amber);">↳ 🟡 ${ws.r} ready to collect!</span>`;
+        } else {
+          wsPill.className = "pill pill-green";
+          wsPill.innerText = "Producing";
+          wsSub.innerText = "All active";
+        }
       } else if (ws.r > 0 || (ws.f > 0 && wsRem === 0)) {
+        const readyCount = ws.r || totalWs;
+        if (wsTitle) wsTitle.innerText = totalWs > 0 ? `${totalWs}x Workshops (Lv.${wsLevel}) [${readyCount}/${totalWs}]` : "Workshops";
         wsTimer.innerHTML = '<span class="status-text ready">🟡 Ready to collect!</span>';
-        wsPill.className = "pill pill-amber";
-        wsPill.innerText = `Ready (${ws.r || ws.c}/${ws.c})`;
+
         const finishBase = ws.st || ws.f || now;
         const stoppedDuration = Math.max(0, now - finishBase);
-        wsSub.innerHTML = `Finished: <b>${formatDuration(stoppedDuration)}</b> ago`;
+        const finText = `Finished: <b>${formatDuration(stoppedDuration)}</b> ago`;
+
+        if (ws.i > 0) {
+          wsPill.className = "pill pill-rose";
+          wsPill.innerText = `${ws.i} Idle`;
+          wsSub.innerHTML = `${finText} • <span style="color:var(--accent-rose);font-weight:600;">↳ 🔴 ${ws.i} idle!</span>`;
+        } else {
+          wsPill.className = "pill pill-amber";
+          wsPill.innerText = "Ready";
+          wsSub.innerHTML = finText;
+        }
       } else {
-        wsTimer.innerHTML = '<span class="status-text idle">🔴 Idle</span>';
+        if (wsTitle) wsTitle.innerText = totalWs > 0 ? `${totalWs}x Workshops (Lv.${wsLevel}) [0/${totalWs}]` : "Workshops";
+        wsTimer.innerHTML = '<span class="status-text idle">🔴 Idle (All empty)</span>';
         wsPill.className = "pill pill-rose";
         wsPill.innerText = "Idle";
+
         const stopBase = ws.st || now;
         const stoppedDuration = Math.max(0, now - stopBase);
-        const alertTag = stoppedDuration >= 1800 ? ' <span style="color:#f43f5e;font-weight:600;">(Check Macro!)</span>' : '';
+        const alertTag = stoppedDuration >= 1800 ? ' <span style="color:var(--accent-rose);font-weight:600;">(Check Macro!)</span>' : '';
         wsSub.innerHTML = `Stopped: <b>${formatDuration(stoppedDuration)}</b> ago${alertTag}`;
       }
 
@@ -1224,7 +1254,7 @@
         m: arr[3] || 5
       }));
 
-      const w = compact.w || [0, 15, 0, 0, 0, 0, 0];
+      const w = compact.w || [0, 15, 0, 0, 0, 0, 0, 0];
       const ws = {
         c: w[0] || 0,
         l: w[1] || 15,
@@ -1232,7 +1262,8 @@
         p: w[3] || 0,
         r: w[4] || 0,
         pf: w[5] || 0,
-        st: w[6] || 0
+        st: w[6] || 0,
+        i: w[7] !== undefined ? w[7] : Math.max(0, (w[0] || 0) - (w[3] || 0) - (w[4] || 0))
       };
 
       const awDefs = [

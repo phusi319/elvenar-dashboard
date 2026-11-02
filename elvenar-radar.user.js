@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Telegram Production Live Dashboard (Strict Single Message & Auto-Pin)
 // @namespace    http://tampermonkey.net/
-// @version      6.1.1
+// @version      6.1.3
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://raw.githubusercontent.com/phusi319/elvenar-dashboard/main/elvenar-radar.user.js
 // @downloadURL  https://raw.githubusercontent.com/phusi319/elvenar-dashboard/main/elvenar-radar.user.js
@@ -652,9 +652,9 @@
             ]);
         }
 
-        // 2. Workshops: [c, l, f, p, r, pf, st]
+        // 2. Workshops: [c, l, f, p, r, pf, st, i]
         const wsList = Object.values(workshops);
-        let w = [0, 15, 0, 0, 0, provisionSpellFinishTime || 0, wsStoppedSince || 0];
+        let w = [0, 15, 0, 0, 0, provisionSpellFinishTime || 0, wsStoppedSince || 0, 0];
         if (wsList.length > 0) {
             const maxLevel = Math.max(...wsList.map(item => item.level));
             const topWs = wsList.filter(item => item.level === maxLevel);
@@ -688,7 +688,8 @@
                 pTimes.length,
                 rCount,
                 provisionSpellFinishTime || 0,
-                wsStoppedSince || 0
+                wsStoppedSince || 0,
+                iCount
             ];
         }
 
