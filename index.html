@@ -9,6 +9,9 @@
   <title>Elvenar Live Radar</title>
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Google Firebase Realtime Database SDK (Ultra-fast WebSocket Push) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <style>
     :root {
       --bg: #090d16;
@@ -1306,11 +1309,63 @@
       return decodeURIComponent(escape(binaryStr));
     }
 
+    const FIREBASE_DATABASE_URL = "https://elvenar-radar-default-rtdb.europe-west1.firebasedatabase.app";
     const CLOUDFLARE_WORKER_URL = "https://elvenar-radar.phusi-319.workers.dev/";
     const PRIMARY_CHAT_ID = "-1003909496356"; // Group Chat (Topic 26 pinned message 1038)
     const FALLBACK_CHAT_ID = "7620170971";    // Private Chat (Pinned message 27)
     let isFetchingTelegram = false;
     let fetchStartTime = 0;
+    let isFirebaseListening = false;
+
+    // --- 1. GOOGLE FIREBASE REALTIME WEBSOCKET LISTENER (<50ms INSTANT PUSH) ---
+    function initFirebaseWebSocket() {
+      try {
+        if (typeof firebase !== 'undefined') {
+          if (!firebase.apps || !firebase.apps.length) {
+            firebase.initializeApp({ databaseURL: FIREBASE_DATABASE_URL });
+          }
+          const db = firebase.database();
+          const liveRef = db.ref("live");
+
+          liveRef.on("value", snapshot => {
+            const data = snapshot.val();
+            if (data && data.t) {
+              const decoded = decodeCompactPayload(data);
+              if (decoded && (state.isDemo || decoded.t !== (state.t || 0))) {
+                applyFreshState(decoded);
+              }
+              const badgeText = document.getElementById("liveBadgeText");
+              if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
+            }
+          });
+
+          db.ref(".info/connected").on("value", snap => {
+            isFirebaseListening = (snap.val() === true);
+            const badgeText = document.getElementById("liveBadgeText");
+            if (badgeText && isFirebaseListening) {
+              badgeText.innerText = "STREAMING (LIVE)";
+              badgeText.style.color = "#34d399";
+            }
+          });
+        }
+      } catch(e) {
+        console.warn("[Firebase] WebSocket listener error:", e);
+      }
+    }
+
+    function fetchFirebaseRest(signal) {
+      if (!FIREBASE_DATABASE_URL) return Promise.resolve(null);
+      return fetch(`${FIREBASE_DATABASE_URL}/live.json?t=${Date.now()}`, { signal })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.t) return decodeCompactPayload(data);
+          return null;
+        })
+        .catch(err => {
+          if (err.name !== 'AbortError') console.warn("[Firebase REST] Fetch error:", err);
+          return null;
+        });
+    }
 
     function fetchCloudflarePayload(signal) {
       if (!CLOUDFLARE_WORKER_URL) return Promise.resolve(null);
@@ -1390,16 +1445,21 @@
         try { controller.abort(); } catch(e) {}
       }, 5000);
 
-      // Priority 1: Cloudflare Edge Worker (<30ms, no rate limits, no pin)
-      fetchCloudflarePayload(controller.signal)
+      // Priority 1: Google Firebase REST
+      fetchFirebaseRest(controller.signal)
         .then(data => {
           if (data && data.t) return data;
-          // Priority 2 (Fallback): Telegram Group Chat Topic 26
+          // Priority 2: Cloudflare Edge Worker
+          return fetchCloudflarePayload(controller.signal);
+        })
+        .then(data => {
+          if (data && data.t) return data;
+          // Priority 3 (Fallback): Telegram Group Chat Topic 26
           return fetchChatPayload(PRIMARY_CHAT_ID, controller.signal);
         })
         .then(data => {
           if (data && data.t) return data;
-          // Priority 3 (Fallback): Telegram Private Chat
+          // Priority 4 (Fallback): Telegram Private Chat
           return fetchChatPayload(FALLBACK_CHAT_ID, controller.signal);
         })
         .then(decoded => {
@@ -1457,9 +1517,10 @@
     initUI();
     tick();
     setInterval(tick, 1000);
+    initFirebaseWebSocket();
     syncFromTelegramCloud();
-    // Smart Realtime Polling via Cloudflare Edge (every 5s while tab visible; 0 reqs when screen locked)
-    setInterval(syncFromTelegramCloud, 5000);
+    // Fallback Polling (every 10s while tab visible; 0 reqs when screen locked)
+    setInterval(syncFromTelegramCloud, 10000);
   </script>
 </body>
 </html>
