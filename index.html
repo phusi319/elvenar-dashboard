@@ -1519,8 +1519,13 @@
     setInterval(tick, 1000);
     initFirebaseWebSocket();
     syncFromTelegramCloud();
-    // Fallback Polling (every 10s while tab visible; 0 reqs when screen locked)
-    setInterval(syncFromTelegramCloud, 10000);
+    // True Realtime: 0 Polling needed when Firebase WebSocket is active!
+    // Fallback check ONLY if WebSocket connection drops (every 30s)
+    setInterval(() => {
+      if (!isFirebaseListening && !document.hidden) {
+        syncFromTelegramCloud();
+      }
+    }, 30000);
   </script>
 </body>
 </html>
