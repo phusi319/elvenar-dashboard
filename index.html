@@ -888,14 +888,6 @@
         return { earn, spent, net, cur: (g.cur || 0) };
       }
 
-      let grandEarn = 0, grandSpent = 0;
-      goods.forEach(g => {
-        const s = getStats(g);
-        grandEarn += s.earn;
-        grandSpent += s.spent;
-      });
-      const grandNet = grandEarn - grandSpent;
-
       const tiers = [
         { id: 1, title: "Tier 1: Hàng Hóa Cơ Bản", icon: "📦", goods: goods.filter(g => g.tier === 1) },
         { id: 2, title: "Tier 2: Hàng Hóa Chế Tác", icon: "🔮", goods: goods.filter(g => g.tier === 2) },
@@ -904,33 +896,7 @@
 
       let html = "";
 
-      // 1. Grand Total Card (Tổng cộng cả 3 Tier)
-      html += `
-        <div class="grand-card">
-          <div class="grand-header">
-            <span>⚡ TỔNG HỢP TOÀN BỘ STANDARD GOODS</span>
-            <span style="font-size:10px; color:#94a3b8;">${isToday ? 'Hôm Nay (00:00 - 23:59)' : 'Tuần Này (CN - T7)'}</span>
-          </div>
-          <div class="kpi-grid">
-            <div class="kpi-box">
-              <div class="kpi-label">🟢 Tổng Kiếm</div>
-              <div class="kpi-value val-green">+${formatCompact(grandEarn)}</div>
-            </div>
-            <div class="kpi-box">
-              <div class="kpi-label">🔴 Tổng Xài</div>
-              <div class="kpi-value val-red">-${formatCompact(grandSpent)}</div>
-            </div>
-            <div class="kpi-box">
-              <div class="kpi-label">⚖️ Net Thuần</div>
-              <div class="kpi-value ${grandNet >= 0 ? 'val-green' : 'val-red'}">
-                ${grandNet >= 0 ? '+' : ''}${formatCompact(grandNet)}
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-
-      // 2. Each Tier
+      // Danh sách từng Tier kèm tổng hợp riêng cho mỗi Tier
       tiers.forEach(t => {
         let tEarn = 0, tSpent = 0;
         t.goods.forEach(g => {
