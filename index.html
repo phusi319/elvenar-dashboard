@@ -380,6 +380,253 @@
       transform: translateX(-50%) translateY(0);
       opacity: 1;
     }
+
+    /* =========================================================================
+       🗂️ TAB BAR & MULTI-TAB NAVIGATION STYLES
+       ========================================================================= */
+    .tab-bar {
+      display: flex;
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 16px;
+      gap: 6px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    .tab-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 9px 12px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 9px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .tab-btn.active {
+      background: rgba(56, 189, 248, 0.16);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      box-shadow: 0 2px 10px rgba(56, 189, 248, 0.2);
+    }
+
+    .tab-panel {
+      display: none;
+      animation: tabFadeIn 0.22s ease;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    @keyframes tabFadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Period Toggle Bar (Today vs This Week) */
+    .period-toggle-bar {
+      display: flex;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 3px;
+      margin-bottom: 14px;
+      gap: 4px;
+    }
+
+    .period-btn {
+      flex: 1;
+      padding: 8px 10px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .period-btn.active {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+    }
+
+    /* Grand Total KPI Card */
+    .grand-card {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.9) 100%);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 14px;
+      padding: 13px 14px;
+      margin-bottom: 14px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .grand-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #38bdf8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .kpi-box {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 8px 6px;
+      text-align: center;
+    }
+
+    .kpi-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .kpi-value {
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .val-green { color: #34d399; }
+    .val-red { color: #f43f5e; }
+    .val-blue { color: #38bdf8; }
+
+    /* Tier Card & Resource Table */
+    .tier-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    .tier-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .tier-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .resource-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+      font-size: 12px;
+    }
+
+    .resource-row:last-child {
+      border-bottom: none;
+    }
+
+    .res-name-col {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 105px;
+    }
+
+    .res-name-col .res-icon {
+      font-size: 17px;
+    }
+
+    .res-name-col .res-name {
+      font-weight: 600;
+      color: #f1f5f9;
+      font-size: 12px;
+    }
+
+    .res-stats-col {
+      display: flex;
+      gap: 12px;
+      text-align: right;
+    }
+
+    .res-stat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    .res-stat-label {
+      font-size: 9px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .res-stat-val {
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .tier-summary-row {
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 9px;
+      padding: 8px 10px;
+      margin-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tier-sum-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .tier-sum-stats {
+      display: flex;
+      gap: 10px;
+      font-size: 11px;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -399,36 +646,57 @@
       </div>
     </header>
 
-    <!-- 1. Military Queues -->
-    <div class="section-title">
-      <span>⚔️</span> Doanh Trại & Luyện Quân
-    </div>
-    <div id="militaryList">
-      <!-- Injected via JS -->
+    <!-- Config-Driven Tab Navigation Bar -->
+    <nav class="tab-bar" id="tabBar">
+      <!-- Injected dynamically via JS based on APP_TABS config -->
+    </nav>
+
+    <!-- Tab 1: Production (Dashboard Sản Xuất) -->
+    <div id="tabPanel_production" class="tab-panel active">
+      <!-- 1. Military Queues -->
+      <div class="section-title">
+        <span>⚔️</span> Doanh Trại & Luyện Quân
+      </div>
+      <div id="militaryList">
+        <!-- Injected via JS -->
+      </div>
+
+      <!-- 2. Main Workshops -->
+      <div class="section-title">
+        <span>🏭</span> Xưởng Sản Xuất Chính
+      </div>
+      <div id="workshopCard">
+        <!-- Injected via JS -->
+      </div>
+
+      <!-- 3. Ancient Wonders -->
+      <div class="section-title">
+        <span>🏛️</span> Kỳ Quan Cổ Đại (Ancient Wonders)
+      </div>
+      <div class="two-col-grid" id="awGrid">
+        <!-- Injected via JS -->
+      </div>
+
+      <!-- 4. Pet Food Buffs -->
+      <div class="section-title">
+        <span>🍖</span> Thức Ăn Thú Cưng (Pet Food)
+      </div>
+      <div class="two-col-grid" id="petGrid">
+        <!-- Injected via JS -->
+      </div>
     </div>
 
-    <!-- 2. Main Workshops -->
-    <div class="section-title">
-      <span>🏭</span> Xưởng Sản Xuất Chính
-    </div>
-    <div id="workshopCard">
-      <!-- Injected via JS -->
-    </div>
+    <!-- Tab 2: Resources (Kho Tài Nguyên Tiêu Chuẩn) -->
+    <div id="tabPanel_resources" class="tab-panel" style="display: none;">
+      <!-- Period Selector: Hôm nay vs Tuần này -->
+      <div class="period-toggle-bar">
+        <button class="period-btn active" id="periodBtn_today" onclick="switchPeriod('today')">📅 Hôm Nay (00:00 - 23:59)</button>
+        <button class="period-btn" id="periodBtn_week" onclick="switchPeriod('week')">📊 Tuần Này (CN - T7)</button>
+      </div>
 
-    <!-- 3. Ancient Wonders -->
-    <div class="section-title">
-      <span>🏛️</span> Kỳ Quan Cổ Đại (Ancient Wonders)
-    </div>
-    <div class="two-col-grid" id="awGrid">
-      <!-- Injected via JS -->
-    </div>
-
-    <!-- 4. Pet Food Buffs -->
-    <div class="section-title">
-      <span>🍖</span> Thức Ăn Thú Cưng (Pet Food)
-    </div>
-    <div class="two-col-grid" id="petGrid">
-      <!-- Injected via JS -->
+      <div id="resourcesContent">
+        <!-- Injected dynamically via JS: Grand Total + Tier 1 + Tier 2 + Tier 3 -->
+      </div>
     </div>
 
     <!-- Footer -->
@@ -442,6 +710,18 @@
   </div>
 
   <script>
+    // =========================================================================
+    // 🗂️ CẤU HÌNH THỨ TỰ VÀ DANH SÁCH CÁC TAB (CONFIG-DRIVEN UI)
+    // Đổi thứ tự hiển thị bằng cách hoán đổi vị trí các dòng dưới đây
+    // =========================================================================
+    const APP_TABS = [
+      { id: "production", title: "Sản Xuất",  icon: "⚔️", enabled: true },
+      { id: "resources",  title: "Tài Nguyên", icon: "💎", enabled: true }
+    ];
+
+    let currentTabId = localStorage.getItem("elvenar_active_tab") || APP_TABS[0].id;
+    let currentPeriod = "today"; // "today" (00:00 - 23:59) hoặc "week" (Chủ nhật - Thứ bảy)
+
     // Initialize Telegram WebApp
     const tg = window.Telegram?.WebApp;
     if (tg) {
@@ -481,6 +761,19 @@
         return `${d}d ${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m`;
       }
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(remSec).padStart(2, '0')}`;
+    }
+
+    function formatCompact(num) {
+      if (num === null || num === undefined) return "0";
+      const n = Math.abs(num);
+      if (n >= 1000000) return (num / 1000000).toFixed(2) + "M";
+      if (n >= 1000) return (num / 1000).toFixed(1) + "K";
+      return Number(num).toLocaleString('vi-VN');
+    }
+
+    function formatNumber(num) {
+      if (num === null || num === undefined) return "0";
+      return Number(num).toLocaleString('vi-VN');
     }
 
     // Parse Data from URL Hash or Search Params
@@ -525,87 +818,281 @@
         pet: [
           { n: "Brown Bear", ic: "🐻", f: 0 },
           { n: "Shellux", ic: "🐌", f: 0 }
+        ],
+        res: [
+          { id: "marble", name: "Cẩm thạch", icon: "🏛️", tier: 1, cur: 12329922, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "steel", name: "Thép", icon: "⚔️", tier: 1, cur: 11593828, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "planks", name: "Gỗ", icon: "🪵", tier: 1, cur: 9270106, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "crystal", name: "Pha lê", icon: "🔮", tier: 2, cur: 8852670, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "scrolls", name: "Cuộn giấy", icon: "📜", tier: 2, cur: 8073329, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "silk", name: "Lụa", icon: "🧵", tier: 2, cur: 6404746, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "elixir", name: "Thuốc tiên", icon: "🧪", tier: 3, cur: 7994560, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "magic_dust", name: "Bụi ma thuật", icon: "✨", tier: 3, cur: 8682281, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "gems", name: "Đá quý", icon: "💎", tier: 3, cur: 10006642, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 }
         ]
       };
     }
 
     let state = getPayload();
 
-    // Render Initial UI Shell
-    function initUI() {
-      // 1. Military Queues
-      const milContainer = document.getElementById("militaryList");
-      milContainer.innerHTML = (state.mil || []).map((q, idx) => `
-        <div class="card" id="milCard_${idx}">
-          <div class="card-top">
-            <span class="card-title">
-              <span class="icon">${q.ic || '⚔️'}</span>
-              <span>${q.n}</span>
-            </span>
-            <span class="pill pill-green" id="milSlot_${idx}">${q.s}/${q.m} slots</span>
-          </div>
-          <div class="timer-row">
-            <span class="timer-val" id="milTimer_${idx}">--:--:--</span>
-            <span class="timer-sub" id="milBatch_${idx}"></span>
-          </div>
-        </div>
+    function renderTabBar() {
+      const bar = document.getElementById("tabBar");
+      if (!bar) return;
+      const activeTabs = APP_TABS.filter(t => t.enabled !== false);
+      bar.innerHTML = activeTabs.map(t => `
+        <button class="tab-btn ${t.id === currentTabId ? 'active' : ''}" id="tabBtn_${t.id}" onclick="switchTab('${t.id}')">
+          <span class="tab-icon">${t.icon}</span>
+          <span class="tab-label">${t.title}</span>
+        </button>
       `).join('');
+    }
 
-      // 2. Workshop Card
-      const wsContainer = document.getElementById("workshopCard");
-      wsContainer.innerHTML = `
-        <div class="card">
-          <div class="card-top">
-            <span class="card-title">
-              <span class="icon">🏭</span>
-              <span id="wsTitle">Workshops</span>
-            </span>
-            <span class="pill pill-green" id="wsPill">Đang chạy</span>
+    function switchTab(tabId) {
+      currentTabId = tabId;
+      try { localStorage.setItem("elvenar_active_tab", tabId); } catch(e) {}
+      triggerHaptic();
+
+      document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.remove("active"));
+      const activeBtn = document.getElementById(`tabBtn_${tabId}`);
+      if (activeBtn) activeBtn.classList.add("active");
+
+      document.querySelectorAll(".tab-panel").forEach(panel => panel.style.display = "none");
+      const activePanel = document.getElementById(`tabPanel_${tabId}`);
+      if (activePanel) activePanel.style.display = "block";
+
+      if (tabId === "resources") {
+        renderResourcesUI();
+      }
+    }
+
+    function switchPeriod(period) {
+      currentPeriod = period;
+      triggerHaptic();
+      document.querySelectorAll(".period-btn").forEach(btn => btn.classList.remove("active"));
+      const activeBtn = document.getElementById(`periodBtn_${period}`);
+      if (activeBtn) activeBtn.classList.add("active");
+      renderResourcesUI();
+    }
+
+    function renderResourcesUI() {
+      const container = document.getElementById("resourcesContent");
+      if (!container) return;
+
+      const goods = state.res || [];
+      const isToday = currentPeriod === "today";
+
+      function getStats(g) {
+        const earn = isToday ? (g.todayEarn || 0) : (g.weekEarn || 0);
+        const spent = isToday ? (g.todaySpent || 0) : (g.weekSpent || 0);
+        const net = earn - spent;
+        return { earn, spent, net, cur: (g.cur || 0) };
+      }
+
+      let grandEarn = 0, grandSpent = 0;
+      goods.forEach(g => {
+        const s = getStats(g);
+        grandEarn += s.earn;
+        grandSpent += s.spent;
+      });
+      const grandNet = grandEarn - grandSpent;
+
+      const tiers = [
+        { id: 1, title: "Tier 1: Hàng Hóa Cơ Bản", icon: "📦", goods: goods.filter(g => g.tier === 1) },
+        { id: 2, title: "Tier 2: Hàng Hóa Chế Tác", icon: "🔮", goods: goods.filter(g => g.tier === 2) },
+        { id: 3, title: "Tier 3: Hàng Hóa Phép Thuật", icon: "🧪", goods: goods.filter(g => g.tier === 3) }
+      ];
+
+      let html = "";
+
+      // 1. Grand Total Card (Tổng cộng cả 3 Tier)
+      html += `
+        <div class="grand-card">
+          <div class="grand-header">
+            <span>⚡ TỔNG HỢP TOÀN BỘ STANDARD GOODS</span>
+            <span style="font-size:10px; color:#94a3b8;">${isToday ? 'Hôm Nay (00:00 - 23:59)' : 'Tuần Này (CN - T7)'}</span>
           </div>
-          <div class="timer-row">
-            <span class="timer-val" id="wsTimer">--:--:--</span>
-            <span class="timer-sub" id="wsSub"></span>
-          </div>
-          <!-- Power of Provision -->
-          <div class="spell-banner" id="spellBanner">
-            <div class="spell-info">
-              <span class="spell-icon">✨</span>
-              <span class="spell-name">Power of Provision</span>
+          <div class="kpi-grid">
+            <div class="kpi-box">
+              <div class="kpi-label">🟢 Tổng Kiếm</div>
+              <div class="kpi-value val-green">+${formatCompact(grandEarn)}</div>
             </div>
-            <span class="spell-timer" id="spellTimer">--:--:--</span>
+            <div class="kpi-box">
+              <div class="kpi-label">🔴 Tổng Xài</div>
+              <div class="kpi-value val-red">-${formatCompact(grandSpent)}</div>
+            </div>
+            <div class="kpi-box">
+              <div class="kpi-label">⚖️ Net Thuần</div>
+              <div class="kpi-value ${grandNet >= 0 ? 'val-green' : 'val-red'}">
+                ${grandNet >= 0 ? '+' : ''}${formatCompact(grandNet)}
+              </div>
+            </div>
           </div>
         </div>
       `;
 
+      // 2. Each Tier
+      tiers.forEach(t => {
+        let tEarn = 0, tSpent = 0;
+        t.goods.forEach(g => {
+          const s = getStats(g);
+          tEarn += s.earn;
+          tSpent += s.spent;
+        });
+        const tNet = tEarn - tSpent;
+
+        html += `
+          <div class="tier-card">
+            <div class="tier-header">
+              <div class="tier-title">
+                <span>${t.icon}</span>
+                <span>${t.title}</span>
+              </div>
+            </div>
+
+            <!-- Tier Summary Row (Gom chung cả 3 loại vào làm 1 lấy tổng) -->
+            <div class="tier-summary-row">
+              <span class="tier-sum-title">📊 Tổng Tier ${t.id}</span>
+              <div class="tier-sum-stats">
+                <span class="val-green">+${formatCompact(tEarn)}</span>
+                <span class="val-red">-${formatCompact(tSpent)}</span>
+                <span class="${tNet >= 0 ? 'val-green' : 'val-red'}">Net: ${tNet >= 0 ? '+' : ''}${formatCompact(tNet)}</span>
+              </div>
+            </div>
+
+            <!-- 3 Rows for the 3 Goods in this Tier -->
+            <div style="margin-top: 6px;">
+        `;
+
+        t.goods.forEach(g => {
+          const s = getStats(g);
+          html += `
+            <div class="resource-row">
+              <div class="res-name-col">
+                <span class="res-icon">${g.icon}</span>
+                <div>
+                  <div class="res-name">${g.name}</div>
+                  <div style="font-size:10px; color:#64748b;">Kho: ${formatCompact(s.cur)}</div>
+                </div>
+              </div>
+              <div class="res-stats-col">
+                <div class="res-stat-item">
+                  <span class="res-stat-label">Kiếm</span>
+                  <span class="res-stat-val val-green">+${formatCompact(s.earn)}</span>
+                </div>
+                <div class="res-stat-item">
+                  <span class="res-stat-label">Xài</span>
+                  <span class="res-stat-val val-red">-${formatCompact(s.spent)}</span>
+                </div>
+                <div class="res-stat-item">
+                  <span class="res-stat-label">Net</span>
+                  <span class="res-stat-val ${s.net >= 0 ? 'val-green' : 'val-red'}">${s.net >= 0 ? '+' : ''}${formatCompact(s.net)}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        html += `
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    // Render Initial UI Shell
+    function initUI() {
+      // 0. Render Config-Driven Tab Bar
+      renderTabBar();
+
+      // 1. Military Queues
+      const milContainer = document.getElementById("militaryList");
+      if (milContainer) {
+        milContainer.innerHTML = (state.mil || []).map((q, idx) => `
+          <div class="card" id="milCard_${idx}">
+            <div class="card-top">
+              <span class="card-title">
+                <span class="icon">${q.ic || '⚔️'}</span>
+                <span>${q.n}</span>
+              </span>
+              <span class="pill pill-green" id="milSlot_${idx}">${q.s}/${q.m} slots</span>
+            </div>
+            <div class="timer-row">
+              <span class="timer-val" id="milTimer_${idx}">--:--:--</span>
+              <span class="timer-sub" id="milBatch_${idx}"></span>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // 2. Workshop Card
+      const wsContainer = document.getElementById("workshopCard");
+      if (wsContainer) {
+        wsContainer.innerHTML = `
+          <div class="card">
+            <div class="card-top">
+              <span class="card-title">
+                <span class="icon">🏭</span>
+                <span id="wsTitle">Workshops</span>
+              </span>
+              <span class="pill pill-green" id="wsPill">Đang chạy</span>
+            </div>
+            <div class="timer-row">
+              <span class="timer-val" id="wsTimer">--:--:--</span>
+              <span class="timer-sub" id="wsSub"></span>
+            </div>
+            <!-- Power of Provision -->
+            <div class="spell-banner" id="spellBanner">
+              <div class="spell-info">
+                <span class="spell-icon">✨</span>
+                <span class="spell-name">Power of Provision</span>
+              </div>
+              <span class="spell-timer" id="spellTimer">--:--:--</span>
+            </div>
+          </div>
+        `;
+      }
+
       // 3. Ancient Wonders Grid
       const awContainer = document.getElementById("awGrid");
-      awContainer.innerHTML = (state.aw || []).map((aw, idx) => `
-        <div class="mini-card" id="awCard_${idx}">
-          <div>
-            <div class="mini-title">
-              <span>🏛️</span>
-              <span title="${aw.n}">${aw.n}</span>
+      if (awContainer) {
+        awContainer.innerHTML = (state.aw || []).map((aw, idx) => `
+          <div class="mini-card" id="awCard_${idx}">
+            <div>
+              <div class="mini-title">
+                <span>🏛️</span>
+                <span title="${aw.n}">${aw.n}</span>
+              </div>
+              <div class="mini-sub">Cấp ${aw.l || 1}</div>
             </div>
-            <div class="mini-sub">Cấp ${aw.l || 1}</div>
+            <div class="mini-timer" id="awTimer_${idx}">--:--:--</div>
           </div>
-          <div class="mini-timer" id="awTimer_${idx}">--:--:--</div>
-        </div>
-      `).join('');
+        `).join('');
+      }
 
       // 4. Pet Food Grid
       const petContainer = document.getElementById("petGrid");
-      petContainer.innerHTML = (state.pet || []).map((pet, idx) => `
-        <div class="mini-card" id="petCard_${idx}">
-          <div>
-            <div class="mini-title">
-              <span>${pet.ic || '🍖'}</span>
-              <span>${pet.n}</span>
+      if (petContainer) {
+        petContainer.innerHTML = (state.pet || []).map((pet, idx) => `
+          <div class="mini-card" id="petCard_${idx}">
+            <div>
+              <div class="mini-title">
+                <span>${pet.ic || '🍖'}</span>
+                <span>${pet.n}</span>
+              </div>
+              <div class="mini-sub" id="petSub_${idx}">Thức ăn</div>
             </div>
-            <div class="mini-sub" id="petSub_${idx}">Thức ăn</div>
+            <div class="mini-timer" id="petTimer_${idx}">--:--:--</div>
           </div>
-          <div class="mini-timer" id="petTimer_${idx}">--:--:--</div>
-        </div>
-      `).join('');
+        `).join('');
+      }
+
+      // 5. Render Resources Tab
+      renderResourcesUI();
+
+      // 6. Switch to Active Tab
+      switchTab(currentTabId);
     }
 
     // Apply Realtime Fresh State from Live Stream (Silent & Seamless)
@@ -804,7 +1291,36 @@
         f: f || 0
       }));
 
-      return { t: compact.t, mil, ws, aw, pet };
+      // 5. Standard Goods Resources (T1, T2, T3)
+      const rawR = compact.r || [];
+      const goodsMeta = [
+        { id: "marble", name: "Cẩm thạch", icon: "🏛️", tier: 1 },
+        { id: "steel", name: "Thép", icon: "⚔️", tier: 1 },
+        { id: "planks", name: "Gỗ", icon: "🪵", tier: 1 },
+        { id: "crystal", name: "Pha lê", icon: "🔮", tier: 2 },
+        { id: "scrolls", name: "Cuộn giấy", icon: "📜", tier: 2 },
+        { id: "silk", name: "Lụa", icon: "🧵", tier: 2 },
+        { id: "elixir", name: "Thuốc tiên", icon: "🧪", tier: 3 },
+        { id: "magic_dust", name: "Bụi ma thuật", icon: "✨", tier: 3 },
+        { id: "gems", name: "Đá quý", icon: "💎", tier: 3 }
+      ];
+
+      const res = goodsMeta.map((item, idx) => {
+        const row = rawR[idx] || [0, 0, 0, 0, 0];
+        return {
+          id: item.id,
+          name: item.name,
+          icon: item.icon,
+          tier: item.tier,
+          cur: row[0] || 0,
+          todayEarn: row[1] || 0,
+          todaySpent: row[2] || 0,
+          weekEarn: row[3] || 0,
+          weekSpent: row[4] || 0
+        };
+      });
+
+      return { t: compact.t, mil, ws, aw, pet, res };
     }
 
     const ZW_CHARS = ['\u200B', '\u200C', '\u200D', '\u2060'];
