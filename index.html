@@ -1306,10 +1306,50 @@
       return decodeURIComponent(escape(binaryStr));
     }
 
-    const PRIMARY_CHAT_ID = "7620170971";
-    const FALLBACK_CHAT_ID = "-1003909496356";
+    const PRIMARY_CHAT_ID = "-1003909496356"; // Group Chat (Topic 26 pinned message 1038) - 100% operational, zero rate limits
+    const FALLBACK_CHAT_ID = "7620170971";    // Private Chat (Pinned message 27)
     let isFetchingTelegram = false;
     let fetchStartTime = 0;
+
+    function fetchChatPayload(chatId, signal) {
+      return fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${chatId}&t=${Date.now()}`, { signal })
+        .then(res => res.json())
+        .then(json => {
+          if (json.ok && json.result && json.result.pinned_message && json.result.pinned_message.text) {
+            const text = json.result.pinned_message.text;
+            let compact = null;
+
+            // 1. Zero-Width Steganography decoding
+            try {
+              const zwDecoded = decodeZeroWidthPayload(text);
+              if (zwDecoded) compact = JSON.parse(zwDecoded);
+            } catch(e) {}
+
+            // 2. Fallback legacy SYNC:...
+            if (!compact) {
+              const match = text.match(/SYNC:([A-Za-z0-9+/=_-]+)/);
+              if (match) {
+                try {
+                  let clean = match[1].replace(/-/g, '+').replace(/_/g, '/');
+                  while (clean.length % 4) clean += '=';
+                  compact = JSON.parse(decodeURIComponent(escape(atob(clean))));
+                } catch(e) {}
+              }
+            }
+
+            if (compact) {
+              return decodeCompactPayload(compact);
+            }
+          }
+          return null;
+        })
+        .catch(err => {
+          if (err.name !== 'AbortError') {
+            console.warn(`[Telegram Cloud] Fetch error for chat ${chatId}:`, err);
+          }
+          return null;
+        });
+    }
 
     function syncFromTelegramCloud(force = false) {
       if (isFetchingTelegram && !force) {
@@ -1324,51 +1364,22 @@
       isFetchingTelegram = true;
       fetchStartTime = Date.now();
 
-      // Read from Private Chat (Pinned message)
-      const targetChatId = PRIMARY_CHAT_ID;
-
       // AbortController prevents hanging indefinitely on network loss
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         try { controller.abort(); } catch(e) {}
       }, 5000);
 
-      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${targetChatId}&t=${Date.now()}`, {
-        signal: controller.signal
-      })
-        .then(res => res.json())
-        .then(json => {
-          if (json.ok && json.result && json.result.pinned_message && json.result.pinned_message.text) {
-            const text = json.result.pinned_message.text;
-            let compact = null;
-
-            // 1. Zero-Width Steganography decoding
-            try {
-              const zwDecoded = decodeZeroWidthPayload(text);
-              if (zwDecoded) {
-                compact = JSON.parse(zwDecoded);
-              }
-            } catch(e) {}
-
-            // 2. Fallback legacy SYNC:...
-            if (!compact) {
-              const match = text.match(/SYNC:([A-Za-z0-9+/=_-]+)/);
-              if (match) {
-                try {
-                  let clean = match[1].replace(/-/g, '+').replace(/_/g, '/');
-                  while (clean.length % 4) clean += '=';
-                  const jsonStr = decodeURIComponent(escape(atob(clean)));
-                  compact = JSON.parse(jsonStr);
-                } catch(e) {}
-              }
-            }
-
-            if (compact) {
-              const decoded = decodeCompactPayload(compact);
-              if (decoded && (state.isDemo || decoded.t !== (state.t || 0))) {
-                applyFreshState(decoded);
-              }
-            }
+      // Dual-Source Failover: Try Group Chat Topic 26 first (bulletproof), fallback to Private Chat
+      fetchChatPayload(PRIMARY_CHAT_ID, controller.signal)
+        .then(data => {
+          if (data && data.t) return data;
+          // Fallback to Private Chat if Group Chat returned null
+          return fetchChatPayload(FALLBACK_CHAT_ID, controller.signal);
+        })
+        .then(decoded => {
+          if (decoded && decoded.t && (state.isDemo || decoded.t !== (state.t || 0))) {
+            applyFreshState(decoded);
           }
           const badgeText = document.getElementById("liveBadgeText");
           if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
@@ -1378,7 +1389,7 @@
             console.warn("Telegram sync warning:", err);
           }
           const badgeText = document.getElementById("liveBadgeText");
-          if (badgeText) badgeText.innerText = "CONNECTING...";
+          if (badgeText && state.isDemo) badgeText.innerText = "CONNECTING...";
         })
         .finally(() => {
           clearTimeout(timeoutId);
