@@ -1228,9 +1228,12 @@
       // Power of Provision Spell
       const spellBanner = document.getElementById("spellBanner");
       const spellTimer = document.getElementById("spellTimer");
-      const spellRem = Math.max(0, (ws.pf || 0) - now);
+      const rawSpellRem = Math.max(0, (ws.pf || 0) - now);
+      // Lọc bỏ giá trị rác >3 ngày (259200s) do dính nhầm dữ liệu công trình sự kiện cũ
+      const spellRem = rawSpellRem <= 86400 * 3 ? rawSpellRem : 0;
       if (spellRem > 0) {
         spellTimer.innerHTML = formatDuration(spellRem);
+        spellTimer.style.color = "#38bdf8";
         spellBanner.style.display = "flex";
       } else {
         spellTimer.innerHTML = "Expired";

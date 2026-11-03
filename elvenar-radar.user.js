@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.2.2
+// @version      6.2.3
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -72,6 +72,11 @@
     let wsStoppedSince = Number(GM_getValue("ELVENAR_WS_STOPPED_SINCE", 0));
     let myPlayerId = GM_getValue("ELVENAR_MY_PLAYER_ID", null);
     let provisionSpellFinishTime = Number(GM_getValue("ELVENAR_PROVISION_SPELL_FINISH", 0));
+    // Tự động dọn dẹp giá trị rác >3 ngày do từng dính nhầm confId 201 của công trình có hạn 30-50 ngày
+    if (provisionSpellFinishTime - Math.floor(Date.now() / 1000) > 86400 * 3) {
+        provisionSpellFinishTime = 0;
+        try { GM_setValue("ELVENAR_PROVISION_SPELL_FINISH", 0); } catch(e) {}
+    }
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
     let isUpdatingTime = 0; // Thời điểm bắt đầu lock
@@ -416,11 +421,11 @@
                         }
                     }
 
-                    // Power of Provision cho Workshops (confId: 201 hoặc actionId: supply_production_boost_spell)
-                    if (node.confId === 201 || actId === "supply_production_boost_spell") {
+                    // Power of Provision cho Workshops (CHỈ nhận actionId: supply_production_boost_spell, loại bỏ nhầm lẫn confId 201 của công trình sự kiện 30-50 ngày)
+                    if (actId === "supply_production_boost_spell") {
                         const rem = Number(node.remainingTime) || 0;
-                        if (rem > 0) {
-                            provisionSpellFinishTime = Math.max(provisionSpellFinishTime, now + rem);
+                        if (rem > 0 && rem <= 86400 * 3) {
+                            provisionSpellFinishTime = now + rem;
                             GM_setValue("ELVENAR_PROVISION_SPELL_FINISH", provisionSpellFinishTime);
                         }
                     }
