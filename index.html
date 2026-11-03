@@ -1121,13 +1121,30 @@
 
       // Header Sync Time
       const syncEl = document.getElementById("syncTime");
+      const badgeText = document.getElementById("liveBadgeText");
       if (syncEl) {
         if (state.isDemo) {
           syncEl.innerText = "Connecting to game data...";
         } else {
           const age = Math.max(0, now - (state.t || now));
-          if (age < 5) syncEl.innerText = "Just updated (<5s)";
-          else syncEl.innerText = `Synced ${age}s ago`;
+          if (age < 5) {
+            syncEl.innerText = "Just updated (<5s)";
+            syncEl.style.color = "";
+          } else if (age < 60) {
+            syncEl.innerText = `Synced ${age}s ago`;
+            syncEl.style.color = "";
+          } else if (age < 300) {
+            syncEl.innerText = `Synced ${Math.floor(age/60)}m ago`;
+            syncEl.style.color = "";
+          } else {
+            // Mất kết nối quá 5 phút
+            syncEl.innerText = `Synced ${Math.floor(age/60)}m ago (No Signal)`;
+            syncEl.style.color = "#f87171";
+            if (badgeText && isFirebaseListening) {
+              badgeText.innerText = "STALE (NO SIGNAL)";
+              badgeText.style.color = "#f87171";
+            }
+          }
         }
       }
 
@@ -1160,17 +1177,29 @@
       const wsPill = document.getElementById("wsPill");
       const wsTimer = document.getElementById("wsTimer");
       const wsSub = document.getElementById("wsSub");
+      const wsCard = document.querySelector("#workshopCard .card");
 
       const wsRem = Math.max(0, (ws.f || 0) - now);
       const totalWs = ws.c || 0;
       const wsLevel = ws.l || 15;
-      const stoppedSec = (ws.st && ws.st > 0) ? Math.max(0, now - ws.st) : 0;
+
+      // Tính mốc dừng: ưu tiên ws.st, nếu ws.st chưa có nhưng ws.f đã hết hạn thì dùng chính ws.f
+      let effectiveStoppedSince = ws.st || 0;
+      if (!effectiveStoppedSince && ws.f > 0 && wsRem === 0) {
+        effectiveStoppedSince = ws.f;
+      }
+      const stoppedSec = effectiveStoppedSince > 0 ? Math.max(0, now - effectiveStoppedSince) : 0;
       const stoppedStr = formatDuration(stoppedSec);
 
       if (wsRem > 0 && ws.p > 0) {
+        // Đang sản xuất bình thường
         if (wsTitle) wsTitle.innerText = totalWs > 0 ? `${totalWs}x Workshops (Lv.${wsLevel}) [${ws.p}/${totalWs}]` : "Workshops";
         wsTimer.innerHTML = formatDuration(wsRem);
         wsTimer.style.color = "#fff";
+        if (wsCard) {
+          wsCard.style.borderColor = "";
+          wsCard.style.boxShadow = "";
+        }
         if (wsSub) {
           wsSub.innerText = ws.i > 0 ? `${ws.i} idle` : "";
           wsSub.style.color = "";
@@ -1190,39 +1219,80 @@
           wsPill.innerText = "Producing";
         }
       } else if (ws.r > 0 || (ws.f > 0 && wsRem === 0)) {
+        // Đã hoàn thành (Ready to collect)
         const readyCount = ws.r || totalWs;
         if (wsTitle) wsTitle.innerText = totalWs > 0 ? `${totalWs}x Workshops (Lv.${wsLevel}) [${readyCount}/${totalWs}]` : "Workshops";
-        wsTimer.innerHTML = '<span class="status-text ready">Ready to collect</span>';
-        if (wsSub) {
-          wsSub.innerText = ws.st > 0 ? `Finished: ${stoppedStr} ago` : "Finished: just now";
-          wsSub.style.color = "";
-        }
 
-        if (ws.i > 0) {
+        // CẢNH BÁO NẾU DỪNG / CHỜ THU HOẠCH QUÁ LÂU (BÁO ĐỎ CHECK MACRO!)
+        if (stoppedSec >= 1800) {
+          // Dừng >= 30 phút mà chưa thu hoạch: BÁO ĐỎ TOÀN DIỆN!
+          wsTimer.innerHTML = '<span class="status-text idle" style="color:#f87171;">Ready (Overdue)</span>';
           wsPill.className = "pill pill-rose";
-          wsPill.innerText = `${ws.i} Idle`;
-        } else {
+          wsPill.innerText = "Check Macro!";
+          if (wsSub) {
+            wsSub.innerHTML = `<span style="color:#f87171; font-weight:700;">Finished: ${stoppedStr} ago (Check Macro!)</span>`;
+          }
+          if (wsCard) {
+            wsCard.style.borderColor = "rgba(244, 63, 94, 0.4)";
+            wsCard.style.boxShadow = "0 0 14px rgba(244, 63, 94, 0.25)";
+          }
+        } else if (stoppedSec >= 900) {
+          // Dừng >= 15 phút: Cảnh báo quá hạn (Overdue)
+          wsTimer.innerHTML = '<span class="status-text ready" style="color:#fbbf24;">Ready to collect</span>';
           wsPill.className = "pill pill-amber";
-          wsPill.innerText = "Ready";
+          wsPill.innerText = "Overdue";
+          if (wsSub) {
+            wsSub.innerHTML = `<span style="color:#fbbf24; font-weight:600;">Finished: ${stoppedStr} ago</span>`;
+          }
+          if (wsCard) {
+            wsCard.style.borderColor = "rgba(245, 158, 11, 0.35)";
+            wsCard.style.boxShadow = "";
+          }
+        } else {
+          // Hoàn thành bình thường (<15 phút)
+          wsTimer.innerHTML = '<span class="status-text ready">Ready to collect</span>';
+          if (wsCard) {
+            wsCard.style.borderColor = "";
+            wsCard.style.boxShadow = "";
+          }
+          if (wsSub) {
+            wsSub.innerText = `Finished: ${stoppedStr} ago`;
+            wsSub.style.color = "";
+          }
+          if (ws.i > 0) {
+            wsPill.className = "pill pill-rose";
+            wsPill.innerText = `${ws.i} Idle`;
+          } else {
+            wsPill.className = "pill pill-amber";
+            wsPill.innerText = "Ready";
+          }
         }
       } else {
+        // Hoàn toàn trống / Idle
         if (wsTitle) wsTitle.innerText = totalWs > 0 ? `${totalWs}x Workshops (Lv.${wsLevel}) [0/${totalWs}]` : "Workshops";
         wsTimer.innerHTML = '<span class="status-text idle">Idle</span>';
-        if (wsSub) {
-          if (ws.st > 0) {
-            if (stoppedSec >= 1800) {
-              wsSub.innerHTML = `<span style="color:#f87171; font-weight:600;">Stopped: ${stoppedStr} ago (Check Macro!)</span>`;
-            } else {
-              wsSub.innerText = `Stopped: ${stoppedStr} ago`;
-              wsSub.style.color = "";
-            }
-          } else {
-            wsSub.innerText = "Stopped: just now";
+        wsPill.className = "pill pill-rose";
+
+        if (stoppedSec >= 1800) {
+          wsPill.innerText = "Check Macro!";
+          if (wsSub) {
+            wsSub.innerHTML = `<span style="color:#f87171; font-weight:700;">Stopped: ${stoppedStr} ago (Check Macro!)</span>`;
+          }
+          if (wsCard) {
+            wsCard.style.borderColor = "rgba(244, 63, 94, 0.4)";
+            wsCard.style.boxShadow = "0 0 14px rgba(244, 63, 94, 0.25)";
+          }
+        } else {
+          wsPill.innerText = "Idle";
+          if (wsCard) {
+            wsCard.style.borderColor = "";
+            wsCard.style.boxShadow = "";
+          }
+          if (wsSub) {
+            wsSub.innerText = stoppedSec > 0 ? `Stopped: ${stoppedStr} ago` : "Stopped: just now";
             wsSub.style.color = "";
           }
         }
-        wsPill.className = "pill pill-rose";
-        wsPill.innerText = "Idle";
       }
 
       // Power of Provision Spell

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.2.3
+// @version      6.2.4
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -666,23 +666,31 @@
             let pTimes = [];
             let rCount = 0;
             let iCount = 0;
+            let lastFinishTime = 0;
             topWs.forEach(item => {
                 const rem = Math.max(0, item.finishTime - now);
-                if (rem > 0) pTimes.push(item.finishTime);
-                else if (item.status === "Ready" || (item.finishTime > 0 && rem === 0)) rCount++;
-                else iCount++;
+                if (rem > 0) {
+                    pTimes.push(item.finishTime);
+                } else if (item.status === "Ready" || (item.finishTime > 0 && rem === 0)) {
+                    rCount++;
+                    if (item.finishTime > lastFinishTime) lastFinishTime = item.finishTime;
+                } else {
+                    iCount++;
+                    if (item.finishTime > lastFinishTime) lastFinishTime = item.finishTime;
+                }
             });
 
-            // Đồng bộ mốc dừng wsStoppedSince
+            // Đồng bộ mốc dừng wsStoppedSince & hẹn giờ bắn Realtime chính xác giây xưởng hoàn thành
             if (pTimes.length > 0) {
+                scheduleWorkshopFinishCheck(Math.max(...pTimes), now);
                 if (wsStoppedSince !== 0) {
                     wsStoppedSince = 0;
                     GM_setValue("ELVENAR_WS_STOPPED_SINCE", 0);
                 }
             } else {
                 if (wsStoppedSince === 0) {
-                    wsStoppedSince = now;
-                    GM_setValue("ELVENAR_WS_STOPPED_SINCE", now);
+                    wsStoppedSince = (lastFinishTime > 0 && lastFinishTime <= now) ? lastFinishTime : now;
+                    GM_setValue("ELVENAR_WS_STOPPED_SINCE", wsStoppedSince);
                 }
             }
 
@@ -728,6 +736,18 @@
     }
 
     // --- 4.D EVENT-DRIVEN REALTIME TRIGGER KHI GAME CÓ BIẾN ĐỘNG ---
+    let wsFinishTimer = null;
+    function scheduleWorkshopFinishCheck(finishTime, now) {
+        if (wsFinishTimer) clearTimeout(wsFinishTimer);
+        const diffMs = (finishTime - now) * 1000 + 1000; // Thêm 1s để chắc chắn qua mốc 0s
+        if (diffMs > 0 && diffMs <= 86400000) { // Trong vòng 24h
+            wsFinishTimer = setTimeout(() => {
+                console.log("[Live Radar] Xưởng vừa hoàn thành sản xuất, tự động bắn cập nhật Realtime!");
+                syncLiveTelegramDashboard(true);
+            }, diffMs);
+        }
+    }
+
     function triggerLiveStreamPush() {
         if (liveStreamDebounce) clearTimeout(liveStreamDebounce);
         liveStreamDebounce = setTimeout(() => {
