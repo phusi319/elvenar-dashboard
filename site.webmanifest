@@ -1,0 +1,21 @@
+{
+  "name": "Elvenar Live Radar",
+  "short_name": "Elvenar Radar",
+  "description": "Realtime Dashboard & Analytics for Elvenar",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
+  "icons": [
+    {
+      "src": "favicon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "favicon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

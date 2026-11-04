@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <radialGradient id="radarGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Background Squircle with Cyan Border -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bgGrad)" stroke="#38bdf8" stroke-width="2"/>
+  <!-- Fantasy Castle Emoji -->
+  <text x="31" y="44" font-size="38" text-anchor="middle" dominant-baseline="central" font-family="'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif">🏰</text>
+  <!-- Live Radar Pulse Dot -->
+  <circle cx="50" cy="14" r="9" fill="url(#radarGlow)"/>
+  <circle cx="50" cy="14" r="3" fill="#10b981" stroke="#34d399" stroke-width="0.8"/>
+  <circle cx="50" cy="14" r="1.2" fill="#ffffff"/>
+</svg>
