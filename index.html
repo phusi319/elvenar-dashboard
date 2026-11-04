@@ -1353,8 +1353,9 @@
       });
     }
 
-    // --- TELEGRAM CLOUD DIRECT SYNC ENGINE (100% UNBLOCKABLE & NATIVE) ---
-    const BOT_TOKEN = "8800181376:AAG2OenHRk37182rBE6AvtHkaUDCYR49V3A";
+    // --- TELEGRAM CLOUD DIRECT SYNC ENGINE (OPTIONAL FALLBACK) ---
+    // Token an toan: Lay tu localStorage neu duoc cau hinh, tuyet doi khong luu token that cong khai tren GitHub
+    const BOT_TOKEN = localStorage.getItem("ELVENAR_BOT_TOKEN") || "";
 
     function decodeCompactPayload(compact) {
       if (!compact || !compact.t) return null;
@@ -1543,6 +1544,7 @@
     }
 
     function fetchChatPayload(chatId, signal) {
+      if (!BOT_TOKEN) return Promise.resolve(null);
       return fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getChat?chat_id=${chatId}&t=${Date.now()}`, { signal })
         .then(res => res.json())
         .then(json => {

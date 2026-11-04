@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.2.5
+// @version      6.2.6
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -14,6 +14,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_registerMenuCommand
 // @run-at       document-start
 // ==/UserScript==
 
@@ -25,7 +26,50 @@
     // =========================================================================
     const FIREBASE_DATABASE_URL = "https://elvenar-radar-default-rtdb.europe-west1.firebasedatabase.app/live.json";
     const CLOUDFLARE_WORKER_URL = "https://elvenar-radar.phusi-319.workers.dev/";
-    const TELEGRAM_BOT_TOKEN = "8800181376:AAG2OenHRk37182rBE6AvtHkaUDCYR49V3A";
+
+    // =========================================================================
+    // 🛡️ ZERO-LEAK TELEGRAM SECURITY (LƯU TRÊN MÁY BẢO VỆ CHỐNG QUÉT GITHUB)
+    // =========================================================================
+    // Token được lưu an toàn trong bộ nhớ Tampermonkey của trình duyệt (GM_getValue).
+    // KHÔNG BAO GIỜ bị lộ lên GitHub công khai và KHÔNG BỊ MẤT khi script tự động cập nhật!
+    let TELEGRAM_BOT_TOKEN = (GM_getValue("ELVENAR_TELEGRAM_BOT_TOKEN", "") || "").trim();
+
+    // Menu Tampermonkey hỗ trợ đổi Token bất kỳ lúc nào
+    if (typeof GM_registerMenuCommand !== 'undefined') {
+        GM_registerMenuCommand("🔑 Cấu hình Telegram Bot Token", () => {
+            const currentToken = GM_getValue("ELVENAR_TELEGRAM_BOT_TOKEN", "");
+            const tokenInput = prompt(
+                "🔑 NHẬP TELEGRAM BOT TOKEN MỚI:\n(Token lưu an toàn trong máy bạn, không bị ghi đè khi script auto-update)",
+                currentToken
+            );
+            if (tokenInput !== null) {
+                const clean = tokenInput.trim();
+                GM_setValue("ELVENAR_TELEGRAM_BOT_TOKEN", clean);
+                TELEGRAM_BOT_TOKEN = clean;
+                alert(clean ? "✅ Đã lưu Telegram Bot Token thành công!" : "⚠️ Đã xóa Token.");
+            }
+        });
+    }
+
+    // Nhắc nhở dán Token một lần duy nhất nếu chưa có hoặc dính token cũ bị hủy
+    if (!TELEGRAM_BOT_TOKEN || TELEGRAM_BOT_TOKEN.startsWith("8800181376:AAG2Oe")) {
+        setTimeout(() => {
+            const current = (GM_getValue("ELVENAR_TELEGRAM_BOT_TOKEN", "") || "").trim();
+            if (!current || current.startsWith("8800181376:AAG2Oe")) {
+                const tokenInput = prompt(
+                    "🛡️ [Elvenar Live Radar] Vui lòng dán Telegram Bot Token mới của bạn để kích hoạt thông báo Telegram:\n(Lưu an toàn trong máy bạn, không bao giờ bị lộ lên GitHub dù script có auto-update)",
+                    ""
+                );
+                if (tokenInput && tokenInput.trim()) {
+                    const clean = tokenInput.trim();
+                    GM_setValue("ELVENAR_TELEGRAM_BOT_TOKEN", clean);
+                    TELEGRAM_BOT_TOKEN = clean;
+                    alert("✅ Đã lưu Telegram Bot Token an toàn vào trình duyệt!");
+                }
+            }
+        }, 3500);
+    }
+
     const TELEGRAM_CHAT_ID = "-1003909496356"; // Topic 26 (Group - Cập nhật text, KHÔNG GHIM)
     const TELEGRAM_TOPIC_ID = 26;
     const TELEGRAM_PRIVATE_CHAT_ID = "7620170971"; // Chat riêng với Bot
