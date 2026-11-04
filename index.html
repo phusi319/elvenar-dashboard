@@ -464,7 +464,7 @@
 
     .period-btn {
       flex: 1;
-      padding: 8px 10px;
+      padding: 7px 6px;
       border: none;
       background: transparent;
       color: var(--text-muted);
@@ -473,6 +473,8 @@
       border-radius: 8px;
       cursor: pointer;
       transition: all 0.15s ease;
+      white-space: nowrap;
+      text-align: center;
     }
 
     .period-btn.active {
@@ -735,10 +737,11 @@
 
     <!-- Tab 2: Resources -->
     <div id="tabPanel_resources" class="tab-panel" style="display: none;">
-      <!-- Period Selector: Today vs This Week -->
+      <!-- Period Selector: Today vs This Week vs This Month -->
       <div class="period-toggle-bar">
-        <button class="period-btn active" id="periodBtn_today" onclick="switchPeriod('today')">📅 Today (00:00 - 23:59)</button>
-        <button class="period-btn" id="periodBtn_week" onclick="switchPeriod('week')">📊 This Week (Sun - Sat)</button>
+        <button class="period-btn active" id="periodBtn_today" onclick="switchPeriod('today')">📅 Today</button>
+        <button class="period-btn" id="periodBtn_week" onclick="switchPeriod('week')">📊 This Week</button>
+        <button class="period-btn" id="periodBtn_month" onclick="switchPeriod('month')">🗓️ This Month</button>
       </div>
 
       <div id="resourcesContent">
@@ -767,7 +770,7 @@
     ];
 
     let currentTabId = localStorage.getItem("elvenar_active_tab") || APP_TABS[0].id;
-    let currentPeriod = "today"; // "today" (00:00 - 23:59) or "week" (Sun - Sat)
+    let currentPeriod = "today"; // "today", "week", or "month"
 
     // Initialize Telegram WebApp
     const tg = window.Telegram?.WebApp;
@@ -921,11 +924,18 @@
       if (!container) return;
 
       const goods = state.res || [];
-      const isToday = currentPeriod === "today";
-
       function getStats(g) {
-        const earn = isToday ? (g.todayEarn || 0) : (g.weekEarn || 0);
-        const spent = isToday ? (g.todaySpent || 0) : (g.weekSpent || 0);
+        let earn = 0, spent = 0;
+        if (currentPeriod === "today") {
+          earn = g.todayEarn || 0;
+          spent = g.todaySpent || 0;
+        } else if (currentPeriod === "week") {
+          earn = g.weekEarn || 0;
+          spent = g.weekSpent || 0;
+        } else if (currentPeriod === "month") {
+          earn = g.monthEarn !== undefined ? g.monthEarn : (g.weekEarn || 0);
+          spent = g.monthSpent !== undefined ? g.monthSpent : (g.weekSpent || 0);
+        }
         const net = earn - spent;
         return { earn, spent, net, cur: (g.cur || 0) };
       }
@@ -1428,7 +1438,7 @@
       ];
 
       const res = goodsMeta.map((item, idx) => {
-        const row = rawR[idx] || [0, 0, 0, 0, 0];
+        const row = rawR[idx] || [0, 0, 0, 0, 0, 0, 0];
         return {
           id: item.id,
           name: item.name,
@@ -1438,7 +1448,9 @@
           todayEarn: row[1] || 0,
           todaySpent: row[2] || 0,
           weekEarn: row[3] || 0,
-          weekSpent: row[4] || 0
+          weekSpent: row[4] || 0,
+          monthEarn: row[5] !== undefined ? row[5] : (row[3] || 0),
+          monthSpent: row[6] !== undefined ? row[6] : (row[4] || 0)
         };
       });
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.2.6
+// @version      6.2.7
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -284,9 +284,9 @@
             }
         }
 
-        // Tự động dọn dẹp các ngày cũ hơn 30 ngày để tiết kiệm dung lượng
+        // Tự động dọn dẹp các ngày cũ hơn 45 ngày để trọn vẹn cả tháng mà vẫn tiết kiệm dung lượng
         const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - 30);
+        cutoffDate.setDate(cutoffDate.getDate() - 45);
         const cutoffStr = formatLocalDate(cutoffDate);
         for (const dStr in resourceLedger.days) {
             if (dStr < cutoffStr) {
@@ -329,19 +329,49 @@
         return weekTotals;
     }
 
+    function getMonthlyResourceTotals() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const monthPrefix = `${year}-${month}`; // vd: "2026-11"
+
+        const monthTotals = {};
+        for (const key of STANDARD_GOODS_KEYS) {
+            monthTotals[key] = { earned: 0, spent: 0 };
+        }
+
+        if (resourceLedger && resourceLedger.days) {
+            for (const dStr in resourceLedger.days) {
+                if (dStr.startsWith(monthPrefix)) {
+                    const dayData = resourceLedger.days[dStr];
+                    for (const key of STANDARD_GOODS_KEYS) {
+                        if (dayData[key]) {
+                            monthTotals[key].earned += (dayData[key].earned || 0);
+                            monthTotals[key].spent += (dayData[key].spent || 0);
+                        }
+                    }
+                }
+            }
+        }
+        return monthTotals;
+    }
+
     function buildCompactResourceData() {
         const todayKey = formatLocalDate();
         const todayRecord = (resourceLedger.days && resourceLedger.days[todayKey]) || {};
         const weekTotals = getWeeklyResourceTotals();
+        const monthTotals = getMonthlyResourceTotals();
         const curStock = resourceLedger.lastKnownStock || {};
 
-        // Mỗi phần tử trong mảng: [currentStock, todayEarn, todaySpent, weekEarn, weekSpent]
+        // Mỗi phần tử trong mảng: [currentStock, todayEarn, todaySpent, weekEarn, weekSpent, monthEarn, monthSpent]
         return STANDARD_GOODS_KEYS.map(k => [
             curStock[k] || 0,
             todayRecord[k]?.earned || 0,
             todayRecord[k]?.spent || 0,
             weekTotals[k]?.earned || 0,
-            weekTotals[k]?.spent || 0
+            weekTotals[k]?.spent || 0,
+            monthTotals[k]?.earned || 0,
+            monthTotals[k]?.spent || 0
         ]);
     }
 
