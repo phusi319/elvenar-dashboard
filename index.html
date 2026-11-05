@@ -864,6 +864,292 @@
       display: block;
       margin-top: 1px;
     }
+
+    /* =========================================================================
+       🎯 AUTO-BATTLE COUNTER ADVISOR STYLES
+       ========================================================================= */
+    .adv-banner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 10px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+
+    .adv-mode-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      background: rgba(15, 23, 42, 0.6);
+      padding: 4px;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+      margin-bottom: 10px;
+    }
+
+    .adv-mode-btn {
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      border-radius: 7px;
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .adv-mode-btn.active {
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(59, 130, 246, 0.18));
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+
+    .wave-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .wave-tabs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .wave-btn {
+      background: rgba(30, 41, 59, 0.7);
+      color: var(--text-muted);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 7px;
+      padding: 4px 9px;
+      font-size: 10.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .wave-btn.active {
+      background: rgba(244, 63, 94, 0.18);
+      color: #fb7185;
+      border-color: rgba(244, 63, 94, 0.45);
+    }
+
+    .wave-action-btn {
+      background: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 7px;
+      padding: 4px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .slot-grid-5 {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+
+    .adv-slot-card {
+      background: rgba(15, 23, 42, 0.75);
+      border: 1.5px solid rgba(255, 255, 255, 0.12);
+      border-radius: 9px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+      cursor: pointer;
+    }
+
+    .adv-slot-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(56, 189, 248, 0.55);
+    }
+
+    .adv-slot-card.enemy-card {
+      border-color: rgba(244, 63, 94, 0.35);
+    }
+
+    .adv-slot-card.enemy-card:hover {
+      border-color: rgba(244, 63, 94, 0.75);
+    }
+
+    .adv-slot-card.rec-card {
+      border-color: rgba(52, 211, 153, 0.45);
+      box-shadow: 0 3px 12px rgba(16, 185, 129, 0.12);
+    }
+
+    .adv-slot-top {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.45);
+      padding: 2px 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 9px;
+      font-weight: 800;
+      color: #cbd5e1;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .adv-slot-pos {
+      font-size: 8px;
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    .adv-portrait-wrap {
+      width: 100%;
+      position: relative;
+      aspect-ratio: 1 / 1;
+      background: radial-gradient(circle at center, rgba(30,41,59,0.9), rgba(15,23,42,0.95));
+    }
+
+    .adv-portrait {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .adv-cls-badge {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 1px;
+    }
+
+    .adv-bld-badge {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 17px;
+      height: 17px;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(250, 204, 21, 0.45);
+      padding: 1px;
+    }
+
+    .adv-unit-name {
+      width: 100%;
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #f8fafc;
+      text-align: center;
+      padding: 3px 2px 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .adv-unit-meta {
+      width: 100%;
+      font-size: 8.5px;
+      font-weight: 700;
+      text-align: center;
+      padding: 1px 2px 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .adv-alt-row {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.35);
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 2px 3px;
+      font-size: 8px;
+      color: #94a3b8;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .fast-pick-box {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(56, 189, 248, 0.08));
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      border-radius: 10px;
+      padding: 9px 10px;
+      margin-top: 8px;
+    }
+
+    .preset-scroll {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      margin-bottom: 8px;
+      scrollbar-width: none;
+    }
+    .preset-scroll::-webkit-scrollbar { display: none; }
+
+    .preset-chip {
+      background: rgba(30, 41, 59, 0.75);
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .preset-chip.active {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border-color: rgba(245, 158, 11, 0.45);
+    }
+
+    .unit-modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.8);
+      backdrop-filter: blur(6px);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+    }
+
+    .unit-modal-box {
+      background: #0f172a;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 400px;
+      max-height: 86vh;
+      overflow-y: auto;
+      padding: 14px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+    }
   </style>
 </head>
 <body>
@@ -930,7 +1216,14 @@
       </div>
     </div>
 
-    <!-- Tab 3: Resources -->
+    <!-- Tab 3: Battle AI (Auto-Battle Lineup Advisor) -->
+    <div id="tabPanel_advisor" class="tab-panel" style="display: none;">
+      <div id="advisorContent">
+        <!-- Injected dynamically via JS: Live Auto-Battle Lineup Advisor -->
+      </div>
+    </div>
+
+    <!-- Tab 4: Resources -->
     <div id="tabPanel_resources" class="tab-panel" style="display: none;">
       <!-- Period Selector: Today vs This Week vs This Month -->
       <div class="period-toggle-bar">
@@ -942,6 +1235,11 @@
       <div id="resourcesContent">
         <!-- Injected dynamically via JS: Tier 1 + Tier 2 + Tier 3 -->
       </div>
+    </div>
+
+    <!-- Unit Inspector & Enemy Slot Picker Modal -->
+    <div id="unitModal" class="unit-modal-overlay" style="display: none;" onclick="if(event.target===this) closeUnitModal()">
+      <div class="unit-modal-box" id="unitModalContent"></div>
     </div>
 
     <!-- Footer -->
@@ -962,6 +1260,7 @@
     const APP_TABS = [
       { id: "production", title: "Production", icon: "🏭", enabled: true },
       { id: "troops",     title: "Troops",     icon: "⚔️", enabled: true },
+      { id: "advisor",    title: "Battle AI",  icon: "🎯", enabled: true },
       { id: "resources",  title: "Resources",  icon: "💎", enabled: true }
     ];
 
@@ -1080,6 +1379,17 @@
         arm: {
           squadSize: 4299,
           units: [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+        },
+        enc: {
+          ts: 0,
+          source: "tournament",
+          good: "steel",
+          playerSquadSize: 2742,
+          enemySquadSize: 2799,
+          waves: [
+            ["mob_hblm_3", "mob_tglr_3", "mob_tglr_3", "mob_hblr_3", "mob_tglr_3"]
+          ],
+          lastResult: null
         }
       };
     }
@@ -1114,6 +1424,8 @@
         renderResourcesUI();
       } else if (tabId === "troops") {
         renderTroopsUI();
+      } else if (tabId === "advisor") {
+        renderAdvisorUI();
       }
     }
 
@@ -1349,11 +1661,13 @@
           else if (count < 30) alertClass = "alert-low";
 
           const totalTroops = Math.round(count * squadSize);
-          const tooltip = `${u.name}: ${formatSquad(count)} squads (~${formatCompact(totalTroops)} troops)`;
+          const baseKeys = ["eb_lm", "eb_lr", "eb_ma", "eb_hm", "eb_hr", "tg_lm", "tg_lr", "tg_ma", "tg_hm", "tg_hr", "mc_lm", "mc_lr", "mc_ma", "mc_hm", "mc_hr"];
+          const bKey = baseKeys[u.idx] || "eb_lm";
+          const tooltip = `${u.name}: ${formatSquad(count)} squads (~${formatCompact(totalTroops)} troops) — Tap for Combat Stats`;
 
           html += `
             <td>
-              <div class="unit-cell ${alertClass}" title="${tooltip}">
+              <div class="unit-cell ${alertClass}" title="${tooltip}" style="cursor:pointer;" onclick="openUnitInspectModal('${bKey}')">
                 <img src="${u.file}" class="unit-portrait" alt="${u.name}">
                 <div class="squad-badge">
                   <span>${formatSquad(count)}</span>
@@ -1387,7 +1701,7 @@
         <!-- Army Balance Ratio Bar -->
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);">
           <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:6px;display:flex;justify-content:space-between;">
-            <span>⚖️ Class Balance Breakdown</span>
+            <span>⚖️ Class Balance Breakdown (Tap any unit card above to inspect stats)</span>
             <span>${formatSquad(grandTotal)} squads</span>
           </div>
           <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.06);margin-bottom:8px;">
@@ -1413,6 +1727,700 @@
           </div>
         </div>
       </div>
+      `;
+
+      container.innerHTML = html;
+    }
+
+    // =========================================================================
+    // 🎯 AUTO-BATTLE COUNTER & SPATIAL CROSS-FIRE ADVISOR ENGINE
+    // =========================================================================
+    const UNIT_STATS_DB = {
+      "eb_lm": {"id":"eb_lm_3","base":"eb_lm","name":"Sword Acrobat","short":"Acrobat","bldg":"Barracks","bldgIdx":0,"uIdx":0,"icon":"assets/units/barracks_lm.png","cls":"light_melee","hp":109,"dmg":25,"wt":1,"rng":1,"mv":3,"init":11,"ret":1,"atk":{"light_ranged":30,"mage":30},"def":{"light_ranged":50,"mage":50},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Disarming Dance","t":"attack","v":-30,"d":2}]},
+      "eb_lr": {"id":"eb_lr_3","base":"eb_lr","name":"Elite Archer","short":"Archer","bldg":"Barracks","bldgIdx":0,"uIdx":1,"icon":"assets/units/barracks_lr.png","cls":"light_ranged","hp":65,"dmg":18,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":70,"mage":90},"def":{"heavy_melee":50},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Bull's Eye","t":"defense","v":-20,"d":2}]},
+      "eb_ma": {"id":"eb_ma_3","base":"eb_ma","name":"Bud Sorceress","short":"Sorceress","bldg":"Barracks","bldgIdx":0,"uIdx":2,"icon":"assets/units/barracks_ma.png","cls":"mage","hp":200,"dmg":73,"wt":4,"rng":3,"mv":4,"init":14,"ret":0,"atk":{"heavy_melee":60,"heavy_ranged":70},"def":{"heavy_melee":60,"heavy_ranged":50},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Broken Valor","t":"attack","v":-50,"d":2},{"n":"Leaden Arms","t":"defense","v":-20,"d":2}]},
+      "eb_hm": {"id":"eb_hm_3","base":"eb_hm","name":"Elder Treant","short":"Treant","bldg":"Barracks","bldgIdx":0,"uIdx":3,"icon":"assets/units/barracks_hm.png","cls":"heavy_melee","hp":910,"dmg":200,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"heavy_ranged":50},"def":{"light_melee":40,"heavy_ranged":80},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Dazing Lash","t":"attack","v":-30,"d":2}]},
+      "eb_hr": {"id":"eb_hr_3","base":"eb_hr","name":"Granite Golem","short":"Golem","bldg":"Barracks","bldgIdx":0,"uIdx":4,"icon":"assets/units/barracks_hr.png","cls":"heavy_ranged","hp":460,"dmg":167,"wt":6,"rng":3,"mv":3,"init":7,"ret":0,"atk":{"light_melee":80,"light_ranged":20},"def":{"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Shield Slicer","t":"defense","v":-10,"d":3}]},
+      "tg_lm": {"id":"tg_lm_3","base":"tg_lm","name":"Sinister Cerberus","short":"Cerberus","bldg":"Training Grounds","bldgIdx":1,"uIdx":5,"icon":"assets/units/training_lm.png","cls":"light_melee","hp":94,"dmg":23,"wt":1,"rng":1,"mv":7,"init":9,"ret":3,"atk":{"light_ranged":30,"mage":70},"def":{"mage":40},"str":{"light_ranged":1,"mage":3},"ab":[{"n":"Laceration","t":"defense","v":-20,"d":2}]},
+      "tg_lr": {"id":"tg_lr_3","base":"tg_lr","name":"Poison Dryad","short":"Dryad","bldg":"Training Grounds","bldgIdx":1,"uIdx":6,"icon":"assets/units/training_lr.png","cls":"light_ranged","hp":106,"dmg":44,"wt":2,"rng":4,"mv":3,"init":17,"ret":0,"atk":{"heavy_melee":90},"def":{"heavy_melee":80,"mage":40},"str":{"mage":1,"heavy_melee":3},"ab":[{"n":"Poison Dart","t":"attack","v":-30,"d":2}]},
+      "tg_ma": {"id":"tg_ma_3","base":"tg_ma","name":"Ghastly Banshee","short":"Banshee","bldg":"Training Grounds","bldgIdx":1,"uIdx":7,"icon":"assets/units/training_ma.png","cls":"mage","hp":160,"dmg":69,"wt":3,"rng":3,"mv":4,"init":15,"ret":0,"atk":{"heavy_melee":10,"heavy_ranged":90},"def":{"heavy_melee":70,"heavy_ranged":80},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Silver Scream","t":"defense","v":-50,"d":1},{"n":"Nasty Nightmare","t":"attack","v":-40,"d":1}]},
+      "tg_hm": {"id":"tg_hm_3","base":"tg_hm","name":"Gruff Orc Warrior","short":"Orc Warrior","bldg":"Training Grounds","bldgIdx":1,"uIdx":8,"icon":"assets/units/training_hm.png","cls":"heavy_melee","hp":310,"dmg":77,"wt":2,"rng":1,"mv":2,"init":4,"ret":3,"atk":{"light_melee":80,"heavy_ranged":20},"def":{"light_melee":40,"heavy_ranged":30},"str":{"heavy_ranged":1,"light_melee":3},"ab":[{"n":"Knockdown","t":"defense","v":-20,"d":2}]},
+      "tg_hr": {"id":"tg_hr_3","base":"tg_hr","name":"Senior Orc Strategist","short":"Orc Strat","bldg":"Training Grounds","bldgIdx":1,"uIdx":9,"icon":"assets/units/training_hr.png","cls":"heavy_ranged","hp":160,"dmg":58,"wt":2,"rng":3,"mv":3,"init":6,"ret":1,"atk":{"light_ranged":70},"def":{"light_melee":40,"light_ranged":80},"str":{"light_melee":1,"light_ranged":3},"ab":[{"n":"Head Hitter","t":"attack","v":-30,"d":2}]},
+      "mc_lm": {"id":"mc_lm_3","base":"mc_lm","name":"Venom Drone Rider","short":"Drone Rider","bldg":"Mercenary Camp","bldgIdx":2,"uIdx":10,"icon":"assets/units/mercenary_lm.png","cls":"light_melee","hp":210,"dmg":56,"wt":2,"rng":1,"mv":4,"init":12,"ret":1,"atk":{"light_ranged":90,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[{"n":"Poison Sting","t":"attack","v":-20,"d":3}]},
+      "mc_lr": {"id":"mc_lr_2","base":"mc_lr","name":"Ranger II","short":"Ranger","bldg":"Mercenary Camp","bldgIdx":2,"uIdx":11,"icon":"assets/units/mercenary_lr.png","cls":"light_ranged","hp":51,"dmg":18,"wt":1,"rng":4,"mv":4,"init":20,"ret":1,"atk":{"heavy_melee":40,"mage":90},"def":{"heavy_melee":40,"mage":90},"str":{"mage":3,"heavy_melee":1},"ab":[]},
+      "mc_ma": {"id":"mc_ma_3","base":"mc_ma","name":"Blossom Princess","short":"Blossom Mage","bldg":"Mercenary Camp","bldgIdx":2,"uIdx":12,"icon":"assets/units/mercenary_ma.png","cls":"mage","hp":116,"dmg":73,"wt":3,"rng":5,"mv":2,"init":16,"ret":0,"atk":{"heavy_melee":90,"heavy_ranged":30},"def":{"heavy_melee":70,"heavy_ranged":70},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Blossom Winds","t":"defense","v":-30,"d":3},{"n":"Flower Power","t":"attack","v":-20,"d":3}]},
+      "mc_hm": {"id":"mc_hm_2","base":"mc_hm","name":"Vallorian Guard II","short":"Vallorian","bldg":"Mercenary Camp","bldgIdx":2,"uIdx":13,"icon":"assets/units/mercenary_hm.png","cls":"heavy_melee","hp":630,"dmg":198,"wt":6,"rng":2,"mv":2,"init":3,"ret":1,"atk":{"heavy_ranged":70},"def":{"light_melee":20,"heavy_ranged":80},"str":{"heavy_ranged":3,"light_melee":1},"ab":[]},
+      "mc_hr": {"id":"mc_hr_2","base":"mc_hr","name":"Faineant Frog II","short":"Frog Prince","bldg":"Mercenary Camp","bldgIdx":2,"uIdx":14,"icon":"assets/units/mercenary_hr.png","cls":"heavy_ranged","hp":230,"dmg":62,"wt":4,"rng":9,"mv":1,"init":8,"ret":0,"atk":{"light_melee":90,"light_ranged":40},"def":{"light_melee":70,"light_ranged":40},"str":{"light_melee":3,"light_ranged":1},"ab":[]},
+      // Human Barracks
+      "hb_lm": {"id":"hb_lm_3","base":"hb_lm","name":"Storm Barbarian","short":"Barbarian","icon":"assets/units/barracks_lm.png","cls":"light_melee","hp":104,"dmg":27,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":70,"mage":70},"def":{"light_ranged":20,"mage":20},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Charged Strike","t":"defense","v":-30,"d":1}]},
+      "hb_lr": {"id":"hb_lr_3","base":"hb_lr","name":"Master Crossbowman","short":"Crossbow","icon":"assets/units/barracks_lr.png","cls":"light_ranged","hp":70,"dmg":17,"wt":1,"rng":4,"mv":3,"init":19,"ret":0,"atk":{"heavy_melee":60,"mage":60},"def":{"heavy_melee":60,"mage":30},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Numb Shot","t":"attack","v":-20,"d":3}]},
+      "hb_ma": {"id":"hb_ma_3","base":"hb_ma","name":"Sacred Priest","short":"Priest","icon":"assets/units/barracks_ma.png","cls":"mage","hp":184,"dmg":77,"wt":4,"rng":5,"mv":2,"init":13,"ret":0,"atk":{"heavy_melee":70,"heavy_ranged":80},"def":{"heavy_ranged":80},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Heavenly Curse","t":"defense","v":-40,"d":2},{"n":"Heavenly Interruption","t":"attack","v":-30,"d":2}]},
+      "hb_hm": {"id":"hb_hm_3","base":"hb_hm","name":"Blessed Paladin","short":"Paladin","icon":"assets/units/mercenary_hm.png","cls":"heavy_melee","hp":680,"dmg":196,"wt":6,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"light_melee":30,"heavy_ranged":40},"def":{"heavy_ranged":70},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Pierced Armor","t":"defense","v":-10,"d":3}]},
+      "hb_hr": {"id":"hb_hr_3","base":"hb_hr","name":"Rad Mortar","short":"Mortar","icon":"assets/units/mercenary_hr.png","cls":"heavy_ranged","hp":300,"dmg":94,"wt":6,"rng":10,"mv":1,"init":5,"ret":0,"atk":{"light_melee":60,"light_ranged":70},"def":{"light_melee":40,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Nap Grenade","t":"attack","v":-20,"d":3}]},
+      // Enemy Mobs (Province / Tournament / Spire)
+      "mob_hblm": {"id":"mob_hblm_3","base":"mob_hblm","name":"Brutal Ancient Orc","short":"Ancient Orc","icon":"assets/units/training_hm.png","cls":"light_melee","hp":179,"dmg":53,"wt":2,"rng":1,"mv":4,"init":11,"ret":3,"atk":{"light_ranged":70,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[{"n":"Guts Cutter","t":"attack","v":-30,"d":2}]},
+      "mob_hblr": {"id":"mob_hblr_3","base":"mob_hblr","name":"Wily Bandit","short":"Bandit","icon":"assets/units/mercenary_lr.png","cls":"light_ranged","hp":56,"dmg":18,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":80,"mage":20},"def":{"heavy_melee":70,"mage":20},"str":{"mage":1,"heavy_melee":3},"ab":[{"n":"Dishonorable Tactics","t":"defense","v":-10,"d":3}]},
+      "mob_hbma": {"id":"mob_hbma_3","base":"mob_hbma","name":"Dark Abbot","short":"Dark Abbot","icon":"assets/units/training_ma.png","cls":"mage","hp":165,"dmg":82,"wt":4,"rng":5,"mv":2,"init":12,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":80},"def":{"heavy_melee":30,"heavy_ranged":70},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Pretended Pacifism","t":"attack","v":-50,"d":2},{"n":"Last Supper","t":"defense","v":-20,"d":2}]},
+      "mob_hbhm": {"id":"mob_hbhm_3","base":"mob_hbhm","name":"Brave Knight","short":"Knight","icon":"assets/units/mercenary_hm.png","cls":"heavy_melee","hp":450,"dmg":111,"wt":4,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"heavy_ranged":70},"def":{"light_melee":20,"heavy_ranged":50},"str":{"heavy_ranged":3,"light_melee":1},"ab":[{"n":"Noble Strike","t":"attack","v":-30,"d":2}]},
+      "mob_hbhr": {"id":"mob_hbhr_3","base":"mob_hbhr","name":"Crazy Cannoneer","short":"Cannoneer","icon":"assets/units/mercenary_hr.png","cls":"heavy_ranged","hp":260,"dmg":51,"wt":6,"rng":10,"mv":1,"init":4,"ret":0,"atk":{"light_melee":70,"light_ranged":70},"def":{"light_melee":20,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Crazy Cannon","t":"defense","v":-30,"d":1}]},
+      "mob_eblm": {"id":"mob_eblm_3","base":"mob_eblm","name":"Nasty Thief","short":"Thief","icon":"assets/units/barracks_lm.png","cls":"light_melee","hp":119,"dmg":25,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":60,"mage":60},"def":{},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Pickpocket","t":"defense","v":-30,"d":1}]},
+      "mob_eblr": {"id":"mob_eblr_3","base":"mob_eblr","name":"Feral Wild Archer","short":"Wild Archer","icon":"assets/units/barracks_lr.png","cls":"light_ranged","hp":61,"dmg":15,"wt":1,"rng":4,"mv":3,"init":17,"ret":0,"atk":{"heavy_melee":80,"mage":60},"def":{"heavy_melee":40,"mage":20},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Enar's Arrow","t":"attack","v":-30,"d":2}]},
+      "mob_ebma": {"id":"mob_ebma_3","base":"mob_ebma","name":"Devilish Enchantress","short":"Enchantress","icon":"assets/units/barracks_ma.png","cls":"mage","hp":184,"dmg":92,"wt":4,"rng":3,"mv":4,"init":13,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":80},"def":{"heavy_melee":40,"heavy_ranged":70},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Weird Witchcraft","t":"defense","v":-40,"d":2},{"n":"Haunting Hex","t":"attack","v":-30,"d":2}]},
+      "mob_ebhm": {"id":"mob_ebhm_3","base":"mob_ebhm","name":"Ferocious Swamp Monster","short":"Swamp Monster","icon":"assets/units/barracks_hm.png","cls":"heavy_melee","hp":650,"dmg":210,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"light_melee":20,"heavy_ranged":30},"def":{"light_melee":20,"heavy_ranged":60},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Mud Blow","t":"defense","v":-20,"d":2}]},
+      "mob_ebhr": {"id":"mob_ebhr_3","base":"mob_ebhr","name":"Rigid Steinling","short":"Steinling","icon":"assets/units/barracks_hr.png","cls":"heavy_ranged","hp":260,"dmg":87,"wt":4,"rng":3,"mv":3,"init":6,"ret":0,"atk":{"light_melee":50,"light_ranged":70},"def":{"light_ranged":40},"str":{"light_melee":1,"light_ranged":3},"ab":[{"n":"Sand Throw","t":"attack","v":-30,"d":2}]},
+      "mob_tglm": {"id":"mob_tglm_3","base":"mob_tglm","name":"Furious Hellhound","short":"Hellhound","icon":"assets/units/training_lm.png","cls":"light_melee","hp":75,"dmg":23,"wt":1,"rng":1,"mv":7,"init":7,"ret":3,"atk":{"light_ranged":20,"mage":70},"def":{"light_ranged":30,"mage":70},"str":{"light_ranged":1,"mage":3},"ab":[{"n":"Bloody Bite","t":"attack","v":-30,"d":2}]},
+      "mob_tglr": {"id":"mob_tglr_3","base":"mob_tglr","name":"Sneaky Mist Walker","short":"Mist Walker","icon":"assets/units/training_lr.png","cls":"light_ranged","hp":106,"dmg":34,"wt":2,"rng":4,"mv":4,"init":21,"ret":1,"atk":{"heavy_melee":30,"mage":90},"def":{"heavy_melee":30,"mage":70},"str":{"mage":3,"heavy_melee":1},"ab":[{"n":"Tricky Distraction","t":"attack","v":-20,"d":3}]},
+      "mob_mcma": {"id":"mob_mcma_3","base":"mob_mcma","name":"Withered Thornrose Mage","short":"Thornrose","icon":"assets/units/mercenary_ma.png","cls":"mage","hp":94,"dmg":58,"wt":3,"rng":5,"mv":2,"init":15,"ret":0,"atk":{"heavy_melee":90,"heavy_ranged":20},"def":{"heavy_melee":80,"heavy_ranged":60},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Thorn Winds","t":"attack","v":-40,"d":3},{"n":"Withering Will","t":"defense","v":-10,"d":3}]},
+      "mob_tghm": {"id":"mob_tghm_3","base":"mob_tghm","name":"Mutated Orc General","short":"Orc General","icon":"assets/units/training_hm.png","cls":"heavy_melee","hp":210,"dmg":73,"wt":2,"rng":1,"mv":2,"init":3,"ret":3,"atk":{"light_melee":60,"heavy_ranged":30},"def":{"light_melee":30,"heavy_ranged":20},"str":{"heavy_ranged":1,"light_melee":3},"ab":[{"n":"Wild Rage","t":"attack","v":-20,"d":3}]},
+      "mob_tghr": {"id":"mob_tghr_3","base":"mob_tghr","name":"Mucky Orc Deserter","short":"Orc Deserter","icon":"assets/units/training_hr.png","cls":"heavy_ranged","hp":410,"dmg":116,"wt":6,"rng":3,"mv":3,"init":5,"ret":1,"atk":{"light_melee":80,"light_ranged":30},"def":{"light_melee":70},"str":{"light_melee":3,"light_ranged":1},"ab":[{"n":"Stinky Stick","t":"attack","v":-20,"d":3}]}
+    };
+
+    const PLAYER_UNIT_KEYS = [
+      "eb_lm", "eb_lr", "eb_ma", "eb_hm", "eb_hr",
+      "tg_lm", "tg_lr", "tg_ma", "tg_hm", "tg_hr",
+      "mc_lm", "mc_lr", "mc_ma", "mc_hm", "mc_hr"
+    ];
+
+    const ENEMY_PICKER_KEYS = [
+      "mob_eblm", "mob_tglm", "mob_hblm",
+      "mob_eblr", "mob_tglr", "mob_hblr",
+      "mob_ebma", "mob_mcma", "mob_hbma",
+      "mob_ebhm", "mob_tghm", "mob_hbhm",
+      "mob_ebhr", "mob_tghr", "mob_hbhr"
+    ];
+
+    const CLASS_META = {
+      "light_melee":  { code: "LM", name: "Light Melee",  icon: "assets/units/icon_class_lm.png", color: "#38bdf8" },
+      "light_ranged": { code: "LR", name: "Light Ranged", icon: "assets/units/icon_class_lr.png", color: "#84cc16" },
+      "mage":         { code: "MA", name: "Mage",         icon: "assets/units/icon_class_ma.png", color: "#c084fc" },
+      "heavy_melee":  { code: "HM", name: "Heavy Melee",  icon: "assets/units/icon_class_hm.png", color: "#fb923c" },
+      "heavy_ranged": { code: "HR", name: "Heavy Ranged", icon: "assets/units/icon_class_hr.png", color: "#facc15" }
+    };
+
+    // True Hexagonal Vertical Slot Geometry from Elvenar BattleRealmStateVO:
+    // Top (y=2): Slot 4 | Upper-Mid (y=3): Slot 2 | Center (y=4): Slot 1 | Lower-Mid (y=5): Slot 3 | Bottom (y=6): Slot 5
+    const SLOT_Y = [4, 3, 5, 2, 6];
+    const SLOT_POS_LABELS = ["Center (y=4)", "Upper-Mid (y=3)", "Lower-Mid (y=5)", "Top Flank (y=2)", "Bottom Flank (y=6)"];
+
+    let advisorMode = "optimal"; // "optimal" (Mixed 3 buildings) or "fast1tab" (Single building tab)
+    let activeWaveIdx = 0;
+    let advisorWaves = [
+      ["mob_hblm_3", "mob_tglr_3", "mob_tglr_3", "mob_hblr_3", "mob_tglr_3"]
+    ];
+    let isManualOverride = false;
+    let lastSyncedEncounterTs = 0;
+
+    function resolveUnit(rawId) {
+      if (!rawId) return UNIT_STATS_DB["mob_eblr"];
+      const str = String(rawId).trim();
+      const base = str.replace(/_\d+$/, "");
+      const starMatch = str.match(/_(\d+)$/);
+      const stars = starMatch ? Number(starMatch[1]) : 3;
+      const entry = UNIT_STATS_DB[base] || UNIT_STATS_DB[str] || UNIT_STATS_DB["mob_eblr"];
+      return { ...entry, rawId: str, stars };
+    }
+
+    function computeSpatialWeight(slotI, slotJ, enemyUnit) {
+      const dy = Math.abs(SLOT_Y[slotI] - SLOT_Y[slotJ]);
+      const rng = enemyUnit.rng || 1;
+      const mv = enemyUnit.mv || 2;
+      const reach = rng + mv;
+      if (dy === 0) return 1.00; // Direct opposite slot
+      if (dy === 1) return (rng >= 3 || mv >= 4) ? 0.82 : 0.48; // Adjacent vertical hex row
+      if (dy === 2) return (reach >= 7 || rng >= 4) ? 0.48 : 0.22; // 2 hex rows away
+      if (dy === 3) return (rng >= 8 || mv >= 6) ? 0.34 : 0.12;
+      return (rng >= 9 || mv >= 7) ? 0.28 : 0.06;
+    }
+
+    function scoreUnitPair(pUnit, eUnit, dy) {
+      const pHp = (pUnit.hp || 100) / (pUnit.wt || 1);
+      const pDmg = (pUnit.dmg || 20) / (pUnit.wt || 1);
+      const eHp = (eUnit.hp || 100) / (eUnit.wt || 1);
+      const eDmg = (eUnit.dmg || 20) / (eUnit.wt || 1);
+
+      const atkBonus = ((pUnit.atk && pUnit.atk[eUnit.cls]) || 0) / 100.0;
+      const defBonus = ((pUnit.def && pUnit.def[eUnit.cls]) || 0) / 100.0;
+      const eAtkBonus = ((eUnit.atk && eUnit.atk[pUnit.cls]) || 0) / 100.0;
+      const eDefBonus = ((eUnit.def && eUnit.def[pUnit.cls]) || 0) / 100.0;
+
+      // 1. Offense: % of enemy squad eliminated per hit
+      const effOffense = pDmg * (1.0 + atkBonus) * (1.0 - eDefBonus);
+      const killRate = effOffense / Math.max(1.0, eHp);
+
+      // 2. Defense: % of player squad lost per enemy hit
+      const effIncoming = eDmg * (1.0 + eAtkBonus) * (1.0 - defBonus);
+      const lossRate = effIncoming / Math.max(1.0, pHp);
+
+      // 3. Turn-1 First Strike vs Turn-1 Incoming Volley (Hex battlefield width ~7)
+      let firstStrikeMult = 1.0;
+      let incomingMult = 1.0;
+      const pReach = (pUnit.rng || 1) + (pUnit.mv || 2);
+      const eReach = (eUnit.rng || 1) + (eUnit.mv || 2);
+
+      if ((pUnit.init || 10) > (eUnit.init || 10) && pReach >= 7) {
+        firstStrikeMult = 1.35;
+        incomingMult = 0.65;
+      } else if ((eUnit.init || 10) > (pUnit.init || 10) && eReach >= 7) {
+        incomingMult = 1.35;
+      }
+
+      // 4. Range & Kiting Advantage in Auto-Battle
+      if (pUnit.rng >= 3 && eUnit.rng === 1 && eUnit.mv <= 3) {
+        firstStrikeMult *= 1.30;
+        incomingMult *= 0.55;
+      } else if (pUnit.rng >= 5 && eUnit.rng <= 3) {
+        firstStrikeMult *= 1.25;
+        incomingMult *= 0.65;
+      } else if (pUnit.rng === 1 && eUnit.rng >= 3 && pUnit.mv <= 3) {
+        incomingMult *= 1.25;
+      }
+
+      // 5. Special Ability Debuff Value (Attack debuff reduces enemy retaliation/next turn)
+      let abilityBonus = 0;
+      if (Array.isArray(pUnit.ab)) {
+        pUnit.ab.forEach(a => {
+          if (a.t === "attack") abilityBonus += Math.abs(a.v || 0) * 0.16;
+          if (a.t === "defense") abilityBonus += Math.abs(a.v || 0) * 0.14;
+        });
+      }
+
+      // 6. Hard-Counter Penalty & Unmitigated Ranged Cross-Fire Penalty
+      let hardCounterPenalty = 0;
+      if (eAtkBonus > 0) {
+        hardCounterPenalty = (eAtkBonus * 120.0) * (eUnit.rng >= 3 ? 1.30 : 1.0);
+      }
+      let focusFirePenalty = 0;
+      if (eUnit.rng >= 3 && defBonus === 0 && eAtkBonus === 0 && pUnit.rng === 1) {
+        focusFirePenalty = 25.0;
+      }
+
+      const netScore = (killRate * firstStrikeMult * 100.0) + abilityBonus - (lossRate * incomingMult * 110.0) - hardCounterPenalty - focusFirePenalty;
+      return {
+        netScore,
+        atkBonusPct: Math.round(atkBonus * 100),
+        defBonusPct: Math.round(defBonus * 100),
+        eAtkBonusPct: Math.round(eAtkBonus * 100),
+        firstStrike: (pUnit.init > eUnit.init && pReach >= 7)
+      };
+    }
+
+    function recommendLineupForWaves(waves, allowedPoolKeys) {
+      const pool = allowedPoolKeys || PLAYER_UNIT_KEYS;
+      const armUnits = (state.arm && Array.isArray(state.arm.units)) ? state.arm.units : [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245];
+
+      // Step 1: Evaluate all candidate units for each of the 5 slots across all waves
+      const rawSlotCandidates = [];
+      for (let slotI = 0; slotI < 5; slotI++) {
+        const candidates = [];
+        pool.forEach(pKey => {
+          const pUnit = UNIT_STATS_DB[pKey];
+          if (!pUnit) return;
+          const stock = Number(armUnits[pUnit.uIdx]) || 0;
+
+          let weightedSum = 0;
+          let minWaveScore = 999999;
+          let directStats = null;
+
+          waves.forEach((wave, wIdx) => {
+            const wWeight = waves.length === 1 ? 1.0 : ([0.45, 0.35, 0.20][Math.min(wIdx, 2)] || 0.20);
+            let sWave = 0;
+            let totalW = 0;
+
+            for (let slotJ = 0; slotJ < 5; slotJ++) {
+              const eUnit = resolveUnit(wave[slotJ]);
+              const sw = computeSpatialWeight(slotI, slotJ, eUnit);
+              const dy = Math.abs(SLOT_Y[slotI] - SLOT_Y[slotJ]);
+              const res = scoreUnitPair(pUnit, eUnit, dy);
+              if (wIdx === activeWaveIdx && slotI === slotJ) {
+                directStats = res;
+              }
+              sWave += sw * res.netScore;
+              totalW += sw;
+            }
+            if (totalW > 0) sWave /= totalW;
+            if (sWave < minWaveScore) minWaveScore = sWave;
+            weightedSum += sWave * wWeight;
+          });
+
+          // Multi-wave survival floor check: penalize units that get crushed in any Spire wave
+          if (waves.length > 1 && minWaveScore < -15) {
+            weightedSum += (minWaveScore * 0.55);
+          }
+
+          // Stock availability tie-breaker
+          if (stock <= 0.9) {
+            weightedSum -= 600;
+          } else if (stock < 15) {
+            weightedSum -= 22;
+          } else if (stock < 35) {
+            weightedSum -= 8;
+          }
+
+          candidates.push({
+            key: pKey,
+            unit: pUnit,
+            score: weightedSum,
+            stock,
+            directStats: directStats || { atkBonusPct: 0, defBonusPct: 0, eAtkBonusPct: 0, firstStrike: false }
+          });
+        });
+
+        candidates.sort((a, b) => b.score - a.score);
+        rawSlotCandidates.push(candidates);
+      }
+
+      // Step 2: Team Cohesion Check (Prevent 1 fast melee suiciding ahead of 4 ranged teammates in Auto-Battle)
+      const top1RangedCount = rawSlotCandidates.filter(c => c[0] && c[0].unit.rng >= 3).length;
+      if (top1RangedCount >= 3) {
+        for (let slotI = 0; slotI < 5; slotI++) {
+          rawSlotCandidates[slotI].forEach(cand => {
+            if (cand.unit.rng >= 3) {
+              cand.score += 14; // Ranged focus-fire synergy bonus
+            } else if (cand.unit.rng === 1 && cand.unit.mv >= 4) {
+              cand.score -= 18; // Anti-suicide rush penalty when paired with ranged backline
+            }
+          });
+          rawSlotCandidates[slotI].sort((a, b) => b.score - a.score);
+        }
+      }
+
+      const avgTeamScore = rawSlotCandidates.reduce((acc, c) => acc + (c[0] ? c[0].score : 0), 0) / 5.0;
+      return {
+        slots: rawSlotCandidates.map(c => c.slice(0, 3)),
+        avgTeamScore
+      };
+    }
+
+    function setAdvisorMode(mode) {
+      advisorMode = mode;
+      renderAdvisorUI();
+    }
+
+    function selectAdvisorWave(idx) {
+      if (idx >= 0 && idx < advisorWaves.length) {
+        activeWaveIdx = idx;
+        renderAdvisorUI();
+      }
+    }
+
+    function addSpireWave() {
+      if (advisorWaves.length >= 3) return;
+      const lastWave = advisorWaves[advisorWaves.length - 1] || ["mob_eblr_3", "mob_eblr_3", "mob_mcma_3", "mob_hblr_3", "mob_hbma_3"];
+      advisorWaves.push([...lastWave]);
+      activeWaveIdx = advisorWaves.length - 1;
+      isManualOverride = true;
+      renderAdvisorUI();
+    }
+
+    function removeSpireWave() {
+      if (advisorWaves.length <= 1) return;
+      advisorWaves.pop();
+      if (activeWaveIdx >= advisorWaves.length) activeWaveIdx = advisorWaves.length - 1;
+      isManualOverride = true;
+      renderAdvisorUI();
+    }
+
+    function syncLiveEncounterNow() {
+      isManualOverride = false;
+      if (state.enc && Array.isArray(state.enc.waves) && state.enc.waves.length > 0) {
+        advisorWaves = JSON.parse(JSON.stringify(state.enc.waves));
+        activeWaveIdx = 0;
+        showToast("🎯 Synced with Live In-Game Encounter!");
+      }
+      renderAdvisorUI();
+    }
+
+    function loadPresetEncounter(presetId) {
+      isManualOverride = true;
+      activeWaveIdx = 0;
+      if (presetId === "steel_1lm_4lr") {
+        advisorWaves = [["mob_hblm_3", "mob_tglr_3", "mob_tglr_3", "mob_hblr_3", "mob_tglr_3"]];
+      } else if (presetId === "steel_3lr_2ma") {
+        advisorWaves = [["mob_eblr_3", "mob_eblr_3", "mob_mcma_3", "mob_hblr_3", "mob_hbma_3"]];
+      } else if (presetId === "heavy_wall") {
+        advisorWaves = [["mob_ebhm_3", "mob_tghm_3", "mob_hbhm_3", "mob_ebhr_3", "mob_tghr_3"]];
+      } else if (presetId === "hellhound_mage") {
+        advisorWaves = [["mob_tglm_3", "mob_tglm_3", "mob_ebma_3", "mob_mcma_3", "mob_hbhr_3"]];
+      } else if (presetId === "spire_2wave") {
+        advisorWaves = [
+          ["mob_eblr_3", "mob_eblr_3", "mob_mcma_3", "mob_hblr_3", "mob_hbma_3"],
+          ["mob_hblm_3", "mob_tglr_3", "mob_tglr_3", "mob_hblr_3", "mob_tglr_3"]
+        ];
+      }
+      renderAdvisorUI();
+    }
+
+    function openEnemyPickerModal(slotIdx) {
+      const modal = document.getElementById("unitModal");
+      const content = document.getElementById("unitModalContent");
+      if (!modal || !content) return;
+
+      const curWave = advisorWaves[activeWaveIdx] || advisorWaves[0];
+      const curUnit = resolveUnit(curWave[slotIdx]);
+
+      let html = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div>
+            <div style="font-size:13px;font-weight:800;color:#f8fafc;">👾 Select Enemy for Slot ${slotIdx + 1} (Wave ${activeWaveIdx + 1})</div>
+            <div style="font-size:10px;color:#94a3b8;">Hex Position: ${SLOT_POS_LABELS[slotIdx]} • Current: <strong style="color:#fda4af;">${curUnit.name}</strong></div>
+          </div>
+          <button onclick="closeUnitModal()" style="background:rgba(255,255,255,0.08);border:none;color:#cbd5e1;width:28px;height:28px;border-radius:8px;cursor:pointer;font-weight:800;">✕</button>
+        </div>
+        <div style="font-size:9.5px;color:#94a3b8;margin-bottom:8px;">Tap an enemy archetype below (or tap "Fill All 5 Slots" to set the entire wave):</div>
+        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;max-height:58vh;overflow-y:auto;padding-right:2px;">
+      `;
+
+      ENEMY_PICKER_KEYS.forEach(eKey => {
+        const u = UNIT_STATS_DB[eKey];
+        const cm = CLASS_META[u.cls];
+        const isSelected = (curUnit.base === eKey);
+        html += `
+          <div onclick="setEnemySlot(${slotIdx}, '${u.id}')" style="background:${isSelected ? 'rgba(244,63,94,0.22)' : 'rgba(15,23,42,0.8)'};border:1px solid ${isSelected ? '#f43f5e' : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:7px 5px;text-align:center;cursor:pointer;">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0 2px;margin-bottom:2px;">
+              <span style="font-size:8.5px;font-weight:800;color:${cm.color};">${cm.code}</span>
+              <img src="${cm.icon}" style="width:13px;height:13px;">
+            </div>
+            <img src="${u.icon}" style="width:42px;height:42px;object-fit:contain;margin:0 auto;display:block;">
+            <div style="font-size:9.5px;font-weight:800;color:#f1f5f9;margin-top:3px;line-height:1.15;">${u.short}</div>
+            <div style="font-size:8px;color:#94a3b8;margin-top:1px;">Rng ${u.rng} • Mv ${u.mv} • Init ${u.init}</div>
+          </div>
+        `;
+      });
+
+      html += `
+        </div>
+        <div style="display:flex;gap:6px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);">
+          <button onclick="openUnitInspectModal('${curUnit.base}')" style="flex:1;background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;padding:7px;border-radius:8px;font-size:10.5px;font-weight:800;cursor:pointer;">🔍 Inspect ${curUnit.short} Stats</button>
+          <button onclick="fillAllEnemySlots('${curUnit.id}')" style="flex:1;background:rgba(244,63,94,0.15);border:1px solid rgba(244,63,94,0.35);color:#fda4af;padding:7px;border-radius:8px;font-size:10.5px;font-weight:800;cursor:pointer;">⚡ Fill All 5 Slots with ${curUnit.short}</button>
+        </div>
+      `;
+
+      content.innerHTML = html;
+      modal.style.display = "flex";
+    }
+
+    function setEnemySlot(slotIdx, unitId) {
+      if (!advisorWaves[activeWaveIdx]) return;
+      advisorWaves[activeWaveIdx][slotIdx] = unitId;
+      isManualOverride = true;
+      closeUnitModal();
+      renderAdvisorUI();
+    }
+
+    function fillAllEnemySlots(unitId) {
+      if (!advisorWaves[activeWaveIdx]) return;
+      advisorWaves[activeWaveIdx] = [unitId, unitId, unitId, unitId, unitId];
+      isManualOverride = true;
+      closeUnitModal();
+      renderAdvisorUI();
+    }
+
+    function openUnitInspectModal(baseKey) {
+      const modal = document.getElementById("unitModal");
+      const content = document.getElementById("unitModalContent");
+      if (!modal || !content) return;
+
+      const u = resolveUnit(baseKey);
+      const cm = CLASS_META[u.cls] || CLASS_META["light_melee"];
+      const normHp = Math.round((u.hp / (u.wt || 1)) * 10) / 10;
+      const normDmg = Math.round((u.dmg / (u.wt || 1)) * 10) / 10;
+
+      const atkList = Object.entries(u.atk || {}).map(([cls, val]) => {
+        const c = CLASS_META[cls];
+        return `<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.35);color:#6ee7b7;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:800;"><img src="${c.icon}" style="width:12px;height:12px;"> +${val}% DMG vs ${c.name}</span>`;
+      }).join(" ") || `<span style="font-size:10px;color:#64748b;">None</span>`;
+
+      const defList = Object.entries(u.def || {}).map(([cls, val]) => {
+        const c = CLASS_META[cls];
+        return `<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.35);color:#7dd3fc;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:800;"><img src="${c.icon}" style="width:12px;height:12px;"> -${val}% Taken vs ${c.name}</span>`;
+      }).join(" ") || `<span style="font-size:10px;color:#64748b;">0% Damage Reduction</span>`;
+
+      const abList = (u.ab || []).map(a => `
+        <div style="background:rgba(168,85,247,0.14);border:1px solid rgba(168,85,247,0.3);border-radius:7px;padding:5px 8px;font-size:10px;color:#e9d5ff;">
+          ✨ <strong>${a.n}</strong>: ${a.v}% Enemy ${a.t.toUpperCase()} for ${a.d} round(s)
+        </div>
+      `).join("") || `<div style="font-size:10px;color:#64748b;">No special debuff ability</div>`;
+
+      content.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+          <div style="display:flex;gap:10px;align-items:center;">
+            <img src="${u.icon}" style="width:56px;height:56px;object-fit:contain;background:rgba(15,23,42,0.8);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:4px;">
+            <div>
+              <div style="font-size:14px;font-weight:800;color:#f8fafc;">${u.name}</div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:3px;">
+                <span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:800;color:${cm.color};"><img src="${cm.icon}" style="width:13px;height:13px;"> ${cm.name}</span>
+                ${u.bldg ? `<span style="font-size:9.5px;color:#94a3b8;">• ${u.bldg}</span>` : `<span style="font-size:9.5px;color:#fda4af;">• Enemy Unit</span>`}
+              </div>
+            </div>
+          </div>
+          <button onclick="closeUnitModal()" style="background:rgba(255,255,255,0.08);border:none;color:#cbd5e1;width:28px;height:28px;border-radius:8px;cursor:pointer;font-weight:800;">✕</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;margin-bottom:10px;">
+          <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:9px;color:#94a3b8;">HP / Weight</div>
+            <div style="font-size:12px;font-weight:800;color:#34d399;">❤️ ${normHp} <span style="font-size:9px;color:#64748b;">(${u.hp}/${u.wt})</span></div>
+          </div>
+          <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:9px;color:#94a3b8;">DMG / Weight</div>
+            <div style="font-size:12px;font-weight:800;color:#fbbf24;">⚔️ ${normDmg} <span style="font-size:9px;color:#64748b;">(${u.dmg}/${u.wt})</span></div>
+          </div>
+          <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:9px;color:#94a3b8;">Initiative</div>
+            <div style="font-size:12px;font-weight:800;color:#38bdf8;">⚡ ${u.init}</div>
+          </div>
+          <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:9px;color:#94a3b8;">Attack Range</div>
+            <div style="font-size:12px;font-weight:800;color:#f8fafc;">🎯 ${u.rng} hex</div>
+          </div>
+          <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:9px;color:#94a3b8;">Movement</div>
+            <div style="font-size:12px;font-weight:800;color:#f8fafc;">👣 ${u.mv} hex</div>
+          </div>
+          <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:6px;text-align:center;">
+            <div style="font-size:9px;color:#94a3b8;">Retaliations</div>
+            <div style="font-size:12px;font-weight:800;color:#f8fafc;">🛡️ ${u.ret} / turn</div>
+          </div>
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <div style="font-size:10px;font-weight:800;color:#94a3b8;margin-bottom:4px;">⚔️ ATTACK BONUSES (Deal Extra Damage):</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">${atkList}</div>
+        </div>
+
+        <div style="margin-bottom:8px;">
+          <div style="font-size:10px;font-weight:800;color:#94a3b8;margin-bottom:4px;">🛡️ DEFENSE BONUSES (Reduce Incoming Damage):</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">${defList}</div>
+        </div>
+
+        <div>
+          <div style="font-size:10px;font-weight:800;color:#94a3b8;margin-bottom:4px;">✨ SPECIAL ON-HIT ABILITIES:</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">${abList}</div>
+        </div>
+      `;
+      modal.style.display = "flex";
+    }
+
+    function closeUnitModal() {
+      const modal = document.getElementById("unitModal");
+      if (modal) modal.style.display = "none";
+    }
+
+    function renderAdvisorUI() {
+      const container = document.getElementById("advisorContent");
+      if (!container) return;
+
+      // Auto-sync from state.enc if user hasn't manually overridden or if a newer encounter arrived
+      if (state.enc && Array.isArray(state.enc.waves) && state.enc.waves.length > 0) {
+        if (!isManualOverride || (state.enc.ts && state.enc.ts > lastSyncedEncounterTs)) {
+          advisorWaves = JSON.parse(JSON.stringify(state.enc.waves));
+          lastSyncedEncounterTs = state.enc.ts || 0;
+          if (activeWaveIdx >= advisorWaves.length) activeWaveIdx = 0;
+        }
+      }
+
+      const curWave = advisorWaves[activeWaveIdx] || advisorWaves[0];
+
+      // Determine allowed unit pool based on advisorMode ("optimal" vs "fast1tab")
+      let recResult = null;
+      let chosenBuildingName = "Mixed (All 3 Buildings)";
+      if (advisorMode === "fast1tab") {
+        const bPools = [
+          { name: "Barracks", keys: ["eb_lm", "eb_lr", "eb_ma", "eb_hm", "eb_hr"] },
+          { name: "Training Grounds", keys: ["tg_lm", "tg_lr", "tg_ma", "tg_hm", "tg_hr"] },
+          { name: "Mercenary Camp", keys: ["mc_lm", "mc_lr", "mc_ma", "mc_hm", "mc_hr"] }
+        ];
+        let bestB = null;
+        bPools.forEach(bp => {
+          const r = recommendLineupForWaves(advisorWaves, bp.keys);
+          if (!bestB || r.avgTeamScore > bestB.res.avgTeamScore) {
+            bestB = { name: bp.name, res: r };
+          }
+        });
+        recResult = bestB.res;
+        chosenBuildingName = `1-Tab Only: ${bestB.name}`;
+      } else {
+        recResult = recommendLineupForWaves(advisorWaves, PLAYER_UNIT_KEYS);
+      }
+
+      const slotRecs = recResult.slots;
+      const enc = state.enc || {};
+      const hasLiveEnc = Boolean(enc.ts && enc.ts > 0 && !isManualOverride);
+      const srcLabel = enc.source === "spire" ? "🗼 Spire of Eternity" : (enc.source === "province" ? "🗺️ World Province" : "🏆 Tournament");
+      const goodLabel = enc.good ? ` (${enc.good.toUpperCase()})` : "";
+      const ratioStr = (enc.playerSquadSize && enc.enemySquadSize)
+        ? `Squads: You ${enc.playerSquadSize.toLocaleString()} vs Enemy ${enc.enemySquadSize.toLocaleString()}`
+        : `Auto-Synced on Encounter Click`;
+
+      // Group recommended #1 picks by Building Tab for Fast In-Game Clicking
+      const bldgCounts = { "Barracks": [], "Training Grounds": [], "Mercenary Camp": [] };
+      slotRecs.forEach((cands, sIdx) => {
+        const top = cands[0];
+        if (top && top.unit && bldgCounts[top.unit.bldg]) {
+          bldgCounts[top.unit.bldg].push({ slot: sIdx + 1, short: top.unit.short, uIdx: (top.unit.uIdx % 5) + 1 });
+        }
+      });
+
+      let html = `
+        <div class="advisor-card">
+          <!-- 1. Live Encounter Status Banner -->
+          <div class="adv-banner">
+            <div class="adv-banner-left">
+              <div class="adv-live-dot ${hasLiveEnc ? '' : 'manual'}"></div>
+              <div>
+                <div class="adv-banner-title">
+                  ${hasLiveEnc ? `LIVE: ${srcLabel}${goodLabel}` : (isManualOverride ? `✏️ Custom / Preset Lineup (${advisorWaves.length} Wave${advisorWaves.length > 1 ? 's' : ''})` : `🎯 Ready — Click any Encounter in Game`)}
+                </div>
+                <div class="adv-banner-sub">${ratioStr}</div>
+              </div>
+            </div>
+            <button class="wave-btn" onclick="syncLiveEncounterNow()" title="Reset to latest live in-game encounter">🔄 Live Sync</button>
+          </div>
+
+          <!-- 2. Strategy Mode Bar: Max Survival vs 1-Tab Fast Pick -->
+          <div class="adv-mode-bar">
+            <button class="adv-mode-btn ${advisorMode === 'optimal' ? 'active' : ''}" onclick="setAdvisorMode('optimal')">
+              🏆 Tối Ưu Nhất (Max Survival)
+            </button>
+            <button class="adv-mode-btn ${advisorMode === 'fast1tab' ? 'active' : ''}" onclick="setAdvisorMode('fast1tab')">
+              ⚡ Bấm Nhanh 1 Nhà (1-Tab Pick)
+            </button>
+          </div>
+
+          <!-- 3. Wave Selector (1-3 Waves for Spire / Tournament) -->
+          <div class="wave-bar">
+            <div class="wave-tabs">
+              ${advisorWaves.map((_, wIdx) => `
+                <button class="wave-btn ${wIdx === activeWaveIdx ? 'active' : ''}" onclick="selectAdvisorWave(${wIdx})">
+                  🌊 Wave ${wIdx + 1}/${advisorWaves.length}
+                </button>
+              `).join('')}
+            </div>
+            <div class="wave-tabs">
+              ${advisorWaves.length < 3 ? `<button class="wave-btn" onclick="addSpireWave()">➕ Add Wave (Spire)</button>` : ''}
+              ${advisorWaves.length > 1 ? `<button class="wave-btn" onclick="removeSpireWave()">➖ Remove Wave</button>` : ''}
+            </div>
+          </div>
+
+          <!-- 4. Enemy Lineup (5 Slots - Click any slot to change enemy) -->
+          <div class="adv-section-label">
+            <span>👾 ENEMY LINEUP — WAVE ${activeWaveIdx + 1} (Tap slot to change)</span>
+            <span style="color:#fda4af;">Hex Cross-Fire Active</span>
+          </div>
+          <div class="slot-grid-5">
+            ${curWave.map((eId, sIdx) => {
+              const eUnit = resolveUnit(eId);
+              const cm = CLASS_META[eUnit.cls] || CLASS_META["light_melee"];
+              return `
+                <div class="adv-slot-card enemy-slot" onclick="openEnemyPickerModal(${sIdx})" title="Tap to change Enemy in Slot ${sIdx + 1}">
+                  <div class="slot-num-badge">
+                    <span>S${sIdx + 1}</span>
+                    <span class="slot-pos-tag">y=${SLOT_Y[sIdx]}</span>
+                  </div>
+                  <img src="${cm.icon}" class="slot-class-icon" alt="${cm.code}">
+                  <img src="${eUnit.icon}" class="slot-portrait" alt="${eUnit.name}">
+                  <div class="slot-unit-name">${eUnit.short}</div>
+                  <div class="slot-meta-pill pill-danger">Rng ${eUnit.rng}•Init ${eUnit.init}</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- 5. Spatial Cross-Fire Divider (Shows true hex vertical order: Slot 4 - 2 - 1 - 3 - 5) -->
+          <div class="vs-divider">
+            <div class="vs-line"></div>
+            <div class="vs-pill">🎯 HEX MAP: TOP [S4 - S2 - S1 - S3 - S5] BOTTOM</div>
+            <div class="vs-line"></div>
+          </div>
+
+          <!-- 6. Recommended Player Lineup (5 Slots - Optimized for Auto-Battle) -->
+          <div class="adv-section-label">
+            <span>🛡️ RECOMMENDED AUTO-BATTLE LINEUP (${chosenBuildingName})</span>
+            <span style="color:#34d399;">Tap unit for stats</span>
+          </div>
+          <div class="slot-grid-5">
+            ${slotRecs.map((cands, sIdx) => {
+              const top = cands[0];
+              const alt2 = cands[1];
+              const u = top.unit;
+              const cm = CLASS_META[u.cls];
+              const ds = top.directStats;
+              const bShort = u.bldg === "Barracks" ? "⚔️Bar" : (u.bldg === "Training Grounds" ? "🏹TG" : "🪓Merc");
+              const colNum = (u.uIdx % 5) + 1;
+
+              let badgeText = `🛡️-${ds.defBonusPct}% DMG`;
+              let badgeCls = "pill-counter";
+              if (ds.atkBonusPct > 0 && ds.defBonusPct > 0) {
+                badgeText = `⚔️+${ds.atkBonusPct}% 🛡️-${ds.defBonusPct}%`;
+              } else if (ds.atkBonusPct > 0) {
+                badgeText = `⚔️+${ds.atkBonusPct}% DMG`;
+              } else if (ds.firstStrike) {
+                badgeText = `⚡1st Strike`;
+                badgeCls = "pill-safe";
+              }
+
+              return `
+                <div class="adv-slot-card player-slot" onclick="openUnitInspectModal('${u.base}')">
+                  <div class="slot-num-badge">
+                    <span style="color:#34d399;">S${sIdx + 1}</span>
+                    <span class="slot-pos-tag">${bShort}#${colNum}</span>
+                  </div>
+                  <img src="${cm.icon}" class="slot-class-icon" alt="${cm.code}">
+                  <img src="${u.icon}" class="slot-portrait" alt="${u.name}">
+                  <div class="slot-unit-name">${u.short}</div>
+                  <div class="slot-meta-pill ${badgeCls}">${badgeText}</div>
+                  <div class="slot-meta-pill pill-warn" style="margin-top:2px;">Stock: ${Math.floor(top.stock)}⬢</div>
+                  ${alt2 ? `
+                    <div class="alt-picks-row" title="Alternative #2: ${alt2.unit.name}">
+                      <span class="alt-chip"><img src="${alt2.unit.icon}"> #2 ${alt2.unit.short}</span>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- 7. Fast In-Game Pick Order Box -->
+          <div class="fast-pick-box">
+            <div class="fast-pick-title">
+              <span>⚡ THứ Tự Bấm Chọn Lính Nhanh Trong Game (Auto-Battle):</span>
+            </div>
+            <div class="fast-pick-steps">
+              ${Object.entries(bldgCounts).filter(([_, arr]) => arr.length > 0).map(([bName, arr]) => {
+                const icon = bName === "Barracks" ? "⚔️" : (bName === "Training Grounds" ? "🏹" : "🪓");
+                const picks = arr.map(x => `Slot ${x.slot}: <strong>${x.short}</strong> (Ô #${x.uIdx})`).join(" • ");
+                return `<span class="fast-step-chip">${icon} <strong>${bName}</strong> → ${picks}</span>`;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- 8. Last Battle Result Feedback (if available) -->
+          ${enc.lastResult ? `
+            <div style="margin-top:10px;background:rgba(15,23,42,0.65);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-size:10.5px;color:#cbd5e1;">
+                📊 <strong>Last Auto-Battle Result:</strong>
+                <span style="color:${enc.lastResult.won ? '#34d399' : '#f87171'};font-weight:800;margin-left:4px;">
+                  ${enc.lastResult.won ? '🏆 VICTORY' : '💀 DEFEAT'}
+                </span>
+              </div>
+              <div style="font-size:10.5px;font-weight:800;color:${enc.lastResult.lossPct <= 15 ? '#34d399' : '#fbbf24'};">
+                Casualties: ${enc.lastResult.lossPct}% Squads Lost
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- 9. Quick Test Presets -->
+          <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:9.5px;font-weight:700;color:#94a3b8;margin-bottom:5px;">🧪 Quick Encounter Presets (Test Cross-Fire & Multi-Wave Spire):</div>
+            <div class="preset-scroll">
+              <button class="preset-chip" onclick="loadPresetEncounter('steel_1lm_4lr')">🏹 1 Orc LM + 4 Mist Walker LR</button>
+              <button class="preset-chip" onclick="loadPresetEncounter('steel_3lr_2ma')">✨ 3 Archers + 2 Mages (Cross-Fire)</button>
+              <button class="preset-chip" onclick="loadPresetEncounter('heavy_wall')">🛡️ 3 Heavy Melee + 2 Heavy Ranged</button>
+              <button class="preset-chip" onclick="loadPresetEncounter('hellhound_mage')">🐕 2 Hellhounds + 2 Mages + Cannoneer</button>
+              <button class="preset-chip" onclick="loadPresetEncounter('spire_2wave')">🗼 Spire 2-Wave Endurance Test</button>
+            </div>
+          </div>
+        </div>
       `;
 
       container.innerHTML = html;
@@ -1508,6 +2516,7 @@
       // 5. Render Secondary Tabs
       renderResourcesUI();
       renderTroopsUI();
+      renderAdvisorUI();
 
       // 6. Switch to Active Tab
       switchTab(currentTabId);
@@ -1876,7 +2885,27 @@
         }
       }
 
-      return { t: compact.t, mil, ws, aw, pet, res, arm };
+      // 7. Live Encounter Data: [ts, src, good, pSq, eSq, waves, lastResult]
+      let enc = null;
+      if (compact.enc && Array.isArray(compact.enc) && Array.isArray(compact.enc[5]) && compact.enc[5].length > 0) {
+        const lr = compact.enc[6];
+        enc = {
+          ts: compact.enc[0] || 0,
+          source: compact.enc[1] || "tournament",
+          good: compact.enc[2] || "",
+          playerSquadSize: compact.enc[3] || 0,
+          enemySquadSize: compact.enc[4] || 0,
+          waves: compact.enc[5],
+          lastResult: Array.isArray(lr) ? {
+            won: lr[0] || 0,
+            lossPct: lr[1] || 0,
+            used: lr[2] || [],
+            lost: lr[3] || []
+          } : null
+        };
+      }
+
+      return { t: compact.t, mil, ws, aw, pet, res, arm, enc };
     }
 
     const ZW_CHARS = ['\u200B', '\u200C', '\u200D', '\u2060'];
@@ -1923,7 +2952,8 @@
             const data = snapshot.val();
             if (data && data.t) {
               const decoded = decodeCompactPayload(data);
-              if (decoded && (state.isDemo || decoded.t !== (state.t || 0))) {
+              const encChanged = Boolean(decoded && decoded.enc && decoded.enc.ts !== (state.enc?.ts || 0));
+              if (decoded && (state.isDemo || decoded.t !== (state.t || 0) || encChanged)) {
                 applyFreshState(decoded);
               }
               const badgeText = document.getElementById("liveBadgeText");
@@ -2056,7 +3086,8 @@
           return fetchChatPayload(FALLBACK_CHAT_ID, controller.signal);
         })
         .then(decoded => {
-          if (decoded && decoded.t && (state.isDemo || decoded.t !== (state.t || 0))) {
+          const encChanged = Boolean(decoded && decoded.enc && decoded.enc.ts !== (state.enc?.ts || 0));
+          if (decoded && decoded.t && (state.isDemo || decoded.t !== (state.t || 0) || encChanged)) {
             applyFreshState(decoded);
           }
           const badgeText = document.getElementById("liveBadgeText");

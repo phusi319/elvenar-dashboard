@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.3.2
+// @version      6.4.0
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -137,6 +137,20 @@
         raw: {}
     };
 
+    let savedEncounter = null;
+    try { savedEncounter = JSON.parse(GM_getValue("ELVENAR_TRACKED_ENCOUNTER", "null")); } catch(e) {}
+    let trackedEncounter = savedEncounter || {
+        ts: Math.floor(Date.now() / 1000),
+        src: "tournament",
+        good: "planks",
+        pSq: 23000,
+        eSq: 44892,
+        waves: [
+            ["mob_eblr_3", "mob_eblr_3", "mob_mcma_3", "mob_hblr_3", "mob_hbma_3"]
+        ],
+        lastResult: null
+    };
+
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
     let isUpdatingTime = 0; // Thời điểm bắt đầu lock
@@ -153,6 +167,7 @@
             GM_setValue("ELVENAR_TRACKED_AWS", JSON.stringify(trackedAWs));
             GM_setValue("ELVENAR_TRACKED_PETS", JSON.stringify(trackedPets));
             GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+            GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
         } catch(e) {}
     }
 
@@ -707,6 +722,58 @@
                     }
                 }
 
+                // G. Bắt đội hình Quái khi mở ải Tournament / Province / Spire (Hỗ trợ 1-3 Waves cho Auto-Battle Advisor)
+                if (Array.isArray(node.encounters) && node.encounters.length > 0) {
+                    const activeEnc = node.encounters.find(e => e && Array.isArray(e.enemyWaves) && e.enemyWaves.length > 0 && !e.completed && !e.isCompleted) ||
+                                      node.encounters.find(e => e && Array.isArray(e.enemyWaves) && e.enemyWaves.length > 0);
+                    if (activeEnc && Array.isArray(activeEnc.enemyWaves) && activeEnc.enemyWaves.length > 0) {
+                        const waves = activeEnc.enemyWaves.map(w => (w.army || []).map(u => u.unitTypeId || "")).filter(w => w.length > 0);
+                        if (waves.length > 0) {
+                            trackedEncounter = {
+                                ts: now,
+                                src: node.good_id ? "tournament" : (waves.length > 1 ? "spire" : "province"),
+                                good: node.good_id || "",
+                                pSq: Number(node.playerSquadSize) || (trackedArmy && trackedArmy.squadSize) || 4299,
+                                eSq: Number(activeEnc.enemyWaves[0].squadSize) || 4299,
+                                waves: waves,
+                                lastResult: trackedEncounter ? trackedEncounter.lastResult : null
+                            };
+                            activeEnc._processedByParent = true;
+                            GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
+                            triggerLiveStreamPush();
+                        }
+                    }
+                } else if (Array.isArray(node.enemyWaves) && node.enemyWaves.length > 0 && !node._processedByParent) {
+                    const waves = node.enemyWaves.map(w => (w.army || []).map(u => u.unitTypeId || "")).filter(w => w.length > 0);
+                    if (waves.length > 0) {
+                        const clsName = String(node.__class__ || "").toLowerCase();
+                        trackedEncounter = {
+                            ts: now,
+                            src: (clsName.includes("spire") || waves.length > 1) ? "spire" : ((trackedEncounter && trackedEncounter.src) || "encounter"),
+                            good: node.good_id || (trackedEncounter && trackedEncounter.good) || "",
+                            pSq: Number(node.playerSquadSize) || (trackedEncounter && trackedEncounter.pSq) || (trackedArmy && trackedArmy.squadSize) || 4299,
+                            eSq: Number(node.enemyWaves[0].squadSize) || 4299,
+                            waves: waves,
+                            lastResult: trackedEncounter ? trackedEncounter.lastResult : null
+                        };
+                        GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
+                        triggerLiveStreamPush();
+                    }
+                }
+
+                // H. Bắt kết quả trận đánh vừa diễn ra (InstantBattleResultVO)
+                if (node.__class__ === "InstantBattleResultVO" && node.state) {
+                    if (!trackedEncounter) trackedEncounter = { ts: now, src: "tournament", good: "", pSq: 4299, eSq: 4299, waves: [] };
+                    trackedEncounter.lastResult = {
+                        win: node.state.winnerBit === 1,
+                        wave: Number(node.completedWave) || 1,
+                        totalWaves: Number(node.totalWaves) || 1,
+                        ts: now
+                    };
+                    GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
+                    triggerLiveStreamPush();
+                }
+
                 if (Array.isArray(node)) {
                     for (let item of node) walk(item);
                 } else {
@@ -779,6 +846,9 @@
                     !text.includes("ArmyService") &&
                     !text.includes("ArmyDetails") &&
                     !text.includes("BattlefieldService") &&
+                    !text.includes("WorldMapService") &&
+                    !text.includes("enemyWaves") &&
+                    !text.includes("Encounter") &&
                     !text.includes("UnitSquad") &&
                     !text.includes("unitSquad") &&
                     !text.includes("unitTypeId") &&
@@ -787,7 +857,7 @@
                     !text.includes("BattleService") &&
                     !text.includes("FightService") &&
                     !text.includes("TournamentService") &&
-                    !text.includes("SpireService") &&
+                    !text.includes("Spire") &&
                     !text.includes("barrack") &&
                     !text.includes("workshop") &&
                     !text.includes("ProductionQueue") &&
@@ -1052,7 +1122,10 @@
         // 6. Troop Reserves: [squadSize, [15 squad counts]]
         const arm = buildCompactArmyData();
 
-        return { t: now, m, w, a, p, r, arm };
+        // 7. Active Battle Encounter: [ts, src, good, pSq, eSq, waves, lastResult]
+        const enc = buildCompactEncounterData();
+
+        return { t: now, m, w, a, p, r, arm, enc };
     }
 
     function buildCompactArmyData() {
@@ -1065,6 +1138,20 @@
         return [
             trackedArmy.squadSize || 4299,
             keys.map(k => trackedArmy.squads[k] !== undefined ? trackedArmy.squads[k] : 0)
+        ];
+    }
+
+    function buildCompactEncounterData() {
+        if (!trackedEncounter || !Array.isArray(trackedEncounter.waves) || !trackedEncounter.waves.length) return null;
+        const lr = trackedEncounter.lastResult;
+        return [
+            trackedEncounter.ts || 0,
+            trackedEncounter.src || "tournament",
+            trackedEncounter.good || "",
+            trackedEncounter.pSq || 4299,
+            trackedEncounter.eSq || 4299,
+            trackedEncounter.waves,
+            lr ? [lr.win ? 1 : 0, lr.wave || 1, lr.totalWaves || 1, lr.ts || 0] : null
         ];
     }
 
@@ -1160,7 +1247,8 @@
                 a: compactPayload.a,
                 p: compactPayload.p,
                 r: compactPayload.r,
-                arm: compactPayload.arm
+                arm: compactPayload.arm,
+                enc: compactPayload.enc
             });
             const hasDataChanged = (currentSignature !== lastSentDataSignature);
 
