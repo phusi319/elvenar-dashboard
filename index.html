@@ -2230,22 +2230,30 @@
             }
 
             // Empirical 6-Star Tournament Survival Rules (calibrated from 31-battle dump):
-            // Rule A: When countering Light Ranged (targetEu is LR), if Heavy Melee is nearby (dy <= 2),
-            // melee Light Melee units get caught by HM in Round 2–3; if Mage is adjacent (dy === 1), Sword Acrobat (-50% Mage & LR def) beats Drone Rider (0% Mage def)!
+            // Rule A: When countering Light Ranged (targetEu is LR):
+            // If enemy wave has Heavy Melee (Orc General / Swamp Monster), melee Light Melee units get caught by HM in Round 2–3 (sWave -= 45 * hmCount).
             if (targetEu.cls === "light_ranged") {
-              if (hmNearCount >= 1 && pUnit.cls === "light_melee") {
-                sWave -= 36.0 * hmNearCount;
-              }
-              if (maAdjCount >= 1 && pUnit.base === "mc_lm") {
-                sWave -= 18.0 * maAdjCount;
+              if (wCtx.hmCount >= 1 && pUnit.cls === "light_melee") {
+                sWave -= 45.0 * wCtx.hmCount;
               }
               const lrDef = (pUnit.def && pUnit.def["light_ranged"]) || 0;
               if (pUnit.cls === "heavy_ranged" && lrDef >= 50) {
                 if (wCtx.maCount === 0) {
-                  sWave += 14.0;
-                } else if (hmNearCount >= 1 && maAdjCount === 0) {
-                  sWave += 20.0;
+                  sWave += 16.0;
+                } else if (wCtx.hmCount >= 1) {
+                  sWave += 22.0;
                 }
+              }
+            }
+
+            // Rule A1: When countering Mage (targetEu is Mage):
+            // If enemy wave has Heavy Melee (Orc General / Swamp Monster), melee Mage-counters (Acrobat, Cerberus) get intercepted by HM;
+            // Ranged Mage-counters (Elite Archer with +104% city buff) stay safely in backline!
+            if (targetEu.cls === "mage" && wCtx.hmCount >= 1) {
+              if ((pUnit.rng || 1) === 1) {
+                sWave -= 28.0 * wCtx.hmCount;
+              } else if (pUnit.cls === "light_ranged") {
+                sWave += 18.0;
               }
             }
 
