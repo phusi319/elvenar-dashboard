@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.3.1
+// @version      6.3.2
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -131,27 +131,11 @@
         squadSize: 4299,
         squads: {
             "barracks_lm": 20.8, "barracks_lr": 513, "barracks_ma": 258, "barracks_hm": 233, "barracks_hr": 400,
-            "training_lm": 217, "training_lr": 179.8, "training_ma": 195, "training_hm": 15.6, "training_hr": 131,
+            "training_lm": 217, "training_lr": 157, "training_ma": 195, "training_hm": 15.6, "training_hr": 131,
             "mercenary_lm": 196, "mercenary_lr": 174, "mercenary_ma": 207, "mercenary_hm": 216, "mercenary_hr": 245
         },
         raw: {}
     };
-
-    // Tự động phục hồi nếu Mercenary Camp hoặc Dryad bị dính cache trọng số cũ
-    if (trackedArmy && trackedArmy.squads) {
-        if (trackedArmy.squads["mercenary_lm"] < 150 || trackedArmy.squads["mercenary_hm"] < 150) {
-            trackedArmy.squads["mercenary_lm"] = 196;
-            trackedArmy.squads["mercenary_lr"] = 174;
-            trackedArmy.squads["mercenary_ma"] = 207;
-            trackedArmy.squads["mercenary_hm"] = 216;
-            trackedArmy.squads["mercenary_hr"] = 245;
-            try { GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy)); } catch(e) {}
-        }
-        if (trackedArmy.squads["training_lr"] < 50 && trackedArmy.squads["training_lm"] > 100) {
-            trackedArmy.squads["training_lr"] = 179.8;
-            try { GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy)); } catch(e) {}
-        }
-    }
 
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
@@ -437,6 +421,11 @@
         "mc_hr": "mercenary_hr"
     };
 
+    function formatSquadCount(numSquads) {
+        if (numSquads >= 100) return Math.floor(numSquads);
+        return Math.round(numSquads * 10) / 10;
+    }
+
     function recalculateSquads() {
         if (!trackedArmy || !trackedArmy.raw) return;
         const clusterSize = trackedArmy.squadSize || 4299;
@@ -452,7 +441,7 @@
                     }
                 }
                 const numSquads = (rawCount * weight) / clusterSize;
-                trackedArmy.squads[cellKey] = Math.round(numSquads * 10) / 10;
+                trackedArmy.squads[cellKey] = formatSquadCount(numSquads);
             }
         }
     }
@@ -471,14 +460,58 @@
         trackedArmy.squadSize = effectiveCluster;
         trackedArmy.raw[cellKey] = size;
         const numSquads = (size * weight) / effectiveCluster;
-        trackedArmy.squads[cellKey] = Math.round(numSquads * 10) / 10;
+        trackedArmy.squads[cellKey] = formatSquadCount(numSquads);
         return true;
     }
+
+    // Cập nhật kho quân dự bị trực tiếp từ CityResourceVO (Kho tài nguyên thực của người chơi)
+    function processTroopResources(resources) {
+        if (!resources) return false;
+        const clusterSize = (trackedArmy && trackedArmy.squadSize) || 4299;
+        if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
+        if (!trackedArmy.raw) trackedArmy.raw = {};
+        if (!trackedArmy.squads) trackedArmy.squads = {};
+
+        let changed = false;
+        for (let prefix in troopKeyMap) {
+            if (resources[prefix] !== undefined && resources[prefix] !== null) {
+                const rawCount = Number(resources[prefix]) || 0;
+                const cellKey = troopKeyMap[prefix];
+                if (trackedArmy.raw[cellKey] !== rawCount) {
+                    trackedArmy.raw[cellKey] = rawCount;
+                    changed = true;
+                }
+                const weight = troopWeightMap[prefix] || 1;
+                const numSquads = (rawCount * weight) / clusterSize;
+                const squadFormatted = formatSquadCount(numSquads);
+                if (trackedArmy.squads[cellKey] !== squadFormatted) {
+                    trackedArmy.squads[cellKey] = squadFormatted;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+        }
+        return changed;
+    }
+
+    // Tự động tính toán lại số squad chuẩn xác nếu đã có bộ đệm raw từ trước
+    try {
+        if (trackedArmy && trackedArmy.raw && Object.keys(trackedArmy.raw).length > 0) {
+            recalculateSquads();
+        }
+    } catch(e) {}
 
     // --- 2. BẮT GÓI TIN GAME ---
     function handleData(data) {
         try {
             const now = Math.floor(Date.now() / 1000);
+            let hasFullResources = false;
+            try {
+                const dataStr = JSON.stringify(data);
+                hasFullResources = dataStr.includes("CityResourcesService") && dataStr.includes("getResources");
+            } catch(e) {}
 
             function walk(node) {
                 if (!node || typeof node !== 'object') return;
@@ -608,14 +641,17 @@
                     }
                 }
 
-                // D. Bắt dữ liệu kho Hàng Hóa Tiêu Chuẩn (CHỈ nhận kho thực của người chơi, bỏ qua chi phí nâng cấp nhà)
+                // D. Bắt dữ liệu kho Hàng Hóa Tiêu Chuẩn & Toàn Bộ 15 Đơn Vị Quân Dự Bị (Kho thực của người chơi)
                 if (node.__class__ === "CityResourceVO" && node.resources && Object.keys(node.resources).length >= 10 && node.resources.money !== undefined && node.resources.marble !== undefined) {
                     processCityResources(node.resources);
+                    if (processTroopResources(node.resources)) {
+                        triggerLiveStreamPush();
+                    }
                 }
 
                 // Tự động nhận diện trọng lượng quân lính trực tiếp từ hệ thống balancing của game
-                if (node.__class__ === "BattleUnitTypeVO" && node.unitTypeId && node.unitWeight) {
-                    const prefix = node.unitTypeId.substring(0, 5);
+                if (node.__class__ === "BattleUnitTypeVO" && (node.unitTypeId || node.baseName) && node.unitWeight) {
+                    const prefix = (node.baseName || node.unitTypeId || "").substring(0, 5);
                     if (troopWeightMap[prefix] !== undefined) {
                         troopWeightMap[prefix] = Number(node.unitWeight);
                     }
@@ -638,6 +674,33 @@
                             if (updateSingleSquad(sq, clusterSize)) changed = true;
                         });
                         if (changed) {
+                            GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+                            triggerLiveStreamPush();
+                        }
+                    }
+                }
+
+                // F. Giao dịch tăng/giảm lính tức thời (Dự phòng trường hợp gói tin không kèm CityResourcesService)
+                const reqClass = node.requestClass || node.service;
+                const reqMethod = node.requestMethod || node.method;
+                if (reqClass === "ArmyService" && reqMethod === "addUnit" && node.responseData) {
+                    if (!hasFullResources) {
+                        const res = node.responseData;
+                        const uId = res.unitTypeId || "";
+                        const delta = Number(res.size) || 0;
+                        const prefix = uId.substring(0, 5);
+                        const cellKey = troopKeyMap[prefix];
+                        if (cellKey && delta !== 0) {
+                            const clusterSize = (trackedArmy && trackedArmy.squadSize) || 4299;
+                            if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
+                            if (!trackedArmy.raw) trackedArmy.raw = {};
+                            if (!trackedArmy.squads) trackedArmy.squads = {};
+                            const oldRaw = trackedArmy.raw[cellKey] || 0;
+                            const newRaw = Math.max(0, oldRaw + delta);
+                            trackedArmy.raw[cellKey] = newRaw;
+                            const weight = troopWeightMap[prefix] || 1;
+                            const numSquads = (newRaw * weight) / clusterSize;
+                            trackedArmy.squads[cellKey] = formatSquadCount(numSquads);
                             GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
                             triggerLiveStreamPush();
                         }
@@ -713,7 +776,9 @@
                     !text.includes("StartupService") &&
                     !text.includes("CityResourcesService") &&
                     !text.includes("CityResourceVO") &&
+                    !text.includes("ArmyService") &&
                     !text.includes("ArmyDetails") &&
+                    !text.includes("BattlefieldService") &&
                     !text.includes("UnitSquad") &&
                     !text.includes("unitSquad") &&
                     !text.includes("unitTypeId") &&
