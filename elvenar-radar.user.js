@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.2.8
+// @version      6.2.9
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -389,6 +389,49 @@
         ]);
     }
 
+    const troopWeightMap = {
+        "eb_lm": 1, "eb_lr": 1, "eb_ma": 4, "eb_hm": 6, "eb_hr": 6,
+        "hb_lm": 1, "hb_lr": 1, "hb_ma": 4, "hb_hm": 6, "hb_hr": 6,
+        "tg_lm": 1, "tg_lr": 2, "tg_ma": 3, "tg_hm": 2, "tg_hr": 2,
+        "mc_lm": 1, "mc_lr": 2, "mc_ma": 2, "mc_hm": 3, "mc_hr": 3
+    };
+
+    const troopKeyMap = {
+        "eb_lm": "barracks_lm", "hb_lm": "barracks_lm",
+        "eb_lr": "barracks_lr", "hb_lr": "barracks_lr",
+        "eb_ma": "barracks_ma", "hb_ma": "barracks_ma",
+        "eb_hm": "barracks_hm", "hb_hm": "barracks_hm",
+        "eb_hr": "barracks_hr", "hb_hr": "barracks_hr",
+        "tg_lm": "training_lm",
+        "tg_lr": "training_lr",
+        "tg_ma": "training_ma",
+        "tg_hm": "training_hm",
+        "tg_hr": "training_hr",
+        "mc_lm": "mercenary_lm",
+        "mc_lr": "mercenary_lr",
+        "mc_ma": "mercenary_ma",
+        "mc_hm": "mercenary_hm",
+        "mc_hr": "mercenary_hr"
+    };
+
+    function updateSingleSquad(sq, clusterSize) {
+        if (!sq || !sq.unitTypeId) return false;
+        const prefix = sq.unitTypeId.substring(0, 5);
+        const cellKey = troopKeyMap[prefix];
+        if (!cellKey) return false;
+        const weight = troopWeightMap[prefix] || 1;
+        const size = sq.size !== undefined ? sq.size : (sq.amount !== undefined ? sq.amount : (sq.count !== undefined ? sq.count : 0));
+        const effectiveCluster = clusterSize || (trackedArmy && trackedArmy.squadSize) || 4299;
+        if (!trackedArmy) trackedArmy = { squadSize: effectiveCluster, squads: {}, raw: {} };
+        if (!trackedArmy.raw) trackedArmy.raw = {};
+        if (!trackedArmy.squads) trackedArmy.squads = {};
+        trackedArmy.squadSize = effectiveCluster;
+        trackedArmy.raw[cellKey] = size;
+        const numSquads = (size * weight) / effectiveCluster;
+        trackedArmy.squads[cellKey] = Math.round(numSquads * 10) / 10;
+        return true;
+    }
+
     // --- 2. BẮT GÓI TIN GAME ---
     function handleData(data) {
         try {
@@ -527,53 +570,38 @@
                     processCityResources(node.resources);
                 }
 
-                // E. Bắt dữ liệu Quân Đội & Quân Số Dự Bị (ArmyDetailsVO & UnitSquadVO)
-                if (node.__class__ === "ArmyDetailsVO") {
-                    const clusterSize = node.battleClusterSize || 4299;
-                    const unitSquads = node.unitSquads || [];
+                // E. Bắt dữ liệu Quân Đội & Quân Số Dự Bị (ArmyDetailsVO, unitSquads, UnitSquadVO)
+                if (node.__class__ === "ArmyDetailsVO" || (node.battleClusterSize && Array.isArray(node.unitSquads)) || (node.army_details && Array.isArray(node.army_details.unitSquads))) {
+                    const armyObj = node.army_details || node;
+                    const clusterSize = armyObj.battleClusterSize || (trackedArmy && trackedArmy.squadSize) || 4299;
                     if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
                     trackedArmy.squadSize = clusterSize;
-
-                    const weightMap = {
-                        "eb_lm": 1, "eb_lr": 1, "eb_ma": 4, "eb_hm": 6, "eb_hr": 6,
-                        "hb_lm": 1, "hb_lr": 1, "hb_ma": 4, "hb_hm": 6, "hb_hr": 6,
-                        "tg_lm": 1, "tg_lr": 2, "tg_ma": 3, "tg_hm": 2, "tg_hr": 2,
-                        "mc_lm": 1, "mc_lr": 2, "mc_ma": 2, "mc_hm": 3, "mc_hr": 3
-                    };
-
-                    const keyMap = {
-                        "eb_lm": "barracks_lm", "hb_lm": "barracks_lm",
-                        "eb_lr": "barracks_lr", "hb_lr": "barracks_lr",
-                        "eb_ma": "barracks_ma", "hb_ma": "barracks_ma",
-                        "eb_hm": "barracks_hm", "hb_hm": "barracks_hm",
-                        "eb_hr": "barracks_hr", "hb_hr": "barracks_hr",
-                        "tg_lm": "training_lm",
-                        "tg_lr": "training_lr",
-                        "tg_ma": "training_ma",
-                        "tg_hm": "training_hm",
-                        "tg_hr": "training_hr",
-                        "mc_lm": "mercenary_lm",
-                        "mc_lr": "mercenary_lr",
-                        "mc_ma": "mercenary_ma",
-                        "mc_hm": "mercenary_hm",
-                        "mc_hr": "mercenary_hr"
-                    };
-
-                    unitSquads.forEach(sq => {
-                        const uId = sq.unitTypeId || "";
-                        const prefix = uId.substring(0, 5);
-                        const cellKey = keyMap[prefix];
-                        const weight = weightMap[prefix] || 1;
-                        const size = sq.size || 0;
-                        if (cellKey) {
-                            if (!trackedArmy.raw) trackedArmy.raw = {};
-                            trackedArmy.raw[cellKey] = size;
-                            const numSquads = (size * weight) / clusterSize;
-                            trackedArmy.squads[cellKey] = Math.round(numSquads * 10) / 10;
-                        }
+                    let changed = false;
+                    if (Array.isArray(armyObj.unitSquads)) {
+                        armyObj.unitSquads.forEach(sq => {
+                            if (updateSingleSquad(sq, clusterSize)) changed = true;
+                        });
+                    }
+                    if (changed) {
+                        GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+                        triggerLiveStreamPush();
+                    }
+                } else if (Array.isArray(node.unitSquads)) {
+                    const clusterSize = (trackedArmy && trackedArmy.squadSize) || 4299;
+                    let changed = false;
+                    node.unitSquads.forEach(sq => {
+                        if (updateSingleSquad(sq, clusterSize)) changed = true;
                     });
-
-                    GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+                    if (changed) {
+                        GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+                        triggerLiveStreamPush();
+                    }
+                } else if (node.__class__ === "UnitSquadVO" || (node.unitTypeId && (node.size !== undefined || node.amount !== undefined || node.count !== undefined))) {
+                    const clusterSize = (trackedArmy && trackedArmy.squadSize) || 4299;
+                    if (updateSingleSquad(node, clusterSize)) {
+                        GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+                        triggerLiveStreamPush();
+                    }
                 }
 
                 if (Array.isArray(node)) {
@@ -609,6 +637,14 @@
                     !text.includes("CityResourceVO") &&
                     !text.includes("ArmyDetails") &&
                     !text.includes("UnitSquad") &&
+                    !text.includes("unitSquad") &&
+                    !text.includes("unitTypeId") &&
+                    !text.includes("army_details") &&
+                    !text.includes("battleClusterSize") &&
+                    !text.includes("BattleService") &&
+                    !text.includes("FightService") &&
+                    !text.includes("TournamentService") &&
+                    !text.includes("SpireService") &&
                     !text.includes("barrack") &&
                     !text.includes("workshop") &&
                     !text.includes("ProductionQueue") &&
@@ -976,7 +1012,8 @@
                 w: compactPayload.w,
                 a: compactPayload.a,
                 p: compactPayload.p,
-                r: compactPayload.r
+                r: compactPayload.r,
+                arm: compactPayload.arm
             });
             const hasDataChanged = (currentSignature !== lastSentDataSignature);
 
