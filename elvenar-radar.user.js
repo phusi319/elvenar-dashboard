@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.4.1
+// @version      6.4.2
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -434,7 +434,8 @@
 
     function recalculateSquads() {
         if (!trackedArmy || !trackedArmy.raw) return;
-        const clusterSize = trackedArmy.squadSize || 4299;
+        const clusterSize = Number(trackedArmy.squadSize) || 0;
+        if (clusterSize <= 0) return;
         if (!trackedArmy.squads) trackedArmy.squads = {};
         for (let cellKey in trackedArmy.raw) {
             const rawCount = trackedArmy.raw[cellKey];
@@ -459,22 +460,27 @@
         if (!cellKey) return false;
         const weight = troopWeightMap[prefix] || 1;
         const size = sq.size !== undefined ? sq.size : (sq.amount !== undefined ? sq.amount : (sq.count !== undefined ? sq.count : 0));
-        const effectiveCluster = clusterSize || (trackedArmy && trackedArmy.squadSize) || 4299;
-        if (!trackedArmy) trackedArmy = { squadSize: effectiveCluster, squads: {}, raw: {} };
+        const effectiveCluster = Number(clusterSize) || Number(trackedArmy && trackedArmy.squadSize) || 0;
+        if (!trackedArmy) trackedArmy = { squadSize: effectiveCluster, squads: {}, raw: {}, tiers: {} };
         if (!trackedArmy.raw) trackedArmy.raw = {};
         if (!trackedArmy.squads) trackedArmy.squads = {};
-        trackedArmy.squadSize = effectiveCluster;
+        if (!trackedArmy.tiers) trackedArmy.tiers = {};
+        const tierMatch = String(sq.unitTypeId).match(/_(\d+)$/);
+        if (tierMatch) trackedArmy.tiers[cellKey] = Number(tierMatch[1]);
+        if (effectiveCluster > 0) trackedArmy.squadSize = effectiveCluster;
         trackedArmy.raw[cellKey] = size;
-        const numSquads = (size * weight) / effectiveCluster;
-        trackedArmy.squads[cellKey] = formatSquadCount(numSquads);
+        if (effectiveCluster > 0) {
+            const numSquads = (size * weight) / effectiveCluster;
+            trackedArmy.squads[cellKey] = formatSquadCount(numSquads);
+        }
         return true;
     }
 
     // Cập nhật kho quân dự bị trực tiếp từ CityResourceVO (Kho tài nguyên thực của người chơi)
     function processTroopResources(resources) {
         if (!resources) return false;
-        const clusterSize = (trackedArmy && trackedArmy.squadSize) || 4299;
-        if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
+        const clusterSize = Number(trackedArmy && trackedArmy.squadSize) || 0;
+        if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {}, tiers: {} };
         if (!trackedArmy.raw) trackedArmy.raw = {};
         if (!trackedArmy.squads) trackedArmy.squads = {};
 
@@ -487,12 +493,14 @@
                     trackedArmy.raw[cellKey] = rawCount;
                     changed = true;
                 }
-                const weight = troopWeightMap[prefix] || 1;
-                const numSquads = (rawCount * weight) / clusterSize;
-                const squadFormatted = formatSquadCount(numSquads);
-                if (trackedArmy.squads[cellKey] !== squadFormatted) {
-                    trackedArmy.squads[cellKey] = squadFormatted;
-                    changed = true;
+                if (clusterSize > 0) {
+                    const weight = troopWeightMap[prefix] || 1;
+                    const numSquads = (rawCount * weight) / clusterSize;
+                    const squadFormatted = formatSquadCount(numSquads);
+                    if (trackedArmy.squads[cellKey] !== squadFormatted) {
+                        trackedArmy.squads[cellKey] = squadFormatted;
+                        changed = true;
+                    }
                 }
             }
         }
@@ -569,7 +577,7 @@
 
                     if (isWorkshop) {
                         const match = entId.match(/\d+/);
-                        const level = match ? parseInt(match[0], 10) : (workshops[uid]?.level || 15);
+                        const level = Number(node.level) || (match ? parseInt(match[0], 10) : (workshops[uid]?.level || 0));
 
                         let status = workshops[uid]?.status || "Idle";
                         let finishTime = workshops[uid]?.finishTime || 0;
@@ -655,6 +663,18 @@
                     }
                 }
 
+                // Tự động bắt Squad Size thực tế từ EffectsService (EffectSourceVO: squadSize)
+                if (node.__class__ === "EffectSourceVO" && node.name === "squadSize" && Number(node.value) > 0) {
+                    const newSqSize = Number(node.value);
+                    if (!trackedArmy) trackedArmy = { squadSize: newSqSize, squads: {}, raw: {}, tiers: {} };
+                    if (trackedArmy.squadSize !== newSqSize) {
+                        trackedArmy.squadSize = newSqSize;
+                        recalculateSquads();
+                        GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+                        triggerLiveStreamPush();
+                    }
+                }
+
                 // Tự động nhận diện trọng lượng quân lính trực tiếp từ hệ thống balancing của game
                 if (node.__class__ === "BattleUnitTypeVO" && (node.unitTypeId || node.baseName) && node.unitWeight) {
                     const prefix = (node.baseName || node.unitTypeId || "").substring(0, 5);
@@ -670,12 +690,25 @@
 
                 if (isArmyDetails) {
                     const armyObj = node.army_details || node;
-                    const clusterSize = armyObj.battleClusterSize || (trackedArmy && trackedArmy.squadSize) || 4299;
+                    const clusterSize = Number(armyObj.battleClusterSize) || Number(trackedArmy && trackedArmy.squadSize) || 0;
                     const unitSquads = armyObj.unitSquads || [];
                     if (Array.isArray(unitSquads) && unitSquads.length >= 10) {
-                        if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
-                        trackedArmy.squadSize = clusterSize;
+                        if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {}, tiers: {} };
+                        if (!trackedArmy.tiers) trackedArmy.tiers = {};
+                        if (Array.isArray(armyObj.availableUnitTypeIds)) {
+                            armyObj.availableUnitTypeIds.forEach(uid => {
+                                const pre = String(uid).substring(0, 5);
+                                const ck = troopKeyMap[pre];
+                                const m = String(uid).match(/_(\d+)$/);
+                                if (ck && m) trackedArmy.tiers[ck] = Number(m[1]);
+                            });
+                        }
                         let changed = false;
+                        if (clusterSize > 0 && trackedArmy.squadSize !== clusterSize) {
+                            trackedArmy.squadSize = clusterSize;
+                            recalculateSquads();
+                            changed = true;
+                        }
                         unitSquads.forEach(sq => {
                             if (updateSingleSquad(sq, clusterSize)) changed = true;
                         });
@@ -697,16 +730,18 @@
                         const prefix = uId.substring(0, 5);
                         const cellKey = troopKeyMap[prefix];
                         if (cellKey && delta !== 0) {
-                            const clusterSize = (trackedArmy && trackedArmy.squadSize) || 4299;
-                            if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
+                            const clusterSize = Number(trackedArmy && trackedArmy.squadSize) || 0;
+                            if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {}, tiers: {} };
                             if (!trackedArmy.raw) trackedArmy.raw = {};
                             if (!trackedArmy.squads) trackedArmy.squads = {};
                             const oldRaw = trackedArmy.raw[cellKey] || 0;
                             const newRaw = Math.max(0, oldRaw + delta);
                             trackedArmy.raw[cellKey] = newRaw;
-                            const weight = troopWeightMap[prefix] || 1;
-                            const numSquads = (newRaw * weight) / clusterSize;
-                            trackedArmy.squads[cellKey] = formatSquadCount(numSquads);
+                            if (clusterSize > 0) {
+                                const weight = troopWeightMap[prefix] || 1;
+                                const numSquads = (newRaw * weight) / clusterSize;
+                                trackedArmy.squads[cellKey] = formatSquadCount(numSquads);
+                            }
                             GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
                             triggerLiveStreamPush();
                         }
@@ -1056,7 +1091,7 @@
 
         // 2. Workshops: [c, l, f, p, r, pf, st, i]
         const wsList = Object.values(workshops);
-        let w = [0, 15, 0, 0, 0, provisionSpellFinishTime || 0, wsStoppedSince || 0, 0];
+        let w = [0, 0, 0, 0, 0, provisionSpellFinishTime || 0, wsStoppedSince || 0, 0];
         if (wsList.length > 0) {
             const maxLevel = Math.max(...wsList.map(item => item.level));
             const topWs = wsList.filter(item => item.level === maxLevel);
@@ -1140,9 +1175,11 @@
             "training_lm", "training_lr", "training_ma", "training_hm", "training_hr",
             "mercenary_lm", "mercenary_lr", "mercenary_ma", "mercenary_hm", "mercenary_hr"
         ];
+        const tiers = trackedArmy.tiers || {};
         return [
             trackedArmy.squadSize || 0,
-            keys.map(k => trackedArmy.squads[k] !== undefined ? trackedArmy.squads[k] : 0)
+            keys.map(k => trackedArmy.squads[k] !== undefined ? trackedArmy.squads[k] : 0),
+            keys.map(k => tiers[k] || 0)
         ];
     }
 
