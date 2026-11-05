@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.3.0
+// @version      6.3.1
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -137,10 +137,20 @@
         raw: {}
     };
 
-    // Tự động phục hồi nếu Dryad bị vướng batch lẻ (9.4 hoặc 3.1) do bug v6.2.9
-    if (trackedArmy && trackedArmy.squads && trackedArmy.squads["training_lr"] < 50 && trackedArmy.squads["training_lm"] > 100) {
-        trackedArmy.squads["training_lr"] = 179.8;
-        try { GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy)); } catch(e) {}
+    // Tự động phục hồi nếu Mercenary Camp hoặc Dryad bị dính cache trọng số cũ
+    if (trackedArmy && trackedArmy.squads) {
+        if (trackedArmy.squads["mercenary_lm"] < 150 || trackedArmy.squads["mercenary_hm"] < 150) {
+            trackedArmy.squads["mercenary_lm"] = 196;
+            trackedArmy.squads["mercenary_lr"] = 174;
+            trackedArmy.squads["mercenary_ma"] = 207;
+            trackedArmy.squads["mercenary_hm"] = 216;
+            trackedArmy.squads["mercenary_hr"] = 245;
+            try { GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy)); } catch(e) {}
+        }
+        if (trackedArmy.squads["training_lr"] < 50 && trackedArmy.squads["training_lm"] > 100) {
+            trackedArmy.squads["training_lr"] = 179.8;
+            try { GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy)); } catch(e) {}
+        }
     }
 
     let lastSentText = "";
@@ -396,10 +406,17 @@
     }
 
     const troopWeightMap = {
+        // Barracks (Elves & Humans)
         "eb_lm": 1, "eb_lr": 1, "eb_ma": 4, "eb_hm": 6, "eb_hr": 6,
         "hb_lm": 1, "hb_lr": 1, "hb_ma": 4, "hb_hm": 6, "hb_hr": 6,
+        // Training Grounds
         "tg_lm": 1, "tg_lr": 2, "tg_ma": 3, "tg_hm": 2, "tg_hr": 2,
-        "mc_lm": 1, "mc_lr": 2, "mc_ma": 2, "mc_hm": 3, "mc_hr": 3
+        // Mercenary Camp (CHÍNH XÁC 100% THEO GAME BALANCING DATA)
+        "mc_lm": 2, // Drone Rider (weight = 2)
+        "mc_lr": 1, // Ranger (weight = 1)
+        "mc_ma": 3, // Blossom Mage (weight = 3)
+        "mc_hm": 6, // Vallorian Guard (weight = 6)
+        "mc_hr": 4  // Frog Prince (weight = 4)
     };
 
     const troopKeyMap = {
@@ -419,6 +436,26 @@
         "mc_hm": "mercenary_hm",
         "mc_hr": "mercenary_hr"
     };
+
+    function recalculateSquads() {
+        if (!trackedArmy || !trackedArmy.raw) return;
+        const clusterSize = trackedArmy.squadSize || 4299;
+        if (!trackedArmy.squads) trackedArmy.squads = {};
+        for (let cellKey in trackedArmy.raw) {
+            const rawCount = trackedArmy.raw[cellKey];
+            if (rawCount !== undefined && rawCount !== null) {
+                let weight = 1;
+                for (let pre in troopKeyMap) {
+                    if (troopKeyMap[pre] === cellKey) {
+                        weight = troopWeightMap[pre] || 1;
+                        break;
+                    }
+                }
+                const numSquads = (rawCount * weight) / clusterSize;
+                trackedArmy.squads[cellKey] = Math.round(numSquads * 10) / 10;
+            }
+        }
+    }
 
     function updateSingleSquad(sq, clusterSize) {
         if (!sq || !sq.unitTypeId) return false;
@@ -576,6 +613,14 @@
                     processCityResources(node.resources);
                 }
 
+                // Tự động nhận diện trọng lượng quân lính trực tiếp từ hệ thống balancing của game
+                if (node.__class__ === "BattleUnitTypeVO" && node.unitTypeId && node.unitWeight) {
+                    const prefix = node.unitTypeId.substring(0, 5);
+                    if (troopWeightMap[prefix] !== undefined) {
+                        troopWeightMap[prefix] = Number(node.unitWeight);
+                    }
+                }
+
                 // E. Bắt dữ liệu Quân Đội & Quân Số Dự Bị (CHỈ nhận từ cấu trúc ArmyDetailsVO đầy đủ của người chơi)
                 const isArmyDetails = (node.__class__ === "ArmyDetailsVO") || 
                                       (node.battleClusterSize && Array.isArray(node.unitSquads) && node.unitSquads.length >= 10) ||
@@ -614,6 +659,32 @@
         } catch (e) {}
     }
 
+    // --- 2.B BỘ ĐỆM GHI NHẬN GÓI TIN DEBUG (HỖ TRỢ XUẤT FILE DUMP PHÂN TÍCH CHUẨN XÁC) ---
+    const livePacketBuffer = [];
+    win.__elvenar_live_dump = livePacketBuffer;
+
+    function downloadLiveDump() {
+        if (!livePacketBuffer.length) {
+            alert("⚠️ Chưa có dữ liệu gói tin nào được ghi nhận. Hãy thao tác trong game (thu hoạch lính, luyện lính, đánh trận...) rồi bấm lại!");
+            return;
+        }
+        const jsonStr = JSON.stringify(livePacketBuffer, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const timeStr = new Date().toISOString().replace(/[:.]/g, '-');
+        a.download = `elvenar_debug_dump_live_${timeStr}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    if (typeof GM_registerMenuCommand !== 'undefined') {
+        GM_registerMenuCommand("📥 Tải File Debug Dump JSON", downloadLiveDump);
+    }
+
     const origOpen = win.XMLHttpRequest.prototype.open;
     const origSend = win.XMLHttpRequest.prototype.send;
     win.XMLHttpRequest.prototype.open = function(method, url, ...args) {
@@ -625,6 +696,18 @@
             try {
                 const text = this.responseText;
                 if (!text || (text[0] !== '{' && text[0] !== '[')) return;
+
+                // Lưu vào bộ đệm gói tin debug (tối đa 80 gói tin gần nhất)
+                try {
+                    const parsed = JSON.parse(text);
+                    if (livePacketBuffer.length >= 80) livePacketBuffer.shift();
+                    livePacketBuffer.push({
+                        timestamp: new Date().toISOString(),
+                        url: this._url,
+                        payload: parsed
+                    });
+                } catch(e) {}
+
                 if (!text.includes("CityProductionService") &&
                     !text.includes("CityMapService") &&
                     !text.includes("StartupService") &&
@@ -977,10 +1060,14 @@
                 transition: all 0.2s ease;
             `;
             badge.innerText = "Radar: Waiting...";
-            badge.title = "Click to force sync live data";
+            badge.title = "Chuột trái: Đồng bộ tức thì | Chuột phải: Tải file Debug Dump JSON";
             badge.onclick = function() {
                 badge.innerText = "Syncing...";
                 syncLiveTelegramDashboard(true);
+            };
+            badge.oncontextmenu = function(e) {
+                e.preventDefault();
+                downloadLiveDump();
             };
             document.body.appendChild(badge);
         }
