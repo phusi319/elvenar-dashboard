@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.2.9
+// @version      6.3.0
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -131,11 +131,17 @@
         squadSize: 4299,
         squads: {
             "barracks_lm": 20.8, "barracks_lr": 513, "barracks_ma": 258, "barracks_hm": 233, "barracks_hr": 400,
-            "training_lm": 217, "training_lr": 157, "training_ma": 195, "training_hm": 15.6, "training_hr": 131,
+            "training_lm": 217, "training_lr": 179.8, "training_ma": 195, "training_hm": 15.6, "training_hr": 131,
             "mercenary_lm": 196, "mercenary_lr": 174, "mercenary_ma": 207, "mercenary_hm": 216, "mercenary_hr": 245
         },
         raw: {}
     };
+
+    // Tự động phục hồi nếu Dryad bị vướng batch lẻ (9.4 hoặc 3.1) do bug v6.2.9
+    if (trackedArmy && trackedArmy.squads && trackedArmy.squads["training_lr"] < 50 && trackedArmy.squads["training_lm"] > 100) {
+        trackedArmy.squads["training_lr"] = 179.8;
+        try { GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy)); } catch(e) {}
+    }
 
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
@@ -570,37 +576,26 @@
                     processCityResources(node.resources);
                 }
 
-                // E. Bắt dữ liệu Quân Đội & Quân Số Dự Bị (ArmyDetailsVO, unitSquads, UnitSquadVO)
-                if (node.__class__ === "ArmyDetailsVO" || (node.battleClusterSize && Array.isArray(node.unitSquads)) || (node.army_details && Array.isArray(node.army_details.unitSquads))) {
+                // E. Bắt dữ liệu Quân Đội & Quân Số Dự Bị (CHỈ nhận từ cấu trúc ArmyDetailsVO đầy đủ của người chơi)
+                const isArmyDetails = (node.__class__ === "ArmyDetailsVO") || 
+                                      (node.battleClusterSize && Array.isArray(node.unitSquads) && node.unitSquads.length >= 10) ||
+                                      (node.army_details && Array.isArray(node.army_details.unitSquads) && node.army_details.unitSquads.length >= 10);
+
+                if (isArmyDetails) {
                     const armyObj = node.army_details || node;
                     const clusterSize = armyObj.battleClusterSize || (trackedArmy && trackedArmy.squadSize) || 4299;
-                    if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
-                    trackedArmy.squadSize = clusterSize;
-                    let changed = false;
-                    if (Array.isArray(armyObj.unitSquads)) {
-                        armyObj.unitSquads.forEach(sq => {
+                    const unitSquads = armyObj.unitSquads || [];
+                    if (Array.isArray(unitSquads) && unitSquads.length >= 10) {
+                        if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
+                        trackedArmy.squadSize = clusterSize;
+                        let changed = false;
+                        unitSquads.forEach(sq => {
                             if (updateSingleSquad(sq, clusterSize)) changed = true;
                         });
-                    }
-                    if (changed) {
-                        GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
-                        triggerLiveStreamPush();
-                    }
-                } else if (Array.isArray(node.unitSquads)) {
-                    const clusterSize = (trackedArmy && trackedArmy.squadSize) || 4299;
-                    let changed = false;
-                    node.unitSquads.forEach(sq => {
-                        if (updateSingleSquad(sq, clusterSize)) changed = true;
-                    });
-                    if (changed) {
-                        GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
-                        triggerLiveStreamPush();
-                    }
-                } else if (node.__class__ === "UnitSquadVO" || (node.unitTypeId && (node.size !== undefined || node.amount !== undefined || node.count !== undefined))) {
-                    const clusterSize = (trackedArmy && trackedArmy.squadSize) || 4299;
-                    if (updateSingleSquad(node, clusterSize)) {
-                        GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
-                        triggerLiveStreamPush();
+                        if (changed) {
+                            GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+                            triggerLiveStreamPush();
+                        }
                     }
                 }
 
