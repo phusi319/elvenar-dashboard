@@ -1938,23 +1938,52 @@
       return { ...baseEntry, rawId: str, stars };
     }
 
+    function getActiveArmyBuffs() {
+      // Returns { hp: decimal, atk: { light_melee, light_ranged, mage, heavy_melee, heavy_ranged } }
+      const b = state.arm && Array.isArray(state.arm.buffs) ? state.arm.buffs : null;
+      if (b && b.length >= 6) {
+        return {
+          hasSynced: true,
+          hp: (Number(b[0]) || 0) / 100.0,
+          atk: {
+            "light_melee":  (Number(b[1]) || 0) / 100.0,
+            "light_ranged": (Number(b[2]) || 0) / 100.0,
+            "mage":         (Number(b[3]) || 0) / 100.0,
+            "heavy_melee":  (Number(b[4]) || 0) / 100.0,
+            "heavy_ranged": (Number(b[5]) || 0) / 100.0
+          },
+          rawPct: b
+        };
+      }
+      return {
+        hasSynced: false,
+        hp: 0,
+        atk: { "light_melee": 0, "light_ranged": 0, "mage": 0, "heavy_melee": 0, "heavy_ranged": 0 },
+        rawPct: [0, 0, 0, 0, 0, 0]
+      };
+    }
+
     function computeSpatialWeight(slotI, slotJ, enemyUnit) {
       const dy = Math.abs(SLOT_Y[slotI] - SLOT_Y[slotJ]);
       const rng = enemyUnit.rng || 1;
       const mv = enemyUnit.mv || 2;
       const reach = rng + mv;
       // Direct opposite slot (dy === 0) is the primary counter responsibility (1.00).
-      // Adjacent slots provide cross-fire survival context without overriding the direct slot counter!
+      // Long-reach assassins (Mist Walker reach 8, Hellhound reach 8, Cannoneer reach 11) project cross-fire threat across the map!
       if (dy === 0) return 1.00;
-      if (dy === 1) return (rng >= 3 || mv >= 4) ? 0.34 : 0.18;
-      if (dy === 2) return (reach >= 7 || rng >= 4) ? 0.18 : 0.08;
-      if (dy === 3) return (rng >= 4 || reach >= 7) ? 0.10 : 0.04;
-      return (rng >= 4 || reach >= 7) ? 0.06 : 0.02;
+      if (dy === 1) return reach >= 8 ? 0.42 : ((rng >= 3 || mv >= 4) ? 0.34 : 0.18);
+      if (dy === 2) return reach >= 8 ? 0.28 : ((reach >= 7 || rng >= 4) ? 0.18 : 0.08);
+      if (dy === 3) return reach >= 8 ? 0.18 : ((rng >= 4 || reach >= 7) ? 0.10 : 0.04);
+      return reach >= 8 ? 0.12 : ((rng >= 4 || reach >= 7) ? 0.06 : 0.02);
     }
 
-    function scoreUnitPair(pUnit, eUnit, dy, waveCtx) {
-      const pHp = (pUnit.hp || 100) / (pUnit.wt || 1);
-      const pDmg = (pUnit.dmg || 20) / (pUnit.wt || 1);
+    function scoreUnitPair(pUnit, eUnit, dy, waveCtx, activeBuffs) {
+      const buffs = activeBuffs || getActiveArmyBuffs();
+      const hpMult = 1.0 + (buffs.hp || 0);
+      const atkMult = 1.0 + ((buffs.atk && buffs.atk[pUnit.cls]) || 0);
+
+      const pHp = ((pUnit.hp || 100) / (pUnit.wt || 1)) * hpMult;
+      const pDmg = ((pUnit.dmg || 20) / (pUnit.wt || 1)) * atkMult;
       const eHp = (eUnit.hp || 100) / (eUnit.wt || 1);
       const eDmg = (eUnit.dmg || 20) / (eUnit.wt || 1);
 
@@ -1969,11 +1998,13 @@
       const effOffense = pDmg * (1.0 + atkBonus) * (1.0 - eDefBonus);
       const killRate = effOffense / Math.max(1.0, eHp);
 
-      // 2. Defense: % of player squad lost per enemy hit
+      // 2. Defense: % of player squad lost per enemy hit + True Damage Reduction durability bonus
+      // In 6-Star Tourney (enemy 1.5x–2.05x squad size), high Damage Reduction (-80% Orc Strat, -80% Banshee/Dryad, -70% Frog, -50% Acrobat) is critical!
       const effIncoming = eDmg * (1.0 + eAtkBonus) * (1.0 - defBonus);
       const lossRate = effIncoming / Math.max(1.0, pHp);
+      const mitigationBonus = (defBonus >= 0.40) ? (defBonus * 34.0) : (defBonus * 16.0);
 
-      // 3. Turn-1 First Strike & Range / Move / Initiative Advantage (Only reward offensive first-strike when we actually counter the enemy!)
+      // 3. Turn-1 First Strike & Range / Move / Initiative Advantage
       let firstStrikeMult = 1.0;
       let incomingMult = 1.0;
       const pReach = (pUnit.rng || 1) + (pUnit.mv || 2);
@@ -1982,14 +2013,14 @@
       if (isCounter) {
         if ((pUnit.rng || 1) >= 8) {
           firstStrikeMult *= 1.38;
-          incomingMult *= 0.55;
+          incomingMult *= 0.52;
         } else if ((pUnit.init || 10) > (eUnit.init || 10) && pReach >= 7) {
-          firstStrikeMult *= 1.30;
-          incomingMult *= 0.68;
+          firstStrikeMult *= 1.26;
+          incomingMult *= 0.72;
         }
       }
       if ((eUnit.init || 10) > (pUnit.init || 10) && eReach >= 7) {
-        incomingMult *= 1.30;
+        incomingMult *= 1.35;
       }
 
       // Range Kiting vs Melee
@@ -1997,30 +2028,29 @@
         firstStrikeMult *= 1.35;
         incomingMult *= 0.45;
       } else if (isCounter && (pUnit.rng || 1) >= 3 && (eUnit.rng || 1) === 1 && (eUnit.mv || 2) <= 3) {
-        firstStrikeMult *= 1.25;
-        incomingMult *= 0.55;
+        firstStrikeMult *= 1.28;
+        incomingMult *= 0.50;
       } else if ((pUnit.rng || 1) === 1 && (eUnit.rng || 1) >= 3 && (pUnit.mv || 2) <= 3) {
-        incomingMult *= 1.25;
+        incomingMult *= 1.28;
       }
 
       // 4. Strict Counter Specialization Rule (3⭐ Specialist vs 2⭐/2⭐ Balanced vs 1⭐ Secondary vs 0⭐ Non-Counter)
       let specBonus = 0.0;
       if (starStr === 3) {
-        specBonus = (dy === 0) ? 46.0 : 24.0;
+        specBonus = (dy === 0) ? 44.0 : 22.0;
       } else if (starStr === 2) {
         specBonus = (dy === 0) ? 34.0 : 18.0;
         if (waveCtx && waveCtx.clsCounts && pUnit.str) {
           const counteredClasses = Object.keys(pUnit.str).filter(c => pUnit.str[c] >= 2);
           const matchedInWave = counteredClasses.filter(c => (waveCtx.clsCounts[c] || 0) > 0).length;
           if (matchedInWave >= 2) {
-            specBonus += 10.0; // Dual-Threat Synergy for 2⭐/2⭐ Barracks units when wave contains both countered classes
+            specBonus += 12.0; // Dual-Threat Synergy for 2⭐/2⭐ Barracks units when wave contains both countered classes
           }
         }
       } else if (starStr === 1) {
         specBonus = 6.0;
       } else {
-        // 0⭐ Non-Counter (e.g. Archer vs Archer, Mage vs Mage):
-        // Strictly penalize placing a unit with ZERO counter in the direct slot!
+        // 0⭐ Non-Counter (e.g. Archer vs Archer, Mage vs Mage): strictly penalize!
         specBonus = (dy === 0) ? -55.0 : -10.0;
       }
 
@@ -2030,7 +2060,7 @@
         pUnit.ab.forEach(a => {
           const dur = Math.min(Number(a.d) || 1, 2);
           if (a.t === "attack") {
-            const wAtk = ((eUnit.ret || 0) >= 1 || eDmg >= 25) ? 0.25 : 0.16;
+            const wAtk = ((eUnit.ret || 0) >= 1 || eDmg >= 25) ? 0.26 : 0.16;
             abilityBonus += Math.abs(a.v || 0) * wAtk * dur * 0.60;
           } else if (a.t === "defense") {
             abilityBonus += Math.abs(a.v || 0) * 0.20 * dur * 0.60;
@@ -2042,14 +2072,17 @@
       let retPenalty = 0.0;
       if ((pUnit.rng || 1) === 1 && (eUnit.ret || 0) >= 1) {
         if (eAtkBonus > 0 || defBonus === 0) {
-          retPenalty = 16.0 * Math.min(eUnit.ret || 1, 3);
+          retPenalty = 18.0 * Math.min(eUnit.ret || 1, 3);
         }
       }
 
-      // 7. Hard-Counter Penalty (when enemy counters us)
+      // 7. Hard-Counter & Turn-1 Long-Reach Assassin Hazard (Mist Walker Reach 8, Hellhound Reach 8, Cannoneer Reach 11)
       let hardCounterPenalty = 0.0;
       if (eAtkBonus > 0) {
-        hardCounterPenalty += (eAtkBonus * 135.0) * ((eUnit.rng >= 3 || eReach >= 7) ? 1.25 : 1.0);
+        const reachMult = (eReach >= 8 && (eUnit.init || 10) > (pUnit.init || 10)) ? 1.65 : ((eUnit.rng >= 3 || eReach >= 7) ? 1.30 : 1.0);
+        const baseHpPerWt = (pUnit.hp || 100) / (pUnit.wt || 1);
+        const fragilityMult = Math.max(1.0, 75.0 / baseHpPerWt);
+        hardCounterPenalty += (eAtkBonus * 135.0) * reachMult * fragilityMult;
       }
       if (eDefBonus >= 0.50 && atkBonus === 0) {
         hardCounterPenalty += (eDefBonus * 60.0);
@@ -2061,7 +2094,7 @@
         focusFirePenalty = 22.0;
       }
 
-      const netScore = (killRate * firstStrikeMult * 100.0) + specBonus + abilityBonus - (lossRate * incomingMult * 115.0) - hardCounterPenalty - focusFirePenalty - retPenalty;
+      const netScore = (killRate * firstStrikeMult * 95.0) + specBonus + mitigationBonus + abilityBonus - (lossRate * incomingMult * 125.0) - hardCounterPenalty - focusFirePenalty - retPenalty;
       return {
         netScore,
         atkBonusPct: Math.round(atkBonus * 100),
@@ -2076,16 +2109,31 @@
       const pool = allowedPoolKeys || PLAYER_UNIT_KEYS;
       const armUnits = (state.arm && Array.isArray(state.arm.units)) ? state.arm.units : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       const hasStockData = armUnits.some(v => Number(v) > 0);
+      const activeBuffs = getActiveArmyBuffs();
 
-      // Precompute wave class composition for each wave
+      // Precompute wave class composition & long-reach hazards for each wave
       const waveContexts = waves.map(wave => {
         const clsCounts = {};
+        let hasMistWalker = false;
+        let hasHellhound = false;
         for (let slotJ = 0; slotJ < 5; slotJ++) {
-          const eu = resolveUnit(wave[slotJ]);
+          const rawKey = String(wave[slotJ] || "");
+          const eu = resolveUnit(rawKey);
           const c = eu.cls;
           clsCounts[c] = (clsCounts[c] || 0) + 1;
+          if (rawKey.includes("tglr")) hasMistWalker = true;
+          if (rawKey.includes("tglm")) hasHellhound = true;
         }
-        return { clsCounts };
+        return {
+          clsCounts,
+          hasMistWalker,
+          hasHellhound,
+          hmCount: clsCounts["heavy_melee"] || 0,
+          lrCount: clsCounts["light_ranged"] || 0,
+          maCount: clsCounts["mage"] || 0,
+          lmCount: clsCounts["light_melee"] || 0,
+          hrCount: clsCounts["heavy_ranged"] || 0
+        };
       });
 
       const rawSlotCandidates = [];
@@ -2103,6 +2151,7 @@
           waves.forEach((wave, wIdx) => {
             const wWeight = waves.length === 1 ? 1.0 : ([0.45, 0.35, 0.20][Math.min(wIdx, 2)] || 0.20);
             const wCtx = waveContexts[wIdx];
+            const targetEu = resolveUnit(wave[slotI]);
             let sWave = 0;
             let totalW = 0;
 
@@ -2110,7 +2159,7 @@
               const eUnit = resolveUnit(wave[slotJ]);
               const sw = computeSpatialWeight(slotI, slotJ, eUnit);
               const dy = Math.abs(SLOT_Y[slotI] - SLOT_Y[slotJ]);
-              const res = scoreUnitPair(pUnit, eUnit, dy, wCtx);
+              const res = scoreUnitPair(pUnit, eUnit, dy, wCtx, activeBuffs);
               if (wIdx === activeWaveIdx && slotI === slotJ) {
                 directStats = res;
               }
@@ -2118,6 +2167,42 @@
               totalW += sw;
             }
             if (totalW > 0) sWave /= totalW;
+
+            // Empirical 6-Star Tournament Survival Rules (calibrated from 31-battle dump):
+            // Rule A: When countering Light Ranged (targetEu is LR), if enemy also has Heavy Melee (Orc General / Swamp Monster),
+            // Light Melee (Drone Rider / Acrobat) runs into melee and gets slaughtered by HM in Round 2–3 (40.6%–75% loss vs 13.5% for Senior Orc Strategist)!
+            if (targetEu.cls === "light_ranged") {
+              if (wCtx.hmCount >= 1 && pUnit.cls === "light_melee") {
+                sWave -= 35.0 * wCtx.hmCount;
+              }
+              const lrDef = (pUnit.def && pUnit.def["light_ranged"]) || 0;
+              if (pUnit.cls === "heavy_ranged" && lrDef >= 50) {
+                if (wCtx.maCount === 0) {
+                  sWave += 16.0;
+                } else if (wCtx.maCount === 1 && wCtx.hmCount >= 1) {
+                  // Single enemy Mage is sniped by our Mage-counter slot on Turn 1; Orc Strategist (-80% LR def) kites HM from Range 3!
+                  sWave += 24.0;
+                }
+              }
+            }
+
+            // Rule B: Glass-Cannon Ranger II (51 base HP/wt, Range 4, Init 20) steps forward on Turn 1 into enemy frontline.
+            // If enemy has Light Melee (Thief/Hellhound/Orc) or Heavy Ranged (Cannoneer/Deserter) or >=2 Archers, Ranger II gets focused (75.8% avg loss vs 15.5% for Sword Acrobat / Elite Archer)!
+            if (pUnit.base === "mc_lr" && (wCtx.lmCount >= 1 || wCtx.hrCount >= 1 || wCtx.lrCount >= 2)) {
+              sWave -= 14.0 * (wCtx.lmCount + wCtx.hrCount + 0.5 * wCtx.lrCount);
+            }
+
+            // Rule C: Unarmored Mages (Blossom Princess / Sorceress with 0% LR def) vs Sneaky Mist Walker (Init 21, Reach 8, +90% vs Mage):
+            // Mist Walker one-shots Mages (-94% to -100%) on Step 1 before they can move! Prefer Dryad / Elite Archer against HM when Mist Walker is present.
+            if (pUnit.cls === "mage" && wCtx.hasMistWalker && ((pUnit.def && pUnit.def["light_ranged"]) || 0) === 0) {
+              sWave -= 38.0;
+            }
+
+            // Rule D: Granite Golem (0% LM def) vs Light Melee takes heavy melee damage compared to Senior Orc Strategist (-40% LM def, -80% LR def) or Frog Prince (-70% LM def) or Heavy Melee:
+            if (targetEu.cls === "light_melee" && pUnit.base === "eb_hr") {
+              sWave -= 18.0;
+            }
+
             if (sWave < minWaveScore) minWaveScore = sWave;
             weightedSum += sWave * wWeight;
           });
@@ -2487,6 +2572,24 @@
             </div>
             <button class="wave-btn" onclick="syncLiveEncounterNow()" title="Reset to latest live in-game encounter">🔄 Live Sync</button>
           </div>
+
+          <!-- 1.B Active City Military Buffs Bar (Wonders / Fire Phoenix / Armorer) -->
+          ${(() => {
+            const ab = getActiveArmyBuffs();
+            if (!ab.hasSynced) return '';
+            const p = ab.rawPct;
+            return `
+              <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:space-between;background:rgba(15,23,42,0.65);border:1px solid rgba(250,204,21,0.25);border-radius:8px;padding:5px 8px;margin-bottom:8px;font-size:9px;font-weight:800;">
+                <span style="color:#fde047;">🔥 Buffs:</span>
+                <span style="color:#34d399;">❤️HP +${p[0]}%</span>
+                <span style="color:#38bdf8;">🗡️LM +${p[1]}%</span>
+                <span style="color:#84cc16;">🏹LR +${p[2]}%</span>
+                <span style="color:#c084fc;">✨MA +${p[3]}%</span>
+                <span style="color:#fb923c;">🛡️HM +${p[4]}%</span>
+                <span style="color:#facc15;">🪨HR +${p[5]}%</span>
+              </div>
+            `;
+          })()}
 
           <!-- 2. Strategy Mode Bar: Max Survival vs 1-Tab Fast Pick -->
           <div class="adv-mode-bar">
@@ -3078,24 +3181,27 @@
         };
       });
 
-      // 6. Troop Reserves: [squadSize, [15 squad counts], [15 unlocked unit tiers]]
+      // 6. Troop Reserves: [squadSize, [15 squad counts], [15 unlocked unit tiers], [hpPct, lmPct, lrPct, maPct, hmPct, hrPct]]
       let arm = {
         squadSize: 0,
         units: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        tiers: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        tiers: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        buffs: null
       };
       if (compact.arm) {
         if (Array.isArray(compact.arm)) {
           arm = {
             squadSize: compact.arm[0] || 0,
             units: Array.isArray(compact.arm[1]) ? compact.arm[1] : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            tiers: Array.isArray(compact.arm[2]) ? compact.arm[2] : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            tiers: Array.isArray(compact.arm[2]) ? compact.arm[2] : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            buffs: Array.isArray(compact.arm[3]) ? compact.arm[3] : null
           };
         } else if (typeof compact.arm === "object") {
           arm = {
             squadSize: compact.arm.squadSize || 0,
             units: Array.isArray(compact.arm.units) ? compact.arm.units : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            tiers: Array.isArray(compact.arm.tiers) ? compact.arm.tiers : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            tiers: Array.isArray(compact.arm.tiers) ? compact.arm.tiers : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            buffs: Array.isArray(compact.arm.buffs) ? compact.arm.buffs : null
           };
         }
       }
