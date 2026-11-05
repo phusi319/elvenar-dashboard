@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.2.7
+// @version      6.2.8
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -124,6 +124,19 @@
             GM_setValue("ELVENAR_PROVISION_CLEANED_V625", true);
         } catch(e) {}
     }
+
+    let savedArmy = null;
+    try { savedArmy = JSON.parse(GM_getValue("ELVENAR_TRACKED_ARMY", "null")); } catch(e) {}
+    let trackedArmy = savedArmy || {
+        squadSize: 4299,
+        squads: {
+            "barracks_lm": 20.8, "barracks_lr": 513, "barracks_ma": 258, "barracks_hm": 233, "barracks_hr": 400,
+            "training_lm": 217, "training_lr": 157, "training_ma": 195, "training_hm": 15.6, "training_hr": 131,
+            "mercenary_lm": 196, "mercenary_lr": 174, "mercenary_ma": 207, "mercenary_hm": 216, "mercenary_hr": 245
+        },
+        raw: {}
+    };
+
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
     let isUpdatingTime = 0; // Thời điểm bắt đầu lock
@@ -139,6 +152,7 @@
             GM_setValue("ELVENAR_TRACKED_WS", JSON.stringify(workshops));
             GM_setValue("ELVENAR_TRACKED_AWS", JSON.stringify(trackedAWs));
             GM_setValue("ELVENAR_TRACKED_PETS", JSON.stringify(trackedPets));
+            GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
         } catch(e) {}
     }
 
@@ -513,6 +527,55 @@
                     processCityResources(node.resources);
                 }
 
+                // E. Bắt dữ liệu Quân Đội & Quân Số Dự Bị (ArmyDetailsVO & UnitSquadVO)
+                if (node.__class__ === "ArmyDetailsVO") {
+                    const clusterSize = node.battleClusterSize || 4299;
+                    const unitSquads = node.unitSquads || [];
+                    if (!trackedArmy) trackedArmy = { squadSize: clusterSize, squads: {}, raw: {} };
+                    trackedArmy.squadSize = clusterSize;
+
+                    const weightMap = {
+                        "eb_lm": 1, "eb_lr": 1, "eb_ma": 4, "eb_hm": 6, "eb_hr": 6,
+                        "hb_lm": 1, "hb_lr": 1, "hb_ma": 4, "hb_hm": 6, "hb_hr": 6,
+                        "tg_lm": 1, "tg_lr": 2, "tg_ma": 3, "tg_hm": 2, "tg_hr": 2,
+                        "mc_lm": 1, "mc_lr": 2, "mc_ma": 2, "mc_hm": 3, "mc_hr": 3
+                    };
+
+                    const keyMap = {
+                        "eb_lm": "barracks_lm", "hb_lm": "barracks_lm",
+                        "eb_lr": "barracks_lr", "hb_lr": "barracks_lr",
+                        "eb_ma": "barracks_ma", "hb_ma": "barracks_ma",
+                        "eb_hm": "barracks_hm", "hb_hm": "barracks_hm",
+                        "eb_hr": "barracks_hr", "hb_hr": "barracks_hr",
+                        "tg_lm": "training_lm",
+                        "tg_lr": "training_lr",
+                        "tg_ma": "training_ma",
+                        "tg_hm": "training_hm",
+                        "tg_hr": "training_hr",
+                        "mc_lm": "mercenary_lm",
+                        "mc_lr": "mercenary_lr",
+                        "mc_ma": "mercenary_ma",
+                        "mc_hm": "mercenary_hm",
+                        "mc_hr": "mercenary_hr"
+                    };
+
+                    unitSquads.forEach(sq => {
+                        const uId = sq.unitTypeId || "";
+                        const prefix = uId.substring(0, 5);
+                        const cellKey = keyMap[prefix];
+                        const weight = weightMap[prefix] || 1;
+                        const size = sq.size || 0;
+                        if (cellKey) {
+                            if (!trackedArmy.raw) trackedArmy.raw = {};
+                            trackedArmy.raw[cellKey] = size;
+                            const numSquads = (size * weight) / clusterSize;
+                            trackedArmy.squads[cellKey] = Math.round(numSquads * 10) / 10;
+                        }
+                    });
+
+                    GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
+                }
+
                 if (Array.isArray(node)) {
                     for (let item of node) walk(item);
                 } else {
@@ -544,6 +607,9 @@
                     !text.includes("StartupService") &&
                     !text.includes("CityResourcesService") &&
                     !text.includes("CityResourceVO") &&
+                    !text.includes("ArmyDetails") &&
+                    !text.includes("UnitSquad") &&
+                    !text.includes("barrack") &&
                     !text.includes("workshop") &&
                     !text.includes("ProductionQueue") &&
                     !text.includes("AncientWonder") &&
@@ -804,7 +870,23 @@
         // 5. Standard Goods: [marble, steel, planks, crystal, scrolls, silk, elixir, magic_dust, gems]
         const r = buildCompactResourceData();
 
-        return { t: now, m, w, a, p, r };
+        // 6. Troop Reserves: [squadSize, [15 squad counts]]
+        const arm = buildCompactArmyData();
+
+        return { t: now, m, w, a, p, r, arm };
+    }
+
+    function buildCompactArmyData() {
+        if (!trackedArmy || !trackedArmy.squads) return null;
+        const keys = [
+            "barracks_lm", "barracks_lr", "barracks_ma", "barracks_hm", "barracks_hr",
+            "training_lm", "training_lr", "training_ma", "training_hm", "training_hr",
+            "mercenary_lm", "mercenary_lr", "mercenary_ma", "mercenary_hm", "mercenary_hr"
+        ];
+        return [
+            trackedArmy.squadSize || 4299,
+            keys.map(k => trackedArmy.squads[k] !== undefined ? trackedArmy.squads[k] : 0)
+        ];
     }
 
     // --- 4.C ĐƯỜNG DẪN TELEGRAM NATIVE MINI APP ---

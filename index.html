@@ -676,6 +676,194 @@
       white-space: nowrap;
       overflow: hidden;
     }
+
+    /* =========================================================================
+       ⚔️ TROOP RESERVES & ARMY BALANCE MATRIX STYLES
+       ========================================================================= */
+    .army-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(10px);
+      margin-bottom: 16px;
+    }
+
+    .army-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .army-title {
+      font-size: 14px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--accent-blue);
+      letter-spacing: -0.2px;
+    }
+
+    .squad-size-pill {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      padding: 3px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .army-table-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0 -4px;
+      padding: 0 4px;
+    }
+
+    .army-matrix {
+      width: 100%;
+      min-width: 440px;
+      border-collapse: separate;
+      border-spacing: 4px;
+    }
+
+    .col-header-cell {
+      text-align: center;
+      padding: 4px 2px 6px 2px;
+    }
+
+    .col-header-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      object-fit: cover;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    }
+
+    .row-building-cell {
+      vertical-align: middle;
+      text-align: center;
+      width: 72px;
+      padding: 4px 2px;
+    }
+
+    .building-emblem {
+      width: 38px;
+      height: 38px;
+      object-fit: contain;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+    }
+
+    .building-name {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      line-height: 1.1;
+      margin-top: 2px;
+    }
+
+    .unit-cell {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+      cursor: pointer;
+    }
+
+    .unit-cell:hover {
+      transform: translateY(-2px);
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    .unit-cell.alert-low {
+      border-color: rgba(245, 158, 11, 0.7);
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
+    }
+
+    .unit-cell.alert-zero {
+      border-color: rgba(244, 63, 94, 0.7);
+      box-shadow: 0 0 10px rgba(244, 63, 94, 0.35);
+    }
+
+    .unit-portrait {
+      width: 100%;
+      height: 48px;
+      object-fit: cover;
+      display: block;
+    }
+
+    .squad-badge {
+      width: 100%;
+      background: #dfcb9f;
+      color: #3b2816;
+      font-size: 11px;
+      font-weight: 800;
+      text-align: center;
+      padding: 2px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      letter-spacing: -0.3px;
+    }
+
+    .unit-cell.alert-low .squad-badge {
+      background: #fef08a;
+      color: #854d0e;
+    }
+
+    .unit-cell.alert-zero .squad-badge {
+      background: #fecdd3;
+      color: #881337;
+    }
+
+    .hex-badge {
+      color: #92400e;
+      font-size: 10px;
+    }
+
+    .summary-row-label {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #38bdf8;
+      text-align: center;
+      padding: 6px 2px;
+    }
+
+    .summary-cell {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 6px;
+      text-align: center;
+      padding: 4px 0;
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #38bdf8;
+    }
+
+    .summary-cell .sub {
+      font-size: 8.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: block;
+      margin-top: 1px;
+    }
   </style>
 </head>
 <body>
@@ -735,7 +923,14 @@
       </div>
     </div>
 
-    <!-- Tab 2: Resources -->
+    <!-- Tab 2: Troops -->
+    <div id="tabPanel_troops" class="tab-panel" style="display: none;">
+      <div id="troopsContent">
+        <!-- Injected dynamically via JS: 3x5 Army Matrix -->
+      </div>
+    </div>
+
+    <!-- Tab 3: Resources -->
     <div id="tabPanel_resources" class="tab-panel" style="display: none;">
       <!-- Period Selector: Today vs This Week vs This Month -->
       <div class="period-toggle-bar">
@@ -765,7 +960,8 @@
     // Easily reorder tabs by swapping items in the array below
     // =========================================================================
     const APP_TABS = [
-      { id: "production", title: "Production", icon: "⚔️", enabled: true },
+      { id: "production", title: "Production", icon: "🏭", enabled: true },
+      { id: "troops",     title: "Troops",     icon: "⚔️", enabled: true },
       { id: "resources",  title: "Resources",  icon: "💎", enabled: true }
     ];
 
@@ -841,7 +1037,11 @@
           let clean = raw.replace(/-/g, '+').replace(/_/g, '/');
           while (clean.length % 4) clean += '=';
           const decodedStr = decodeURIComponent(escape(atob(clean)));
-          return JSON.parse(decodedStr);
+          const parsed = JSON.parse(decodedStr);
+          if (parsed && parsed.m && !parsed.mil) {
+            return decodeCompactPayload(parsed);
+          }
+          return parsed;
         }
       } catch (e) {
         console.error("Payload decoding error:", e);
@@ -876,7 +1076,11 @@
           { id: "elixir", name: "Elixir", icon: "🧪", tier: 3, cur: 7994560, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
           { id: "magic_dust", name: "Magic Dust", icon: "✨", tier: 3, cur: 8682281, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
           { id: "gems", name: "Gems", icon: "🔮", tier: 3, cur: 10006642, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 }
-        ]
+        ],
+        arm: {
+          squadSize: 4299,
+          units: [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+        }
       };
     }
 
@@ -908,6 +1112,8 @@
 
       if (tabId === "resources") {
         renderResourcesUI();
+      } else if (tabId === "troops") {
+        renderTroopsUI();
       }
     }
 
@@ -1016,6 +1222,198 @@
       container.innerHTML = html;
     }
 
+    function renderTroopsUI() {
+      const container = document.getElementById("troopsContent");
+      if (!container) return;
+
+      const arm = state.arm || {
+        squadSize: 4299,
+        units: [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+      };
+      const units = arm.units || [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245];
+      const squadSize = arm.squadSize || 4299;
+
+      const classCols = [
+        { code: "lm", title: "Light Melee", icon: "assets/units/icon_class_lm.png", color: "#38bdf8" },
+        { code: "lr", title: "Light Ranged", icon: "assets/units/icon_class_lr.png", color: "#84cc16" },
+        { code: "ma", title: "Mage", icon: "assets/units/icon_class_ma.png", color: "#c084fc" },
+        { code: "hm", title: "Heavy Melee", icon: "assets/units/icon_class_hm.png", color: "#fb923c" },
+        { code: "hr", title: "Heavy Ranged", icon: "assets/units/icon_class_hr.png", color: "#facc15" }
+      ];
+
+      const buildingRows = [
+        {
+          id: "barracks",
+          name: "Barracks",
+          emblem: "assets/units/emblem_barracks.png",
+          units: [
+            { key: "barracks_lm", name: "Sword Acrobat", file: "assets/units/barracks_lm.png", idx: 0 },
+            { key: "barracks_lr", name: "Elite Archer", file: "assets/units/barracks_lr.png", idx: 1 },
+            { key: "barracks_ma", name: "Bud Sorceress", file: "assets/units/barracks_ma.png", idx: 2 },
+            { key: "barracks_hm", name: "Elder Treant", file: "assets/units/barracks_hm.png", idx: 3 },
+            { key: "barracks_hr", name: "Granite Golem", file: "assets/units/barracks_hr.png", idx: 4 }
+          ]
+        },
+        {
+          id: "training",
+          name: "Training Grounds",
+          emblem: "assets/units/emblem_training.png",
+          units: [
+            { key: "training_lm", name: "Sinister Cerberus", file: "assets/units/training_lm.png", idx: 5 },
+            { key: "training_lr", name: "Poison Dryad", file: "assets/units/training_lr.png", idx: 6 },
+            { key: "training_ma", name: "Ghastly Banshee", file: "assets/units/training_ma.png", idx: 7 },
+            { key: "training_hm", name: "Gruff Orc Warrior", file: "assets/units/training_hm.png", idx: 8 },
+            { key: "training_hr", name: "Senior Orc Strategist", file: "assets/units/training_hr.png", idx: 9 }
+          ]
+        },
+        {
+          id: "mercenary",
+          name: "Mercenary Camp",
+          emblem: "assets/units/emblem_mercenary.png",
+          units: [
+            { key: "mercenary_lm", name: "Drone Rider", file: "assets/units/mercenary_lm.png", idx: 10 },
+            { key: "mercenary_lr", name: "Ranger", file: "assets/units/mercenary_lr.png", idx: 11 },
+            { key: "mercenary_ma", name: "Blossom Mage", file: "assets/units/mercenary_ma.png", idx: 12 },
+            { key: "mercenary_hm", name: "Vallorian Guard", file: "assets/units/mercenary_hm.png", idx: 13 },
+            { key: "mercenary_hr", name: "Frog Prince", file: "assets/units/mercenary_hr.png", idx: 14 }
+          ]
+        }
+      ];
+
+      function formatSquad(val) {
+        const num = Number(val) || 0;
+        return num % 1 === 0 ? num.toLocaleString() : num.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      }
+
+      // Column totals & Grand Total
+      const colTotals = [0, 0, 0, 0, 0];
+      let grandTotal = 0;
+      for (let c = 0; c < 5; c++) {
+        const sum = (Number(units[c]) || 0) + (Number(units[c + 5]) || 0) + (Number(units[c + 10]) || 0);
+        colTotals[c] = Math.round(sum * 10) / 10;
+        grandTotal += sum;
+      }
+      grandTotal = Math.round(grandTotal * 10) / 10;
+
+      let html = `
+        <div class="army-card">
+          <div class="army-header">
+            <span class="army-title">
+              <span>⚔️</span>
+              <span>Troop Reserves</span>
+            </span>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+              <span class="squad-size-pill">
+                <span>Squad Size:</span>
+                <strong>${Number(squadSize).toLocaleString()}</strong>
+              </span>
+              <span class="squad-size-pill" style="background:rgba(56,189,248,0.15);color:#38bdf8;border-color:rgba(56,189,248,0.3)">
+                <span>Total:</span>
+                <strong>${formatSquad(grandTotal)} ⬢</strong>
+              </span>
+            </div>
+          </div>
+
+          <div class="army-table-wrap">
+            <table class="army-matrix">
+              <thead>
+                <tr>
+                  <th style="width: 72px;"></th>
+                  ${classCols.map(c => `
+                    <th class="col-header-cell">
+                      <img src="${c.icon}" class="col-header-icon" title="${c.title}" alt="${c.title}">
+                    </th>
+                  `).join('')}
+                </tr>
+              </thead>
+              <tbody>
+      `;
+
+      buildingRows.forEach(row => {
+        html += `
+          <tr>
+            <td class="row-building-cell">
+              <img src="${row.emblem}" class="building-emblem" alt="${row.name}">
+              <div class="building-name">${row.name}</div>
+            </td>
+        `;
+
+        row.units.forEach(u => {
+          const count = Number(units[u.idx]) || 0;
+          let alertClass = "";
+          if (count <= 0) alertClass = "alert-zero";
+          else if (count < 30) alertClass = "alert-low";
+
+          const totalTroops = Math.round(count * squadSize);
+          const tooltip = `${u.name}: ${formatSquad(count)} squads (~${formatCompact(totalTroops)} troops)`;
+
+          html += `
+            <td>
+              <div class="unit-cell ${alertClass}" title="${tooltip}">
+                <img src="${u.file}" class="unit-portrait" alt="${u.name}">
+                <div class="squad-badge">
+                  <span>${formatSquad(count)}</span>
+                  <span class="hex-badge">⬢</span>
+                </div>
+              </div>
+            </td>
+          `;
+        });
+
+        html += `</tr>`;
+      });
+
+      // Summary row
+      html += `
+              <tr>
+                <td class="summary-row-label">
+                  <div>📊 Total</div>
+                </td>
+                ${colTotals.map(tot => `
+                  <td class="summary-cell">
+                    <div>${formatSquad(tot)}</div>
+                    <span class="sub">Squads</span>
+                  </td>
+                `).join('')}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Army Balance Ratio Bar -->
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);">
+          <div style="font-size:11px;font-weight:700;color:var(--text-muted);margin-bottom:6px;display:flex;justify-content:space-between;">
+            <span>⚖️ Class Balance Breakdown</span>
+            <span>${formatSquad(grandTotal)} squads</span>
+          </div>
+          <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:rgba(255,255,255,0.06);margin-bottom:8px;">
+            ${classCols.map((c, idx) => {
+              const pct = grandTotal > 0 ? ((colTotals[idx] / grandTotal) * 100).toFixed(1) : 0;
+              return `<div style="width:${pct}%;background:${c.color};" title="${c.title}: ${pct}% (${formatSquad(colTotals[idx])} squads)"></div>`;
+            }).join('')}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(80px, 1fr));gap:6px;">
+            ${classCols.map((c, idx) => {
+              const pct = grandTotal > 0 ? ((colTotals[idx] / grandTotal) * 100).toFixed(1) : 0;
+              return `
+                <div style="background:rgba(15,23,42,0.5);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:4px;text-align:center;">
+                  <div style="display:flex;align-items:center;justify-content:center;gap:4px;font-size:9.5px;color:${c.color};font-weight:700;">
+                    <span style="width:6px;height:6px;border-radius:50%;background:${c.color};display:inline-block;"></span>
+                    <span>${c.code.toUpperCase()}</span>
+                  </div>
+                  <div style="font-size:11px;font-weight:800;color:var(--text-main);margin-top:1px;">${formatSquad(colTotals[idx])}</div>
+                  <div style="font-size:8.5px;color:var(--text-muted);">${pct}%</div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+      `;
+
+      container.innerHTML = html;
+    }
+
     // Render Initial UI Shell
     function initUI() {
       // 0. Render Config-Driven Tab Bar
@@ -1103,8 +1501,9 @@
         `).join('');
       }
 
-      // 5. Render Resources Tab
+      // 5. Render Secondary Tabs
       renderResourcesUI();
+      renderTroopsUI();
 
       // 6. Switch to Active Tab
       switchTab(currentTabId);
@@ -1454,7 +1853,26 @@
         };
       });
 
-      return { t: compact.t, mil, ws, aw, pet, res };
+      // 6. Troop Reserves: [squadSize, [15 squad counts]]
+      let arm = {
+        squadSize: 4299,
+        units: [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+      };
+      if (compact.arm) {
+        if (Array.isArray(compact.arm)) {
+          arm = {
+            squadSize: compact.arm[0] || 4299,
+            units: Array.isArray(compact.arm[1]) ? compact.arm[1] : [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+          };
+        } else if (typeof compact.arm === "object") {
+          arm = {
+            squadSize: compact.arm.squadSize || 4299,
+            units: Array.isArray(compact.arm.units) ? compact.arm.units : [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+          };
+        }
+      }
+
+      return { t: compact.t, mil, ws, aw, pet, res, arm };
     }
 
     const ZW_CHARS = ['\u200B', '\u200C', '\u200D', '\u2060'];
