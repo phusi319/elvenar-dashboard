@@ -2002,7 +2002,7 @@
       // In 6-Star Tourney (enemy 1.5x–2.05x squad size), high Damage Reduction (-80% Orc Strat, -80% Banshee/Dryad, -70% Frog, -50% Acrobat) is critical!
       const effIncoming = eDmg * (1.0 + eAtkBonus) * (1.0 - defBonus);
       const lossRate = effIncoming / Math.max(1.0, pHp);
-      const mitigationBonus = (defBonus >= 0.40) ? (defBonus * 34.0) : (defBonus * 16.0);
+      const mitigationBonus = (defBonus >= 0.40) ? (defBonus * 42.0) : (defBonus * 18.0);
 
       // 3. Turn-1 First Strike & Range / Move / Initiative Advantage
       let firstStrikeMult = 1.0;
@@ -2034,24 +2034,18 @@
         incomingMult *= 1.28;
       }
 
-      // 4. Strict Counter Specialization Rule (3⭐ Specialist vs 2⭐/2⭐ Balanced vs 1⭐ Secondary vs 0⭐ Non-Counter)
+      // 4. Balanced Counter Specialization Rule (3⭐ Specialist vs 2⭐/2⭐ Balanced Barracks vs 1⭐ Secondary vs 0⭐ Non-Counter)
+      // Since exact % atkBonus and % defBonus are already factored into killRate and mitigationBonus,
+      // keep 3⭐ and 2⭐ base specBonus close (36 vs 34) so 2⭐/2⭐ Barracks units aren't double-penalized!
       let specBonus = 0.0;
       if (starStr === 3) {
-        specBonus = (dy === 0) ? 44.0 : 22.0;
+        specBonus = (dy === 0) ? 36.0 : 20.0;
       } else if (starStr === 2) {
-        specBonus = (dy === 0) ? 34.0 : 18.0;
-        if (waveCtx && waveCtx.clsCounts && pUnit.str) {
-          const counteredClasses = Object.keys(pUnit.str).filter(c => pUnit.str[c] >= 2);
-          const matchedInWave = counteredClasses.filter(c => (waveCtx.clsCounts[c] || 0) > 0).length;
-          if (matchedInWave >= 2) {
-            specBonus += 12.0; // Dual-Threat Synergy for 2⭐/2⭐ Barracks units when wave contains both countered classes
-          }
-        }
+        specBonus = (dy === 0) ? 34.0 : 20.0;
       } else if (starStr === 1) {
-        specBonus = 6.0;
+        specBonus = 8.0;
       } else {
-        // 0⭐ Non-Counter (e.g. Archer vs Archer, Mage vs Mage): strictly penalize!
-        specBonus = (dy === 0) ? -55.0 : -10.0;
+        specBonus = (dy === 0) ? -120.0 : -12.0;
       }
 
       // 5. Special On-Hit Ability & Debuff Value
@@ -2060,10 +2054,10 @@
         pUnit.ab.forEach(a => {
           const dur = Math.min(Number(a.d) || 1, 2);
           if (a.t === "attack") {
-            const wAtk = ((eUnit.ret || 0) >= 1 || eDmg >= 25) ? 0.26 : 0.16;
-            abilityBonus += Math.abs(a.v || 0) * wAtk * dur * 0.60;
+            const wAtk = ((eUnit.ret || 0) >= 1 || eDmg >= 25) ? 0.28 : 0.18;
+            abilityBonus += Math.abs(a.v || 0) * wAtk * dur * 0.65;
           } else if (a.t === "defense") {
-            abilityBonus += Math.abs(a.v || 0) * 0.20 * dur * 0.60;
+            abilityBonus += Math.abs(a.v || 0) * 0.22 * dur * 0.65;
           }
         });
       }
@@ -2151,12 +2145,19 @@
           waves.forEach((wave, wIdx) => {
             const wWeight = waves.length === 1 ? 1.0 : ([0.45, 0.35, 0.20][Math.min(wIdx, 2)] || 0.20);
             const wCtx = waveContexts[wIdx];
-            const targetEu = resolveUnit(wave[slotI]);
+            const eUnits = wave.map(raw => resolveUnit(raw));
+            const targetEu = eUnits[slotI];
             let sWave = 0;
             let totalW = 0;
+            let neighborHazard = 0;
+            let dualBridgeBonus = 0;
+
+            const countered2Star = pUnit.str ? Object.keys(pUnit.str).filter(c => pUnit.str[c] >= 2) : [];
+            const isBarracksDual = (countered2Star.length >= 2 && countered2Star.includes(targetEu.cls));
+            const otherCounteredCls = countered2Star.filter(c => c !== targetEu.cls);
 
             for (let slotJ = 0; slotJ < 5; slotJ++) {
-              const eUnit = resolveUnit(wave[slotJ]);
+              const eUnit = eUnits[slotJ];
               const sw = computeSpatialWeight(slotI, slotJ, eUnit);
               const dy = Math.abs(SLOT_Y[slotI] - SLOT_Y[slotJ]);
               const res = scoreUnitPair(pUnit, eUnit, dy, wCtx, activeBuffs);
@@ -2165,42 +2166,114 @@
               }
               sWave += sw * res.netScore;
               totalW += sw;
+
+              if (slotJ !== slotI) {
+                const eAtk = ((eUnit.atk && eUnit.atk[pUnit.cls]) || 0) / 100.0;
+                const pDef = ((pUnit.def && pUnit.def[eUnit.cls]) || 0) / 100.0;
+                const pAtk = ((pUnit.atk && pUnit.atk[eUnit.cls]) || 0) / 100.0;
+                const rng = eUnit.rng || 1;
+                const mv = eUnit.mv || 2;
+                const reach = rng + mv;
+
+                // 1. Asymmetric Neighbor Counter-Hazard:
+                // If an adjacent enemy (dy=1) or ranged/assassin neighbor (dy=2) hard-counters pUnit while pUnit has <50% def:
+                if (eAtk > 0 && pDef < 0.50) {
+                  const unmitigated = eAtk * (1.0 - pDef);
+                  const baseHpPerWt = (pUnit.hp || 100) / (pUnit.wt || 1);
+                  const fragMult = Math.max(0.80, 68.0 / baseHpPerWt);
+                  const backlineSafe = ((pUnit.rng || 1) >= 5 && reach <= 4) ? 0.35 : (((pUnit.rng || 1) >= 3 && reach <= 3) ? 0.65 : 1.0);
+                  if (dy === 1) {
+                    const exposure = (rng >= 3 || mv >= 4 || (pUnit.rng || 1) === 1) ? 1.30 : 1.0;
+                    neighborHazard += unmitigated * 32.0 * exposure * fragMult * backlineSafe;
+                  } else if (dy === 2 && (rng >= 3 || reach >= 7)) {
+                    neighborHazard += unmitigated * 18.0 * fragMult * backlineSafe;
+                  }
+                }
+
+                // 2. Spatial Dual-Bridge Synergy for 2⭐/2⭐ Balanced Barracks Units:
+                // Rewards Barracks units (Acrobat, Elite Archer, Sorceress, Treant, Golem) when they counter BOTH
+                // the direct opposite enemy (dy=0) AND the adjacent/nearby enemy (dy=1, dy=2) with their second 2⭐ class!
+                if (isBarracksDual && otherCounteredCls.includes(eUnit.cls) && !(pUnit.cls === "mage" && wCtx.hasMistWalker)) {
+                  if (dy === 1) {
+                    dualBridgeBonus += 11.0 + (pDef * 12.0) + (pAtk * 6.0);
+                  } else if (dy === 2) {
+                    dualBridgeBonus += 6.0 + (pDef * 6.0) + (pAtk * 3.0);
+                  } else {
+                    dualBridgeBonus += 3.0 + (pDef * 3.0);
+                  }
+                }
+              }
             }
             if (totalW > 0) sWave /= totalW;
+            sWave = sWave - neighborHazard + Math.min(dualBridgeBonus, 20.0);
+
+            // Strictly forbid 0⭐ non-counters from ever winning a direct slot (applied after totalW normalization):
+            const directStar = (pUnit.str && pUnit.str[targetEu.cls]) || 0;
+            const directAtk = (pUnit.atk && pUnit.atk[targetEu.cls]) || 0;
+            const directDef = (pUnit.def && pUnit.def[targetEu.cls]) || 0;
+            if (directStar === 0 && directAtk === 0 && directDef === 0) {
+              sWave -= 150.0;
+            }
+
+            // Wave-level Dual-Class Coverage Bonus for 2⭐/2⭐ Barracks units when wave contains both countered classes
+            if (isBarracksDual && otherCounteredCls.some(c => (wCtx.clsCounts[c] || 0) > 0) && !(pUnit.cls === "mage" && wCtx.hasMistWalker)) {
+              sWave += 6.0;
+            }
+
+            // Spatial proximity of Heavy Melee (within dy <= 2 of slotI) and Mage (immediately adjacent at dy === 1)
+            let hmNearCount = 0;
+            let maAdjCount = 0;
+            for (let j = 0; j < 5; j++) {
+              const d = Math.abs(SLOT_Y[slotI] - SLOT_Y[j]);
+              if (eUnits[j].cls === "heavy_melee" && d <= 2) hmNearCount++;
+              if (eUnits[j].cls === "mage" && d === 1) maAdjCount++;
+            }
 
             // Empirical 6-Star Tournament Survival Rules (calibrated from 31-battle dump):
-            // Rule A: When countering Light Ranged (targetEu is LR), if enemy also has Heavy Melee (Orc General / Swamp Monster),
-            // Light Melee (Drone Rider / Acrobat) runs into melee and gets slaughtered by HM in Round 2–3 (40.6%–75% loss vs 13.5% for Senior Orc Strategist)!
+            // Rule A: When countering Light Ranged (targetEu is LR), if Heavy Melee is nearby (dy <= 2),
+            // melee Light Melee units get caught by HM in Round 2–3; if Mage is adjacent (dy === 1), Sword Acrobat (-50% Mage & LR def) beats Drone Rider (0% Mage def)!
             if (targetEu.cls === "light_ranged") {
-              if (wCtx.hmCount >= 1 && pUnit.cls === "light_melee") {
-                sWave -= 35.0 * wCtx.hmCount;
+              if (hmNearCount >= 1 && pUnit.cls === "light_melee") {
+                sWave -= 36.0 * hmNearCount;
+              }
+              if (maAdjCount >= 1 && pUnit.base === "mc_lm") {
+                sWave -= 18.0 * maAdjCount;
               }
               const lrDef = (pUnit.def && pUnit.def["light_ranged"]) || 0;
               if (pUnit.cls === "heavy_ranged" && lrDef >= 50) {
                 if (wCtx.maCount === 0) {
-                  sWave += 16.0;
-                } else if (wCtx.maCount === 1 && wCtx.hmCount >= 1) {
-                  // Single enemy Mage is sniped by our Mage-counter slot on Turn 1; Orc Strategist (-80% LR def) kites HM from Range 3!
-                  sWave += 24.0;
+                  sWave += 14.0;
+                } else if (hmNearCount >= 1 && maAdjCount === 0) {
+                  sWave += 20.0;
                 }
               }
             }
 
+            // Rule A2: When countering Heavy Ranged (Steinling/Orc Deserter/Cannoneer), if wave has Light Melee (Thief/Hellhound/Ancient Orc) or >=3 Archers,
+            // unarmored Mages (Banshee) get flanked/shot (-89% in B12), whereas Elder Treant (2⭐/2⭐ HR+LM, 151.7 HP/wt, -80% HR/-40% LM def) had 0% loss!
+            if (targetEu.cls === "heavy_ranged" && (wCtx.lmCount >= 1 || wCtx.lrCount >= 3)) {
+              if (pUnit.cls === "mage") {
+                sWave -= (14.0 * wCtx.lmCount) + (wCtx.lrCount >= 3 ? 18.0 : 0.0);
+              } else if (pUnit.base === "eb_hm") {
+                sWave += 16.0;
+              }
+            }
+
             // Rule B: Glass-Cannon Ranger II (51 base HP/wt, Range 4, Init 20) steps forward on Turn 1 into enemy frontline.
-            // If enemy has Light Melee (Thief/Hellhound/Orc) or Heavy Ranged (Cannoneer/Deserter) or >=2 Archers, Ranger II gets focused (75.8% avg loss vs 15.5% for Sword Acrobat / Elite Archer)!
             if (pUnit.base === "mc_lr" && (wCtx.lmCount >= 1 || wCtx.hrCount >= 1 || wCtx.lrCount >= 2)) {
               sWave -= 14.0 * (wCtx.lmCount + wCtx.hrCount + 0.5 * wCtx.lrCount);
             }
 
-            // Rule C: Unarmored Mages (Blossom Princess / Sorceress with 0% LR def) vs Sneaky Mist Walker (Init 21, Reach 8, +90% vs Mage):
-            // Mist Walker one-shots Mages (-94% to -100%) on Step 1 before they can move! Prefer Dryad / Elite Archer against HM when Mist Walker is present.
+            // Rule C: Unarmored Mages vs Sneaky Mist Walker (Init 21, Reach 8, +90% vs Mage):
             if (pUnit.cls === "mage" && wCtx.hasMistWalker && ((pUnit.def && pUnit.def["light_ranged"]) || 0) === 0) {
               sWave -= 38.0;
             }
 
-            // Rule D: Granite Golem (0% LM def) vs Light Melee takes heavy melee damage compared to Senior Orc Strategist (-40% LM def, -80% LR def) or Frog Prince (-70% LM def) or Heavy Melee:
+            // Rule D: Granite Golem (0% LM def) vs Light Melee takes heavy melee damage unless wave is Archer-heavy (>=3 LR) with no HM/HR:
             if (targetEu.cls === "light_melee" && pUnit.base === "eb_hr") {
-              sWave -= 18.0;
+              if (wCtx.hmCount >= 1 || wCtx.hrCount >= 1 || wCtx.lmCount >= 2 || wCtx.lrCount < 3) {
+                sWave -= 16.0;
+              }
             }
 
             if (sWave < minWaveScore) minWaveScore = sWave;
