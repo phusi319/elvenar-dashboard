@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.4.2
+// @version      6.4.3
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -794,9 +794,10 @@
                     let lostTotal = 0;
                     if (Array.isArray(node.state.unitsOrder)) {
                         node.state.unitsOrder.forEach(u => {
-                            if (u && u.playerId === 1) {
-                                const st = Number(u.startUnitCount) || 0;
-                                const cur = Math.max(0, Number(u.currentUnitCount) || 0);
+                            if (u && (u.teamFlag === 1 || u.playerId === 1)) {
+                                const wt = (u.unitType && Number(u.unitType.unitWeight)) || 1;
+                                const st = (Number(u.startAmountOfUnits !== undefined ? u.startAmountOfUnits : u.startUnitCount) || 0) * wt;
+                                const cur = Math.max(0, Number(u.amountOfUnits !== undefined ? u.amountOfUnits : u.currentUnitCount) || 0) * wt;
                                 startTotal += st;
                                 lostTotal += Math.max(0, st - cur);
                             }
