@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.4.5
+// @version      6.4.6
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -868,7 +868,7 @@
                 const text = this.responseText;
                 if (!text || (text[0] !== '{' && text[0] !== '[')) return;
 
-                // Lưu vào bộ đệm gói tin debug (tối đa 500 gói tin, ưu tiên giữ 100% các gói Startup, Balancing và toàn bộ các trận đánh Tournament/Spire)
+                // Lưu vào bộ đệm gói tin debug (tối đa 5000 gói tin, ưu tiên giữ 100% các gói Startup, Balancing và toàn bộ các trận đánh Tournament/Spire)
                 try {
                     const parsed = JSON.parse(text);
                     const isCriticalPacket = text.includes("InstantBattleResultVO") ||
@@ -877,7 +877,7 @@
                                              text.includes("BattleUnitTypeVO") ||
                                              text.includes("AbilityVO") ||
                                              text.includes("StartupService");
-                    if (livePacketBuffer.length >= 500) {
+                    if (livePacketBuffer.length >= 5000) {
                         const dropIdx = livePacketBuffer.findIndex(p => !p._critical);
                         if (dropIdx !== -1) livePacketBuffer.splice(dropIdx, 1);
                         else livePacketBuffer.shift();
