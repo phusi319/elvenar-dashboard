@@ -1038,6 +1038,23 @@
       box-shadow: 0 3px 12px rgba(16, 185, 129, 0.12);
     }
 
+    .adv-slot-card.backup-slot {
+      border: 1.5px dashed rgba(245, 158, 11, 0.55);
+      background: rgba(30, 27, 75, 0.35);
+      box-shadow: 0 2px 10px rgba(245, 158, 11, 0.08);
+    }
+
+    .adv-slot-card.backup-slot:hover {
+      border-color: rgba(250, 204, 21, 0.95);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.25);
+    }
+
+    .backup-badge {
+      background: rgba(245, 158, 11, 0.18) !important;
+      border-bottom: 1px solid rgba(245, 158, 11, 0.3) !important;
+    }
+
     .slot-num-badge {
       width: 100%;
       background: rgba(0, 0, 0, 0.48);
@@ -2736,7 +2753,6 @@
           <div class="slot-grid-5">
             ${slotRecs.map((cands, sIdx) => {
               const top = cands[0];
-              const alt2 = cands[1];
               const u = top.unit;
               const cm = CLASS_META[u.cls];
               const ds = top.directStats;
@@ -2756,7 +2772,7 @@
               }
 
               return `
-                <div class="adv-slot-card player-slot" onclick="openUnitInspectModal('${u.base}')">
+                <div class="adv-slot-card player-slot" onclick="openUnitInspectModal('${u.base}')" title="Nhấn để xem chỉ số: ${u.name}">
                   <div class="slot-num-badge">
                     <span style="color:#34d399;">S${sIdx + 1}</span>
                     <span class="slot-pos-tag">${bShort}#${colNum}</span>
@@ -2766,11 +2782,61 @@
                   <div class="slot-unit-name">${u.short}</div>
                   <div class="slot-meta-pill ${badgeCls}">${badgeText}</div>
                   <div class="slot-meta-pill pill-warn" style="margin-top:2px;">Stock: ${Math.floor(top.stock)}⬢</div>
-                  ${alt2 ? `
-                    <div class="alt-picks-row" title="Lựa chọn khắc chế số #2 cho ô này: ${alt2.unit.name}">
-                      <span class="alt-chip"><img src="${alt2.unit.icon}"> Dự phòng: ${alt2.unit.short}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+
+          <!-- 6.B Dedicated Backup / Alternative Lineup (5 Slots) -->
+          <div class="adv-section-label" style="margin-top:12px;">
+            <span>🔄 ĐỘI HÌNH DỰ PHÒNG #2 (ALTERNATIVE PICKS)</span>
+            <span style="color:#fde047;">Dự phòng khi thiếu lính chính</span>
+          </div>
+          <div class="slot-grid-5">
+            ${slotRecs.map((cands, sIdx) => {
+              const alt2 = cands[1];
+              if (!alt2) {
+                return `
+                  <div class="adv-slot-card backup-slot" style="opacity:0.45;justify-content:center;min-height:115px;">
+                    <div class="slot-num-badge backup-badge">
+                      <span style="color:#fbbf24;">S${sIdx + 1} #2</span>
                     </div>
-                  ` : ''}
+                    <div style="font-size:9px;color:#94a3b8;margin:auto;padding:8px 4px;text-align:center;">— Không có —</div>
+                  </div>
+                `;
+              }
+              const u = alt2.unit;
+              const cm = CLASS_META[u.cls];
+              const ds = alt2.directStats || {};
+              const bShort = u.bldg === "Barracks" ? "⚔️Bar" : (u.bldg === "Training Grounds" ? "🏹TG" : "🪓Merc");
+              const colNum = (u.uIdx % 5) + 1;
+
+              const starPrefix = (ds.starStr && ds.starStr >= 2) ? `${ds.starStr}⭐ ` : "";
+              let badgeText = `${starPrefix}🛡️-${ds.defBonusPct || 0}% DMG`;
+              let badgeCls = "pill-counter";
+              if (ds.atkBonusPct > 0 && ds.defBonusPct > 0) {
+                badgeText = `${starPrefix}+${ds.atkBonusPct}%/-${ds.defBonusPct}%`;
+              } else if (ds.atkBonusPct > 0) {
+                badgeText = `${starPrefix}⚔️+${ds.atkBonusPct}%`;
+              } else if (ds.firstStrike) {
+                badgeText = `⚡1st Strike`;
+                badgeCls = "pill-safe";
+              } else if (!ds.defBonusPct && !ds.atkBonusPct) {
+                badgeText = `Dự bị #2`;
+                badgeCls = "pill-warn";
+              }
+
+              return `
+                <div class="adv-slot-card backup-slot" onclick="openUnitInspectModal('${u.base}')" title="Quân dự phòng #2 cho Ô ${sIdx + 1}: ${u.name}">
+                  <div class="slot-num-badge backup-badge">
+                    <span style="color:#fbbf24;">S${sIdx + 1} #2</span>
+                    <span class="slot-pos-tag">${bShort}#${colNum}</span>
+                  </div>
+                  <img src="${cm.icon}" class="slot-class-icon" alt="${cm.code}">
+                  <img src="${u.icon}" class="slot-portrait" alt="${u.name}">
+                  <div class="slot-unit-name" style="color:#fde047;">${u.short}</div>
+                  <div class="slot-meta-pill ${badgeCls}">${badgeText}</div>
+                  <div class="slot-meta-pill pill-warn" style="margin-top:2px;">Stock: ${Math.floor(alt2.stock)}⬢</div>
                 </div>
               `;
             }).join('')}
