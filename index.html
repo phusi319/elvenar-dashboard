@@ -1366,31 +1366,21 @@
           { n: "Shellux", ic: "🐌", f: 0 }
         ],
         res: [
-          { id: "marble", name: "Marble", icon: "🏛️", tier: 1, cur: 12329922, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "steel", name: "Steel", icon: "🔩", tier: 1, cur: 11593828, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "planks", name: "Planks", icon: "🪵", tier: 1, cur: 9270106, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "crystal", name: "Crystal", icon: "💎", tier: 2, cur: 8852670, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "scrolls", name: "Scrolls", icon: "📜", tier: 2, cur: 8073329, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "silk", name: "Silk", icon: "🧵", tier: 2, cur: 6404746, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "elixir", name: "Elixir", icon: "🧪", tier: 3, cur: 7994560, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "magic_dust", name: "Magic Dust", icon: "✨", tier: 3, cur: 8682281, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
-          { id: "gems", name: "Gems", icon: "🔮", tier: 3, cur: 10006642, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 }
+          { id: "marble", name: "Marble", icon: "🏛️", tier: 1, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "steel", name: "Steel", icon: "🔩", tier: 1, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "planks", name: "Planks", icon: "🪵", tier: 1, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "crystal", name: "Crystal", icon: "💎", tier: 2, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "scrolls", name: "Scrolls", icon: "📜", tier: 2, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "silk", name: "Silk", icon: "🧵", tier: 2, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "elixir", name: "Elixir", icon: "🧪", tier: 3, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "magic_dust", name: "Magic Dust", icon: "✨", tier: 3, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 },
+          { id: "gems", name: "Gems", icon: "🔮", tier: 3, cur: 0, todayEarn: 0, todaySpent: 0, weekEarn: 0, weekSpent: 0 }
         ],
         arm: {
-          squadSize: 4299,
-          units: [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+          squadSize: 0,
+          units: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         },
-        enc: {
-          ts: 0,
-          source: "tournament",
-          good: "steel",
-          playerSquadSize: 2742,
-          enemySquadSize: 2799,
-          waves: [
-            ["mob_hblm_3", "mob_tglr_3", "mob_tglr_3", "mob_hblr_3", "mob_tglr_3"]
-          ],
-          lastResult: null
-        }
+        enc: null
       };
     }
 
@@ -1539,11 +1529,11 @@
       if (!container) return;
 
       const arm = state.arm || {
-        squadSize: 4299,
-        units: [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+        squadSize: 0,
+        units: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
       };
-      const units = arm.units || [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245];
-      const squadSize = arm.squadSize || 4299;
+      const units = arm.units || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      const squadSize = arm.squadSize || 0;
 
       const classCols = [
         { code: "lm", title: "Light Melee", icon: "assets/units/icon_class_lm.png", color: "#38bdf8" },
@@ -1804,9 +1794,7 @@
 
     let advisorMode = "optimal"; // "optimal" (Mixed 3 buildings) or "fast1tab" (Single building tab)
     let activeWaveIdx = 0;
-    let advisorWaves = [
-      ["mob_hblm_3", "mob_tglr_3", "mob_tglr_3", "mob_hblr_3", "mob_tglr_3"]
-    ];
+    let advisorWaves = [];
     let isManualOverride = false;
     let lastSyncedEncounterTs = 0;
 
@@ -1906,7 +1894,8 @@
 
     function recommendLineupForWaves(waves, allowedPoolKeys) {
       const pool = allowedPoolKeys || PLAYER_UNIT_KEYS;
-      const armUnits = (state.arm && Array.isArray(state.arm.units)) ? state.arm.units : [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245];
+      const armUnits = (state.arm && Array.isArray(state.arm.units)) ? state.arm.units : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+      const hasStockData = armUnits.some(v => Number(v) > 0);
 
       // Step 1: Evaluate all candidate units for each of the 5 slots across all waves
       const rawSlotCandidates = [];
@@ -1947,13 +1936,15 @@
             weightedSum += (minWaveScore * 0.55);
           }
 
-          // Stock availability tie-breaker
-          if (stock <= 0.9) {
-            weightedSum -= 600;
-          } else if (stock < 15) {
-            weightedSum -= 22;
-          } else if (stock < 35) {
-            weightedSum -= 8;
+          // Stock availability tie-breaker (only apply when real stock data has synced)
+          if (hasStockData) {
+            if (stock <= 0.9) {
+              weightedSum -= 600;
+            } else if (stock < 15) {
+              weightedSum -= 22;
+            } else if (stock < 35) {
+              weightedSum -= 8;
+            }
           }
 
           candidates.push({
@@ -2217,6 +2208,38 @@
           lastSyncedEncounterTs = state.enc.ts || 0;
           if (activeWaveIdx >= advisorWaves.length) activeWaveIdx = 0;
         }
+      }
+
+      if (!advisorWaves || advisorWaves.length === 0) {
+        container.innerHTML = `
+          <div class="advisor-card">
+            <div class="adv-banner">
+              <div class="adv-banner-left">
+                <div class="adv-live-dot manual"></div>
+                <div>
+                  <div class="adv-banner-title">⏳ Đang chờ bạn bấm vào ải trong Game...</div>
+                  <div class="adv-banner-sub">Mở bất kỳ ải Tournament, Spire of Eternity hoặc Province nào để tự động bắt đội hình quái (&lt;50ms)</div>
+                </div>
+              </div>
+            </div>
+            <div style="text-align:center;padding:22px 12px;color:#94a3b8;font-size:11.5px;line-height:1.5;">
+              <div style="font-size:28px;margin-bottom:6px;">🎯</div>
+              <div>Chưa có dữ liệu ải trực tiếp từ phiên chơi hiện tại.</div>
+              <div style="font-size:10.5px;color:#64748b;margin-top:4px;">Hãy click vào 1 ải trong game, hoặc bấm chọn 1 đội hình mẫu bên dưới để tự xếp quái thủ công:</div>
+            </div>
+            <div style="margin-top:6px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.06);">
+              <div style="font-size:9.5px;font-weight:700;color:#94a3b8;margin-bottom:6px;">🧪 Chọn nhanh đội hình quái mẫu hoặc tự xếp 5 ô:</div>
+              <div class="preset-scroll">
+                <button class="preset-chip" onclick="loadPresetEncounter('steel_1lm_4lr')">🏹 1 Orc LM + 4 Mist Walker LR</button>
+                <button class="preset-chip" onclick="loadPresetEncounter('steel_3lr_2ma')">✨ 3 Archers + 2 Mages (Cross-Fire)</button>
+                <button class="preset-chip" onclick="loadPresetEncounter('heavy_wall')">🛡️ 3 Heavy Melee + 2 Heavy Ranged</button>
+                <button class="preset-chip" onclick="loadPresetEncounter('hellhound_mage')">🐕 2 Hellhounds + 2 Mages + Cannoneer</button>
+                <button class="preset-chip" onclick="loadPresetEncounter('spire_2wave')">🗼 Spire 2-Wave Endurance Test</button>
+              </div>
+            </div>
+          </div>
+        `;
+        return;
       }
 
       const curWave = advisorWaves[activeWaveIdx] || advisorWaves[0];
@@ -2868,19 +2891,19 @@
 
       // 6. Troop Reserves: [squadSize, [15 squad counts]]
       let arm = {
-        squadSize: 4299,
-        units: [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+        squadSize: 0,
+        units: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
       };
       if (compact.arm) {
         if (Array.isArray(compact.arm)) {
           arm = {
-            squadSize: compact.arm[0] || 4299,
-            units: Array.isArray(compact.arm[1]) ? compact.arm[1] : [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+            squadSize: compact.arm[0] || 0,
+            units: Array.isArray(compact.arm[1]) ? compact.arm[1] : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
           };
         } else if (typeof compact.arm === "object") {
           arm = {
-            squadSize: compact.arm.squadSize || 4299,
-            units: Array.isArray(compact.arm.units) ? compact.arm.units : [20.8, 513, 258, 233, 400, 217, 157, 195, 15.6, 131, 196, 174, 207, 216, 245]
+            squadSize: compact.arm.squadSize || 0,
+            units: Array.isArray(compact.arm.units) ? compact.arm.units : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
           };
         }
       }

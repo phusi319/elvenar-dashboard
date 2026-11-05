@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.4.0
+// @version      6.4.1
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -128,28 +128,19 @@
     let savedArmy = null;
     try { savedArmy = JSON.parse(GM_getValue("ELVENAR_TRACKED_ARMY", "null")); } catch(e) {}
     let trackedArmy = savedArmy || {
-        squadSize: 4299,
-        squads: {
-            "barracks_lm": 20.8, "barracks_lr": 513, "barracks_ma": 258, "barracks_hm": 233, "barracks_hr": 400,
-            "training_lm": 217, "training_lr": 157, "training_ma": 195, "training_hm": 15.6, "training_hr": 131,
-            "mercenary_lm": 196, "mercenary_lr": 174, "mercenary_ma": 207, "mercenary_hm": 216, "mercenary_hr": 245
-        },
+        squadSize: 0,
+        squads: {},
         raw: {}
     };
 
     let savedEncounter = null;
     try { savedEncounter = JSON.parse(GM_getValue("ELVENAR_TRACKED_ENCOUNTER", "null")); } catch(e) {}
-    let trackedEncounter = savedEncounter || {
-        ts: Math.floor(Date.now() / 1000),
-        src: "tournament",
-        good: "planks",
-        pSq: 23000,
-        eSq: 44892,
-        waves: [
-            ["mob_eblr_3", "mob_eblr_3", "mob_mcma_3", "mob_hblr_3", "mob_hbma_3"]
-        ],
-        lastResult: null
-    };
+    // Dọn dẹp ải mẫu hardcode cũ nếu có lưu trong bộ nhớ đệm
+    if (savedEncounter && savedEncounter.pSq === 23000 && savedEncounter.eSq === 44892) {
+        savedEncounter = null;
+        try { GM_setValue("ELVENAR_TRACKED_ENCOUNTER", "null"); } catch(e) {}
+    }
+    let trackedEncounter = savedEncounter || null;
 
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
@@ -733,8 +724,8 @@
                                 ts: now,
                                 src: node.good_id ? "tournament" : (waves.length > 1 ? "spire" : "province"),
                                 good: node.good_id || "",
-                                pSq: Number(node.playerSquadSize) || (trackedArmy && trackedArmy.squadSize) || 4299,
-                                eSq: Number(activeEnc.enemyWaves[0].squadSize) || 4299,
+                                pSq: Number(node.playerSquadSize) || (trackedArmy && trackedArmy.squadSize) || 0,
+                                eSq: Number(activeEnc.enemyWaves[0].squadSize) || 0,
                                 waves: waves,
                                 lastResult: trackedEncounter ? trackedEncounter.lastResult : null
                             };
@@ -751,8 +742,8 @@
                             ts: now,
                             src: (clsName.includes("spire") || waves.length > 1) ? "spire" : ((trackedEncounter && trackedEncounter.src) || "encounter"),
                             good: node.good_id || (trackedEncounter && trackedEncounter.good) || "",
-                            pSq: Number(node.playerSquadSize) || (trackedEncounter && trackedEncounter.pSq) || (trackedArmy && trackedArmy.squadSize) || 4299,
-                            eSq: Number(node.enemyWaves[0].squadSize) || 4299,
+                            pSq: Number(node.playerSquadSize) || (trackedEncounter && trackedEncounter.pSq) || (trackedArmy && trackedArmy.squadSize) || 0,
+                            eSq: Number(node.enemyWaves[0].squadSize) || 0,
                             waves: waves,
                             lastResult: trackedEncounter ? trackedEncounter.lastResult : null
                         };
@@ -763,9 +754,23 @@
 
                 // H. Bắt kết quả trận đánh vừa diễn ra (InstantBattleResultVO)
                 if (node.__class__ === "InstantBattleResultVO" && node.state) {
-                    if (!trackedEncounter) trackedEncounter = { ts: now, src: "tournament", good: "", pSq: 4299, eSq: 4299, waves: [] };
+                    if (!trackedEncounter) trackedEncounter = { ts: now, src: "tournament", good: "", pSq: 0, eSq: 0, waves: [] };
+                    let startTotal = 0;
+                    let lostTotal = 0;
+                    if (Array.isArray(node.state.unitsOrder)) {
+                        node.state.unitsOrder.forEach(u => {
+                            if (u && u.playerId === 1) {
+                                const st = Number(u.startUnitCount) || 0;
+                                const cur = Math.max(0, Number(u.currentUnitCount) || 0);
+                                startTotal += st;
+                                lostTotal += Math.max(0, st - cur);
+                            }
+                        });
+                    }
+                    const lossPct = startTotal > 0 ? Math.round((lostTotal / startTotal) * 1000) / 10 : 0;
                     trackedEncounter.lastResult = {
                         win: node.state.winnerBit === 1,
+                        lossPct: lossPct,
                         wave: Number(node.completedWave) || 1,
                         totalWaves: Number(node.totalWaves) || 1,
                         ts: now
@@ -1136,7 +1141,7 @@
             "mercenary_lm", "mercenary_lr", "mercenary_ma", "mercenary_hm", "mercenary_hr"
         ];
         return [
-            trackedArmy.squadSize || 4299,
+            trackedArmy.squadSize || 0,
             keys.map(k => trackedArmy.squads[k] !== undefined ? trackedArmy.squads[k] : 0)
         ];
     }
@@ -1148,10 +1153,10 @@
             trackedEncounter.ts || 0,
             trackedEncounter.src || "tournament",
             trackedEncounter.good || "",
-            trackedEncounter.pSq || 4299,
-            trackedEncounter.eSq || 4299,
+            trackedEncounter.pSq || 0,
+            trackedEncounter.eSq || 0,
             trackedEncounter.waves,
-            lr ? [lr.win ? 1 : 0, lr.wave || 1, lr.totalWaves || 1, lr.ts || 0] : null
+            lr ? [lr.win ? 1 : 0, lr.lossPct || 0, lr.wave || 1, lr.totalWaves || 1] : null
         ];
     }
 
