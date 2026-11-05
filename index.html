@@ -868,17 +868,57 @@
     /* =========================================================================
        🎯 AUTO-BATTLE COUNTER ADVISOR STYLES
        ========================================================================= */
+    .advisor-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    }
+
     .adv-banner {
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
       gap: 6px;
-      background: rgba(15, 23, 42, 0.65);
-      border: 1px solid rgba(56, 189, 248, 0.25);
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid rgba(56, 189, 248, 0.28);
       border-radius: 10px;
       padding: 8px 10px;
       margin-bottom: 10px;
+    }
+
+    .adv-banner-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .adv-live-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      flex-shrink: 0;
+    }
+
+    .adv-live-dot.manual {
+      background: #f59e0b;
+      box-shadow: 0 0 8px #f59e0b;
+    }
+
+    .adv-banner-title {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #f8fafc;
+    }
+
+    .adv-banner-sub {
+      font-size: 9.5px;
+      color: #94a3b8;
+      margin-top: 1px;
     }
 
     .adv-mode-bar {
@@ -895,7 +935,7 @@
     .adv-mode-btn {
       background: transparent;
       color: var(--text-muted);
-      border: none;
+      border: 1px solid transparent;
       border-radius: 7px;
       padding: 6px 8px;
       font-size: 11px;
@@ -948,33 +988,34 @@
       border-color: rgba(244, 63, 94, 0.45);
     }
 
-    .wave-action-btn {
-      background: rgba(56, 189, 248, 0.12);
-      color: #38bdf8;
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      border-radius: 7px;
-      padding: 4px 8px;
+    .adv-section-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       font-size: 10px;
-      font-weight: 700;
-      cursor: pointer;
+      font-weight: 800;
+      color: #94a3b8;
+      margin-bottom: 5px;
+      padding: 0 2px;
     }
 
     .slot-grid-5 {
       display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 5px;
+      gap: 6px;
       margin-bottom: 8px;
     }
 
     .adv-slot-card {
-      background: rgba(15, 23, 42, 0.75);
+      background: rgba(15, 23, 42, 0.82);
       border: 1.5px solid rgba(255, 255, 255, 0.12);
-      border-radius: 9px;
+      border-radius: 10px;
       overflow: hidden;
       display: flex;
       flex-direction: column;
       align-items: center;
       position: relative;
+      padding-bottom: 4px;
       transition: transform 0.15s ease, border-color 0.15s ease;
       cursor: pointer;
     }
@@ -984,110 +1025,162 @@
       border-color: rgba(56, 189, 248, 0.55);
     }
 
-    .adv-slot-card.enemy-card {
+    .adv-slot-card.enemy-slot {
       border-color: rgba(244, 63, 94, 0.35);
     }
 
-    .adv-slot-card.enemy-card:hover {
+    .adv-slot-card.enemy-slot:hover {
       border-color: rgba(244, 63, 94, 0.75);
     }
 
-    .adv-slot-card.rec-card {
+    .adv-slot-card.player-slot {
       border-color: rgba(52, 211, 153, 0.45);
       box-shadow: 0 3px 12px rgba(16, 185, 129, 0.12);
     }
 
-    .adv-slot-top {
+    .slot-num-badge {
       width: 100%;
-      background: rgba(0, 0, 0, 0.45);
-      padding: 2px 4px;
+      background: rgba(0, 0, 0, 0.48);
+      padding: 3px 5px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 9px;
+      font-size: 9.5px;
       font-weight: 800;
-      color: #cbd5e1;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      color: #f8fafc;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     }
 
-    .adv-slot-pos {
+    .slot-pos-tag {
       font-size: 8px;
       color: #94a3b8;
-      font-weight: 600;
-    }
-
-    .adv-portrait-wrap {
-      width: 100%;
-      position: relative;
-      aspect-ratio: 1 / 1;
-      background: radial-gradient(circle at center, rgba(30,41,59,0.9), rgba(15,23,42,0.95));
-    }
-
-    .adv-portrait {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    .adv-cls-badge {
-      position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 16px;
-      height: 16px;
-      border-radius: 4px;
-      background: rgba(15, 23, 42, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      padding: 1px;
-    }
-
-    .adv-bld-badge {
-      position: absolute;
-      top: 3px;
-      right: 3px;
-      width: 17px;
-      height: 17px;
-      border-radius: 50%;
-      background: rgba(15, 23, 42, 0.88);
-      border: 1px solid rgba(250, 204, 21, 0.45);
-      padding: 1px;
-    }
-
-    .adv-unit-name {
-      width: 100%;
-      font-size: 9.5px;
       font-weight: 700;
+    }
+
+    .slot-class-icon {
+      position: absolute;
+      top: 23px;
+      right: 4px;
+      width: 16px !important;
+      height: 16px !important;
+      object-fit: contain;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 4px;
+      padding: 1px;
+      z-index: 2;
+    }
+
+    .slot-portrait {
+      width: 54px !important;
+      height: 54px !important;
+      object-fit: contain;
+      display: block;
+      margin: 4px auto 2px;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+    }
+
+    .slot-unit-name {
+      width: 100%;
+      font-size: 10px;
+      font-weight: 800;
       color: #f8fafc;
       text-align: center;
-      padding: 3px 2px 1px;
+      padding: 1px 3px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .adv-unit-meta {
-      width: 100%;
+    .slot-meta-pill {
       font-size: 8.5px;
-      font-weight: 700;
+      font-weight: 800;
+      padding: 1.5px 5px;
+      border-radius: 5px;
+      margin-top: 2px;
       text-align: center;
-      padding: 1px 2px 3px;
       white-space: nowrap;
+      max-width: 94%;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .adv-alt-row {
+    .pill-danger {
+      background: rgba(244, 63, 94, 0.16);
+      color: #fda4af;
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+
+    .pill-counter {
+      background: rgba(16, 185, 129, 0.18);
+      color: #6ee7b7;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+
+    .pill-safe {
+      background: rgba(56, 189, 248, 0.18);
+      color: #7dd3fc;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+    }
+
+    .pill-warn {
+      background: rgba(245, 158, 11, 0.14);
+      color: #fcd34d;
+      border: 1px solid rgba(245, 158, 11, 0.28);
+    }
+
+    .vs-divider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0 8px;
+    }
+
+    .vs-line {
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.35), transparent);
+    }
+
+    .vs-pill {
+      font-size: 9px;
+      font-weight: 800;
+      color: #38bdf8;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 999px;
+      padding: 2px 9px;
+      white-space: nowrap;
+    }
+
+    .alt-picks-row {
       width: 100%;
-      background: rgba(0, 0, 0, 0.35);
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      padding: 2px 3px;
+      margin-top: 4px;
+      padding-top: 3px;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+      display: flex;
+      justify-content: center;
+    }
+
+    .alt-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
       font-size: 8px;
+      font-weight: 700;
       color: #94a3b8;
-      text-align: center;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      max-width: 95%;
+    }
+
+    .alt-chip img {
+      width: 13px !important;
+      height: 13px !important;
+      object-fit: contain;
+      border-radius: 3px;
+      flex-shrink: 0;
     }
 
     .fast-pick-box {
@@ -1098,12 +1191,34 @@
       margin-top: 8px;
     }
 
+    .fast-pick-title {
+      font-size: 10px;
+      font-weight: 800;
+      color: #34d399;
+      margin-bottom: 5px;
+    }
+
+    .fast-pick-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .fast-step-chip {
+      font-size: 10px;
+      color: #e2e8f0;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 6px;
+      padding: 4px 8px;
+    }
+
     .preset-scroll {
       display: flex;
       gap: 4px;
       overflow-x: auto;
       padding-bottom: 4px;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
       scrollbar-width: none;
     }
     .preset-scroll::-webkit-scrollbar { display: none; }
@@ -1113,18 +1228,17 @@
       color: #cbd5e1;
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: 999px;
-      padding: 3px 8px;
-      font-size: 10px;
+      padding: 4px 9px;
+      font-size: 9.5px;
       font-weight: 700;
       white-space: nowrap;
       cursor: pointer;
       flex-shrink: 0;
     }
 
-    .preset-chip.active {
-      background: rgba(245, 158, 11, 0.2);
-      color: #fbbf24;
-      border-color: rgba(245, 158, 11, 0.45);
+    .preset-chip:hover {
+      border-color: rgba(56, 189, 248, 0.45);
+      color: #38bdf8;
     }
 
     .unit-modal-overlay {
@@ -1829,11 +1943,13 @@
       const rng = enemyUnit.rng || 1;
       const mv = enemyUnit.mv || 2;
       const reach = rng + mv;
-      if (dy === 0) return 1.00; // Direct opposite slot
-      if (dy === 1) return (rng >= 3 || mv >= 4) ? 0.85 : 0.50; // Adjacent vertical hex row
-      if (dy === 2) return (reach >= 7 || rng >= 4) ? 0.55 : 0.25; // 2 hex rows away
-      if (dy === 3) return (rng >= 4 || reach >= 7) ? 0.38 : 0.14;
-      return (rng >= 4 || reach >= 7) ? 0.30 : 0.08;
+      // Direct opposite slot (dy === 0) is the primary counter responsibility (1.00).
+      // Adjacent slots provide cross-fire survival context without overriding the direct slot counter!
+      if (dy === 0) return 1.00;
+      if (dy === 1) return (rng >= 3 || mv >= 4) ? 0.34 : 0.18;
+      if (dy === 2) return (reach >= 7 || rng >= 4) ? 0.18 : 0.08;
+      if (dy === 3) return (rng >= 4 || reach >= 7) ? 0.10 : 0.04;
+      return (rng >= 4 || reach >= 7) ? 0.06 : 0.02;
     }
 
     function scoreUnitPair(pUnit, eUnit, dy, waveCtx) {
@@ -1847,6 +1963,7 @@
       const eAtkBonus = ((eUnit.atk && eUnit.atk[pUnit.cls]) || 0) / 100.0;
       const eDefBonus = ((eUnit.def && eUnit.def[pUnit.cls]) || 0) / 100.0;
       const starStr = (pUnit.str && pUnit.str[eUnit.cls]) || 0;
+      const isCounter = (starStr > 0 || atkBonus > 0 || defBonus > 0);
 
       // 1. Offense: % of enemy squad eliminated per hit
       const effOffense = pDmg * (1.0 + atkBonus) * (1.0 - eDefBonus);
@@ -1856,88 +1973,92 @@
       const effIncoming = eDmg * (1.0 + eAtkBonus) * (1.0 - defBonus);
       const lossRate = effIncoming / Math.max(1.0, pHp);
 
-      // 3. Turn-1 First Strike & Range / Move / Initiative Advantage
+      // 3. Turn-1 First Strike & Range / Move / Initiative Advantage (Only reward offensive first-strike when we actually counter the enemy!)
       let firstStrikeMult = 1.0;
       let incomingMult = 1.0;
       const pReach = (pUnit.rng || 1) + (pUnit.mv || 2);
       const eReach = (eUnit.rng || 1) + (eUnit.mv || 2);
 
-      if ((pUnit.rng || 1) >= 8) {
-        // Ultra-long-range artillery (Frog Prince Range 9 / Mortar Range 10) hits full map Turn 1 without moving into danger
-        firstStrikeMult *= 1.40;
-        incomingMult *= 0.55;
-      } else if ((pUnit.init || 10) > (eUnit.init || 10) && pReach >= 7) {
-        firstStrikeMult *= 1.35;
-        incomingMult *= 0.65;
-      } else if ((eUnit.init || 10) > (pUnit.init || 10) && eReach >= 7) {
-        incomingMult *= 1.35;
+      if (isCounter) {
+        if ((pUnit.rng || 1) >= 8) {
+          firstStrikeMult *= 1.38;
+          incomingMult *= 0.55;
+        } else if ((pUnit.init || 10) > (eUnit.init || 10) && pReach >= 7) {
+          firstStrikeMult *= 1.30;
+          incomingMult *= 0.68;
+        }
       }
-
-      // Range Kiting vs Melee (e.g. Blossom Princess Range 5 vs Heavy Melee, or Ranged vs Slow Melee)
-      if ((pUnit.rng || 1) >= 5 && (eUnit.rng || 1) <= 2) {
-        firstStrikeMult *= 1.38;
-        incomingMult *= 0.45;
-      } else if ((pUnit.rng || 1) >= 3 && (eUnit.rng || 1) === 1 && (eUnit.mv || 2) <= 3) {
-        firstStrikeMult *= 1.30;
-        incomingMult *= 0.50;
-      } else if ((pUnit.rng || 1) === 1 && (eUnit.rng || 1) >= 3 && (pUnit.mv || 2) <= 3) {
+      if ((eUnit.init || 10) > (pUnit.init || 10) && eReach >= 7) {
         incomingMult *= 1.30;
       }
 
-      // 4. Specialization Rating (3⭐ Specialist vs 2⭐/2⭐ Balanced Barracks vs 1⭐ Secondary)
+      // Range Kiting vs Melee
+      if (isCounter && (pUnit.rng || 1) >= 5 && (eUnit.rng || 1) <= 2) {
+        firstStrikeMult *= 1.35;
+        incomingMult *= 0.45;
+      } else if (isCounter && (pUnit.rng || 1) >= 3 && (eUnit.rng || 1) === 1 && (eUnit.mv || 2) <= 3) {
+        firstStrikeMult *= 1.25;
+        incomingMult *= 0.55;
+      } else if ((pUnit.rng || 1) === 1 && (eUnit.rng || 1) >= 3 && (pUnit.mv || 2) <= 3) {
+        incomingMult *= 1.25;
+      }
+
+      // 4. Strict Counter Specialization Rule (3⭐ Specialist vs 2⭐/2⭐ Balanced vs 1⭐ Secondary vs 0⭐ Non-Counter)
       let specBonus = 0.0;
       if (starStr === 3) {
-        specBonus = (dy <= 1) ? 28.0 : 18.0;
+        specBonus = (dy === 0) ? 46.0 : 24.0;
       } else if (starStr === 2) {
-        specBonus = 15.0;
+        specBonus = (dy === 0) ? 34.0 : 18.0;
         if (waveCtx && waveCtx.clsCounts && pUnit.str) {
           const counteredClasses = Object.keys(pUnit.str).filter(c => pUnit.str[c] >= 2);
           const matchedInWave = counteredClasses.filter(c => (waveCtx.clsCounts[c] || 0) > 0).length;
           if (matchedInWave >= 2) {
-            specBonus += 14.0; // Dual-Threat Synergy for 2⭐/2⭐ Barracks units when wave contains both countered classes
+            specBonus += 10.0; // Dual-Threat Synergy for 2⭐/2⭐ Barracks units when wave contains both countered classes
           }
         }
       } else if (starStr === 1) {
-        if (dy === 0) {
-          specBonus = -14.0; // Avoid placing a 1⭐ secondary match directly against its non-primary target (e.g. Ranger 1⭐ vs HM)
-        }
+        specBonus = 6.0;
+      } else {
+        // 0⭐ Non-Counter (e.g. Archer vs Archer, Mage vs Mage):
+        // Strictly penalize placing a unit with ZERO counter in the direct slot!
+        specBonus = (dy === 0) ? -55.0 : -10.0;
       }
 
-      // 5. Special On-Hit Ability & Debuff Value (Duration + Enemy Retaliation/Damage scaling)
+      // 5. Special On-Hit Ability & Debuff Value
       let abilityBonus = 0.0;
       if (Array.isArray(pUnit.ab)) {
         pUnit.ab.forEach(a => {
           const dur = Math.min(Number(a.d) || 1, 2);
           if (a.t === "attack") {
-            const wAtk = ((eUnit.ret || 0) >= 1 || eDmg >= 25) ? 0.28 : 0.18;
-            abilityBonus += Math.abs(a.v || 0) * wAtk * dur * 0.65;
+            const wAtk = ((eUnit.ret || 0) >= 1 || eDmg >= 25) ? 0.25 : 0.16;
+            abilityBonus += Math.abs(a.v || 0) * wAtk * dur * 0.60;
           } else if (a.t === "defense") {
-            abilityBonus += Math.abs(a.v || 0) * 0.22 * dur * 0.65;
+            abilityBonus += Math.abs(a.v || 0) * 0.20 * dur * 0.60;
           }
         });
       }
 
-      // 6. Retaliation Hazard: Melee attacking a high-retaliation enemy (Mutated Orc General HM Ret 3, Brutal Ancient Orc LM Ret 3)
+      // 6. Retaliation Hazard: Melee attacking a high-retaliation enemy
       let retPenalty = 0.0;
       if ((pUnit.rng || 1) === 1 && (eUnit.ret || 0) >= 1) {
         if (eAtkBonus > 0 || defBonus === 0) {
-          retPenalty = 18.0 * Math.min(eUnit.ret || 1, 3);
+          retPenalty = 16.0 * Math.min(eUnit.ret || 1, 3);
         }
       }
 
-      // 7. Hard-Counter Penalty (Enemy Attack Bonus AND Enemy Defense Resistance against us)
+      // 7. Hard-Counter Penalty (when enemy counters us)
       let hardCounterPenalty = 0.0;
       if (eAtkBonus > 0) {
-        hardCounterPenalty += (eAtkBonus * 145.0) * ((eUnit.rng >= 3 || eReach >= 7) ? 1.35 : 1.0);
+        hardCounterPenalty += (eAtkBonus * 135.0) * ((eUnit.rng >= 3 || eReach >= 7) ? 1.25 : 1.0);
       }
       if (eDefBonus >= 0.50 && atkBonus === 0) {
-        hardCounterPenalty += (eDefBonus * 65.0);
+        hardCounterPenalty += (eDefBonus * 60.0);
       }
 
       // 8. Unmitigated Ranged Cross-Fire Penalty (e.g. Cerberus 0% Def vs Light Ranged)
       let focusFirePenalty = 0.0;
       if ((eUnit.rng || 1) >= 3 && defBonus === 0 && eAtkBonus === 0 && (pUnit.rng || 1) === 1) {
-        focusFirePenalty = 26.0;
+        focusFirePenalty = 22.0;
       }
 
       const netScore = (killRate * firstStrikeMult * 100.0) + specBonus + abilityBonus - (lossRate * incomingMult * 115.0) - hardCounterPenalty - focusFirePenalty - retPenalty;
@@ -1947,7 +2068,7 @@
         defBonusPct: Math.round(defBonus * 100),
         eAtkBonusPct: Math.round(eAtkBonus * 100),
         starStr,
-        firstStrike: ((pUnit.rng || 1) >= 8 || ((pUnit.init || 10) > (eUnit.init || 10) && pReach >= 7))
+        firstStrike: (isCounter && ((pUnit.rng || 1) >= 8 || ((pUnit.init || 10) > (eUnit.init || 10) && pReach >= 7)))
       };
     }
 
@@ -1956,26 +2077,17 @@
       const armUnits = (state.arm && Array.isArray(state.arm.units)) ? state.arm.units : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       const hasStockData = armUnits.some(v => Number(v) > 0);
 
-      // Precompute wave class composition & hazards for each wave
+      // Precompute wave class composition for each wave
       const waveContexts = waves.map(wave => {
         const clsCounts = {};
-        let rangedLrCount = 0;
-        let rangedMageCount = 0;
-        let heavyMeleeCount = 0;
-        let highRetMeleeCount = 0;
         for (let slotJ = 0; slotJ < 5; slotJ++) {
           const eu = resolveUnit(wave[slotJ]);
           const c = eu.cls;
           clsCounts[c] = (clsCounts[c] || 0) + 1;
-          if (c === "light_ranged") rangedLrCount++;
-          if (c === "mage") rangedMageCount++;
-          if (c === "heavy_melee") heavyMeleeCount++;
-          if ((eu.rng || 1) === 1 && (eu.ret || 0) >= 2) highRetMeleeCount++;
         }
-        return { clsCounts, rangedLrCount, rangedMageCount, heavyMeleeCount, highRetMeleeCount };
+        return { clsCounts };
       });
 
-      // Step 1: Evaluate all candidate units for each of the 5 slots across all waves
       const rawSlotCandidates = [];
       for (let slotI = 0; slotI < 5; slotI++) {
         const candidates = [];
@@ -2006,18 +2118,6 @@
               totalW += sw;
             }
             if (totalW > 0) sWave /= totalW;
-
-            // Anti-Melee-Into-HM Hazard: If enemy mixes Heavy Melee (or high-retaliation melee) with Ranged/Mage,
-            // fragile Light Melee (Cerberus/Drone Rider) will suicide into the Heavy Melee after killing ranged!
-            if ((wCtx.heavyMeleeCount >= 1 || wCtx.highRetMeleeCount >= 1) && (wCtx.rangedLrCount + wCtx.rangedMageCount >= 2)) {
-              const lrDef = (pUnit.def && pUnit.def["light_ranged"]) || 0;
-              if (pUnit.cls === "light_melee" && lrDef < 50) {
-                sWave -= 26.0 * (wCtx.heavyMeleeCount + 0.5 * wCtx.highRetMeleeCount);
-              } else if ((pUnit.rng || 1) >= 3) {
-                sWave += 14.0;
-              }
-            }
-
             if (sWave < minWaveScore) minWaveScore = sWave;
             weightedSum += sWave * wWeight;
           });
@@ -2049,36 +2149,6 @@
 
         candidates.sort((a, b) => b.score - a.score);
         rawSlotCandidates.push(candidates);
-      }
-
-      // Step 2: Team Cohesion & Anti-Bait Check
-      // - Prevent 4 Ranged + 1 Melee (where 1 melee rushes forward alone and gets focus-fired)
-      // - Prevent 4 Armored Melee + 1 Unarmored Ranged (like 1 Poison Dryad with 4 Drone Riders in Battle 3 getting sniped by 3 Archers)
-      const top1RangedCount = rawSlotCandidates.filter(c => c[0] && c[0].unit.rng >= 3).length;
-      const top1MeleeCount = 5 - top1RangedCount;
-      const curWaveCtx = waveContexts[activeWaveIdx] || waveContexts[0] || { rangedLrCount: 0 };
-
-      if (top1RangedCount >= 3) {
-        for (let slotI = 0; slotI < 5; slotI++) {
-          rawSlotCandidates[slotI].forEach(cand => {
-            if (cand.unit.rng >= 3) {
-              cand.score += 16; // Ranged focus-fire & kiting cohesion
-            } else if (cand.unit.rng === 1) {
-              cand.score -= 22; // Anti-suicide lone melee rush penalty
-            }
-          });
-          rawSlotCandidates[slotI].sort((a, b) => b.score - a.score);
-        }
-      } else if (top1MeleeCount >= 3 && curWaveCtx.rangedLrCount >= 2) {
-        for (let slotI = 0; slotI < 5; slotI++) {
-          rawSlotCandidates[slotI].forEach(cand => {
-            const lrDef = (cand.unit.def && cand.unit.def["light_ranged"]) || 0;
-            if (cand.unit.rng >= 3 && lrDef === 0) {
-              cand.score -= 30; // Anti-arrow-bait penalty for lone unarmored ranged unit
-            }
-          });
-          rawSlotCandidates[slotI].sort((a, b) => b.score - a.score);
-        }
       }
 
       const avgTeamScore = rawSlotCandidates.reduce((acc, c) => acc + (c[0] ? c[0].score : 0), 0) / 5.0;
@@ -2513,8 +2583,8 @@
                   <div class="slot-meta-pill ${badgeCls}">${badgeText}</div>
                   <div class="slot-meta-pill pill-warn" style="margin-top:2px;">Stock: ${Math.floor(top.stock)}⬢</div>
                   ${alt2 ? `
-                    <div class="alt-picks-row" title="Alternative #2: ${alt2.unit.name}">
-                      <span class="alt-chip"><img src="${alt2.unit.icon}"> #2 ${alt2.unit.short}</span>
+                    <div class="alt-picks-row" title="Lựa chọn khắc chế số #2 cho ô này: ${alt2.unit.name}">
+                      <span class="alt-chip"><img src="${alt2.unit.icon}"> Dự phòng: ${alt2.unit.short}</span>
                     </div>
                   ` : ''}
                 </div>
