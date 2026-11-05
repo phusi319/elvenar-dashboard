@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.4.4
+// @version      6.4.5
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -868,13 +868,24 @@
                 const text = this.responseText;
                 if (!text || (text[0] !== '{' && text[0] !== '[')) return;
 
-                // Lưu vào bộ đệm gói tin debug (tối đa 80 gói tin gần nhất)
+                // Lưu vào bộ đệm gói tin debug (tối đa 500 gói tin, ưu tiên giữ 100% các gói Startup, Balancing và toàn bộ các trận đánh Tournament/Spire)
                 try {
                     const parsed = JSON.parse(text);
-                    if (livePacketBuffer.length >= 80) livePacketBuffer.shift();
+                    const isCriticalPacket = text.includes("InstantBattleResultVO") ||
+                                             text.includes("BattleRealmStateVO") ||
+                                             text.includes("enemyWaves") ||
+                                             text.includes("BattleUnitTypeVO") ||
+                                             text.includes("AbilityVO") ||
+                                             text.includes("StartupService");
+                    if (livePacketBuffer.length >= 500) {
+                        const dropIdx = livePacketBuffer.findIndex(p => !p._critical);
+                        if (dropIdx !== -1) livePacketBuffer.splice(dropIdx, 1);
+                        else livePacketBuffer.shift();
+                    }
                     livePacketBuffer.push({
                         timestamp: new Date().toISOString(),
                         url: this._url,
+                        _critical: isCriticalPacket,
                         payload: parsed
                     });
                 } catch(e) {}
