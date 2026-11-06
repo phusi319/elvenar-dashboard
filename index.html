@@ -2242,6 +2242,9 @@
       const armUnits = (state.arm && Array.isArray(state.arm.units)) ? state.arm.units : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       const hasStockData = armUnits.some(v => Number(v) > 0);
       const activeBuffs = getActiveArmyBuffs();
+      const pSqVal = (state.enc && Number(state.enc.playerSquadSize)) || (state.arm && Number(state.arm.squadSize)) || 1000;
+      const eSqVal = (state.enc && Number(state.enc.enemySquadSize)) || Math.round(pSqVal * 1.5);
+      const squadRatio = pSqVal > 0 ? (eSqVal / pSqVal) : 1.5;
 
       // Precompute wave class composition & long-reach hazards for each wave
       const waveContexts = waves.map(wave => {
@@ -2367,12 +2370,12 @@
               if (eUnits[j].cls === "mage" && d === 1) maAdjCount++;
             }
 
-            // Empirical 6-Star Tournament Survival Rules (calibrated from 31-battle dump):
+            // Empirical 6-Star Tournament Survival Rules (calibrated from 35-battle dumps):
             // Rule A: When countering Light Ranged (targetEu is LR):
-            // If enemy wave has Heavy Melee (Orc General / Swamp Monster), melee Light Melee units get caught by HM in Round 2–3 (sWave -= 45 * hmCount).
+            // If enemy wave has Heavy Melee (Orc General / Swamp Monster), melee Light Melee units get caught by HM in Round 2–3.
             if (targetEu.cls === "light_ranged") {
               if (wCtx.hmCount >= 1 && pUnit.cls === "light_melee") {
-                sWave -= 45.0 * wCtx.hmCount;
+                sWave -= 65.0 * wCtx.hmCount; // Strict LM ban vs HM
               }
               const lrDef = (pUnit.def && pUnit.def["light_ranged"]) || 0;
               if (pUnit.cls === "heavy_ranged" && lrDef >= 50) {
@@ -2385,13 +2388,31 @@
             }
 
             // Rule A1: When countering Mage (targetEu is Mage):
-            // If enemy wave has Heavy Melee (Orc General / Swamp Monster), melee Mage-counters (Acrobat, Cerberus) get intercepted by HM;
-            // Ranged Mage-counters (Elite Archer with +104% city buff) stay safely in backline!
+            // If enemy wave has Heavy Melee (Orc General / Swamp Monster):
+            // Melee Mage-counters (Acrobat, Cerberus) get intercepted by HM;
+            // Ranged Mage-counters (Elite Archer with +104% city buff) stay in backline, EXCEPT when enemy has 2+ Archers with high squad ratio!
             if (targetEu.cls === "mage" && wCtx.hmCount >= 1) {
               if ((pUnit.rng || 1) === 1) {
-                sWave -= 28.0 * wCtx.hmCount;
+                sWave -= 35.0 * wCtx.hmCount;
               } else if (pUnit.cls === "light_ranged") {
-                sWave += 18.0;
+                if (wCtx.lrCount >= 2 && squadRatio >= 1.6) {
+                  sWave -= 40.0; // Archer banned from shooting Mage when enemy has 2+ Archers with >=1.6x squad ratio!
+                } else {
+                  sWave += 18.0;
+                }
+              }
+            }
+
+            // Rule B1: Extreme Outnumbered Swarm Guard (squadRatio >= 1.6x + lrCount >= 2):
+            // When enemy squad size is massive (>1.6x) and enemy has multiple archers, protect fragile glass cannons (Elite Archer 65 HP, Drone Rider, Cerberus, Ranger)
+            // and promote heavily armored Heavy Ranged (Senior Orc Strategist with -70% LR defense)!
+            if (squadRatio >= 1.6 && wCtx.lrCount >= 2) {
+              const baseHp = (pUnit.hp || 100) / (pUnit.wt || 1);
+              if (baseHp < 110) {
+                sWave -= 50.0 * (squadRatio - 1.2);
+              }
+              if (pUnit.cls === "heavy_ranged" && ((pUnit.def && pUnit.def["light_ranged"]) || 0) >= 50) {
+                sWave += 35.0;
               }
             }
 
@@ -2547,10 +2568,26 @@
             const defB = ((tgt.u.def && tgt.u.def[attacker.cls]) || 0) / 100.0;
             const reach = attacker.rng + attacker.mv;
             if (roundNum === 1 && reach < 6 && attacker.rng <= 2) continue;
+
+            // Realistic hex distance & targeting:
+            // 1. On Round 1, backline targets (Mage / slow units with mv <= 2) that are far away (dy >= 1)
+            // cannot be hit by short-ranged units (rng <= 4) because frontline enemies screen them!
+            let backlinePenalty = 0;
+            if (roundNum === 1 && attacker.rng <= 4 && (tgt.mv || 2) <= 2 && dy >= 1) {
+              backlinePenalty = 60.0;
+            }
+
+            // 2. Enemy AI focus-fires squishy / low-HP targets:
+            let focusBonus = 0;
+            if (attacker.team === 2) {
+              const baseHp = (tgt.hpPerUnit || 100) / (tgt.wt || 1);
+              if (baseHp < 120) focusBonus = (120 - baseHp) * 0.4;
+            }
+
             const effDmg = attacker.count * attacker.dmgPerUnit * (1.0 + atkB) * (1.0 - defB);
             const totalTgtHp = tgt.count * tgt.hpPerUnit;
             const killRatio = Math.min(1.0, effDmg / Math.max(1.0, totalTgtHp));
-            const score = (atkB * 100.0) + (killRatio * 60.0) - (dy * 12.0);
+            const score = (atkB * 100.0) + (killRatio * 60.0) - (dy * 12.0) - backlinePenalty + focusBonus;
             if (score > bestScore) {
               bestScore = score;
               bestTarget = tgt;

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Elvenar Auto-Battle Dump Benchmark & Combat Simulator Suite (v6.5.2)
+Elvenar Auto-Battle Dump Benchmark & Combat Simulator Suite (v6.6.1)
 ===================================================================
 Unified analysis and simulation tool for Elvenar Tournament & Spire battle dumps.
 
@@ -231,7 +231,8 @@ def score_unit_pair(p_unit, e_unit, dy, w_ctx, active_buffs):
     return (kill_rate * first_strike_mult * 95.0) + spec_bonus + mitigation_bonus + ability_bonus - (loss_rate * incoming_mult * 125.0) - hard_counter_penalty - focus_fire_penalty - ret_penalty
 
 
-def recommend_v652(wave, active_buffs, player_tiers):
+def recommend_v661(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
+    squad_ratio = (e_sq / p_sq) if (p_sq and p_sq > 0) else 1.5
     cls_counts = {}
     has_mist_walker = False
     e_units = [resolve_unit(s, player_tiers) for s in wave]
@@ -316,10 +317,10 @@ def recommend_v652(wave, active_buffs, player_tiers):
             if is_barracks_dual and any(w_ctx["clsCounts"].get(c, 0) > 0 for c in other_countered_cls):
                 s_wave += 6.0
 
-            # Empirical 6-Star Tournament Survival Rules (v6.5.2):
+            # Empirical 6-Star Tournament Survival Rules (v6.6.1):
             if target_eu["cls"] == "light_ranged":
                 if w_ctx["hmCount"] >= 1 and p_unit["cls"] == "light_melee":
-                    s_wave -= 45.0 * w_ctx["hmCount"]
+                    s_wave -= 65.0 * w_ctx["hmCount"]
                 lr_def = p_unit.get("def", {}).get("light_ranged", 0)
                 if p_unit["cls"] == "heavy_ranged" and lr_def >= 50:
                     if w_ctx["maCount"] == 0: s_wave += 16.0
@@ -327,9 +328,20 @@ def recommend_v652(wave, active_buffs, player_tiers):
 
             if target_eu["cls"] == "mage" and w_ctx["hmCount"] >= 1:
                 if p_unit.get("rng", 1) == 1:
-                    s_wave -= 28.0 * w_ctx["hmCount"]
+                    s_wave -= 35.0 * w_ctx["hmCount"]
                 elif p_unit["cls"] == "light_ranged":
-                    s_wave += 18.0
+                    if w_ctx["lrCount"] >= 2 and squad_ratio >= 1.6:
+                        s_wave -= 40.0
+                    else:
+                        s_wave += 18.0
+
+            # Rule B1: Extreme Outnumbered Swarm Guard (squadRatio >= 1.6x + lrCount >= 2):
+            if squad_ratio >= 1.6 and w_ctx["lrCount"] >= 2:
+                base_hp = (p_unit.get("hp", 100)) / (p_unit.get("wt", 1))
+                if base_hp < 110:
+                    s_wave -= 50.0 * (squad_ratio - 1.2)
+                if p_unit["cls"] == "heavy_ranged" and p_unit.get("def", {}).get("light_ranged", 0) >= 50:
+                    s_wave += 35.0
 
             if target_eu["cls"] == "heavy_ranged" and (w_ctx["lmCount"] >= 1 or w_ctx["lrCount"] >= 3):
                 if p_unit["cls"] == "mage":
@@ -351,6 +363,8 @@ def recommend_v652(wave, active_buffs, player_tiers):
         cands.sort(reverse=True)
         slots.append(cands)
     return slots
+
+recommend_v652 = recommend_v661
 
 
 def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers):
@@ -406,7 +420,19 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                 eff_dmg = attacker["count"] * attacker["dmg_per_unit"] * (1.0 + atk_b) * (1.0 - def_b)
                 total_tgt_hp = tgt["count"] * tgt["hp_per_unit"]
                 kill_ratio = min(1.0, eff_dmg / max(1.0, total_tgt_hp))
-                score = (atk_b * 100.0) + (kill_ratio * 60.0) - (dy * 12.0)
+
+                # Realistic hex distance & targeting:
+                backline_penalty = 0.0
+                if round_num == 1 and attacker["rng"] <= 4 and tgt.get("mv", 2) <= 2 and dy >= 1:
+                    backline_penalty = 60.0
+
+                focus_bonus = 0.0
+                if attacker["team"] == 2:
+                    base_hp = (tgt["hp_per_unit"] / (1.0 + active_buffs["hp"])) / tgt["wt"]
+                    if base_hp < 120:
+                        focus_bonus = (120 - base_hp) * 0.4
+
+                score = (atk_b * 100.0) + (kill_ratio * 60.0) - (dy * 12.0) - backline_penalty + focus_bonus
                 if score > best_score:
                     best_score = score
                     best_target = tgt
@@ -458,10 +484,10 @@ def run_benchmark(dump_file):
     # 1. Empirical Unit Survival Stats
     unit_stats = defaultdict(lambda: {"picks": 0, "loss_sum": 0.0, "wiped": 0, "under20": 0})
     actual_records = []
-    v652_sim_results = []
+    v661_sim_results = []
 
     print("-" * 80)
-    print(f"{'Battle':8} | {'Enemy Lineup (S1..S5)':34} | {'Actual Loss':12} | {'v6.5.2 Sim Loss':16} | {'Outcome':8}")
+    print(f"{'Battle':8} | {'Enemy Lineup (S1..S5)':34} | {'Actual Loss':12} | {'v6.6.1 Sim Loss':16} | {'Outcome':8}")
     print("-" * 80)
 
     for b_idx, bvo in enumerate(battles, 1):
@@ -498,9 +524,9 @@ def run_benchmark(dump_file):
         actual_records.append((actual_won, actual_loss_pct))
 
         wave = [x["id"] for x in e_units]
-        r652 = [c[0][1] for c in recommend_v652(wave, active_buffs, player_tiers)]
-        sim_res = simulate_battle(r652, wave, p_sq, e_sq, active_buffs, player_tiers)
-        v652_sim_results.append(sim_res)
+        r661 = [c[0][1] for c in recommend_v661(wave, active_buffs, player_tiers, p_sq, e_sq)]
+        sim_res = simulate_battle(r661, wave, p_sq, e_sq, active_buffs, player_tiers)
+        v661_sim_results.append(sim_res)
 
         e_str = "/".join(resolve_unit(w)["short"][:4] for w in wave)
         act_status = f"{actual_loss_pct:4.1f}%" if actual_won else "100% (LOSS)"
@@ -521,20 +547,20 @@ def run_benchmark(dump_file):
         print(f"{u_name:24} | {s['picks']:6d} | {avg_l:9.1f}% | {s['wiped']:3d} ({w_pct:4.0f}%)   | {s['under20']:3d} ({s_pct:4.0f}%)")
 
     print("\n" + "=" * 80)
-    print("OVERALL PERFORMANCE SUMMARY: ACTUAL PLAYED vs ADVISOR v6.5.2")
+    print("OVERALL PERFORMANCE SUMMARY: ACTUAL PLAYED vs ADVISOR v6.6.1")
     print("=" * 80)
     act_wins = sum(1 for w, _ in actual_records if w)
     act_avg = sum(l for _, l in actual_records) / len(actual_records)
-    sim_wins = sum(1 for r in v652_sim_results if r["won"])
-    sim_avg = sum(r["loss_pct"] for r in v652_sim_results) / len(v652_sim_results)
+    sim_wins = sum(1 for r in v661_sim_results if r["won"])
+    sim_avg = sum(r["loss_pct"] for r in v661_sim_results) / len(v661_sim_results)
 
-    print(f"Metric                     | Actual Played      | Advisor v6.5.2 Simulated")
+    print(f"Metric                     | Actual Played      | Advisor v6.6.1 Simulated")
     print("-" * 80)
-    print(f"Win Rate                   | {act_wins}/{len(actual_records)} ({act_wins/len(actual_records)*100:5.1f}%)    | {sim_wins}/{len(v652_sim_results)} ({sim_wins/len(v652_sim_results)*100:5.1f}%)")
+    print(f"Win Rate                   | {act_wins}/{len(actual_records)} ({act_wins/len(actual_records)*100:5.1f}%)    | {sim_wins}/{len(v661_sim_results)} ({sim_wins/len(v661_sim_results)*100:5.1f}%)")
     print(f"Average Casualties         | {act_avg:5.1f}%             | {sim_avg:5.1f}% (Reduced by {act_avg - sim_avg:4.1f}%)")
 
     print("\nCASUALTY DISTRIBUTION BRACKETS:")
-    print(f"{'Bracket':26} | {'Actual Played':18} | {'Advisor v6.5.2':18}")
+    print(f"{'Bracket':26} | {'Actual Played':18} | {'Advisor v6.6.1':18}")
     print("-" * 80)
     brackets = [
         ("< 15% (Flawless)", 0, 15),
@@ -544,8 +570,8 @@ def run_benchmark(dump_file):
     ]
     for label, low, high in brackets:
         c_act = sum(1 for won, l in actual_records if low <= l < high or (not won and high >= 100))
-        c_sim = sum(1 for r in v652_sim_results if low <= r["loss_pct"] < high or (not r["won"] and high >= 100))
-        print(f"{label:26} | {c_act:2d} ({c_act/len(actual_records)*100:4.1f}%)         | {c_sim:2d} ({c_sim/len(v652_sim_results)*100:4.1f}%)")
+        c_sim = sum(1 for r in v661_sim_results if low <= r["loss_pct"] < high or (not r["won"] and high >= 100))
+        print(f"{label:26} | {c_act:2d} ({c_act/len(actual_records)*100:4.1f}%)         | {c_sim:2d} ({c_sim/len(v661_sim_results)*100:4.1f}%)")
     print("=" * 80)
 
 
