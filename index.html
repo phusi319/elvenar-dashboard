@@ -2920,25 +2920,32 @@
     }
 
     function setPlayerSlot(slotIdx, unitId) {
-      customPlayerSlots[slotIdx] = unitId;
+      const u = resolveUnit(unitId);
+      customPlayerSlots[slotIdx] = u.id || unitId;
       closeUnitModal();
+      showToast(`Đã đổi Ô S${slotIdx + 1}: ${u.short || u.name}`);
       renderAdvisorUI();
     }
 
     function resetSinglePlayerSlot(slotIdx) {
       customPlayerSlots[slotIdx] = null;
       closeUnitModal();
+      showToast(`Đã đặt lại Ô S${slotIdx + 1} về AI đề xuất`);
       renderAdvisorUI();
     }
 
     function fillAllPlayerSlots(unitId) {
-      customPlayerSlots = [unitId, unitId, unitId, unitId, unitId];
+      const u = resolveUnit(unitId);
+      const exactId = u.id || unitId;
+      customPlayerSlots = [exactId, exactId, exactId, exactId, exactId];
       closeUnitModal();
+      showToast(`Đã điền cả 5 ô: ${u.short || u.name}`);
       renderAdvisorUI();
     }
 
     function resetCustomPlayerLineup() {
       customPlayerSlots = [null, null, null, null, null];
+      showToast("Đã đặt lại toàn bộ về AI đề xuất");
       renderAdvisorUI();
     }
 
@@ -3049,12 +3056,18 @@
       const container = document.getElementById("advisorContent");
       if (!container) return;
 
-      // Auto-sync from state.enc if user hasn't manually overridden or if a newer encounter arrived
+      // Auto-sync from state.enc if a newer encounter arrived or if advisorWaves is empty
       if (state.enc && Array.isArray(state.enc.waves) && state.enc.waves.length > 0) {
-        if (!isManualOverride || (state.enc.ts && state.enc.ts > lastSyncedEncounterTs)) {
+        const encTs = Number(state.enc.ts) || 0;
+        const isNewEncounter = Boolean(encTs > 0 && encTs > lastSyncedEncounterTs);
+        const isEmpty = (!advisorWaves || advisorWaves.length === 0);
+
+        if (isNewEncounter || (isEmpty && !isManualOverride)) {
           advisorWaves = JSON.parse(JSON.stringify(state.enc.waves));
-          lastSyncedEncounterTs = state.enc.ts || 0;
-          customPlayerSlots = [null, null, null, null, null];
+          lastSyncedEncounterTs = encTs || Date.now();
+          if (isNewEncounter) {
+            customPlayerSlots = [null, null, null, null, null];
+          }
           if (activeWaveIdx >= advisorWaves.length) activeWaveIdx = 0;
         }
       }
