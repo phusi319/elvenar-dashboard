@@ -63,6 +63,20 @@ Bracket                    | Actual Played      | Advisor v6.5.2
 
 ---
 
+> [!WARNING]
+> Bảng trên so **kết quả giả lập** của Advisor với **kết quả thật** của người chơi. Đây chưa phải phép so sánh công bằng. Audit 2026-11-07 cho thấy simulator có sai số MAE 12.8 điểm % so với thực tế. Xem `docs/BATTLE_ENGINE_AUDIT_ROADMAP.md`.
+
+## 🧪 Audit độ chính xác Simulator (Ground-truth `stepHistory`)
+
+```bash
+python tools/audit_engine_fidelity.py                    # mọi dump trong ../Batte AI Data
+python tools/audit_engine_fidelity.py a.json b.json      # chỉ định file
+```
+
+Công cụ này replay nhật ký trận thật (`InstantBattleResultVO.state.stepHistory`) để kiểm định lưới hex, di chuyển, phản đòn, AI chọn mục tiêu, debuff và chướng ngại vật. Sau đó chạy simulator với **đúng đội hình người chơi đã đánh** để đo MAE, Pearson và mức khớp Thắng/Thua. Mỗi phase trong lộ trình phải cải thiện các KPI này.
+
+---
+
 ## 🔄 Khi Có Dữ Liệu Dump Mới
 
 Khi bạn xuất file dump mới (Tourney các tuần khác hoặc Spire):
