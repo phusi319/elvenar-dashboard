@@ -639,10 +639,10 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     heuristic_slots = recommend_heuristic(first_wave, active_buffs, player_tiers, p_sq, e_sq)
     slot_score_map = [{c[1]: c[0] for c in heuristic_slots[s]} for s in range(5)]
 
-    # Strict Slot-Counter Eligibility: Only Top-3 candidates with score > -10.0 are valid counters for slot s
+    # Strict Slot-Counter Eligibility: Top candidates with score > -10.0 (up to 6 valid counters per enemy class)
     valid_slot_keys = []
     for s in range(5):
-        v_keys = [c[1] for c in heuristic_slots[s][:3] if c[0] > -10.0]
+        v_keys = [c[1] for c in heuristic_slots[s][:6] if c[0] > -10.0]
         if not v_keys:
             v_keys = [heuristic_slots[s][0][1]]
         valid_slot_keys.append(v_keys)
@@ -719,16 +719,30 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                     best_sim = trial_sim
                     best_h_avg = trial_h_avg
 
-    # Re-order heuristic_slots so best_L[s] is index 0
+    # Stage 3: Simulation-Ranked 1-Slot Swap Alternatives (Backup #2 and #3)
     final_slots = []
     for s in range(5):
         best_key = best_L[s]
-        cands_copy = list(heuristic_slots[s])
-        idx = next((i for i, c in enumerate(cands_copy) if c[1] == best_key), 0)
-        if idx > 0:
-            top_cand = cands_copy.pop(idx)
-            cands_copy.insert(0, top_cand)
-        final_slots.append(cands_copy)
+        best_cand = next((c for c in heuristic_slots[s] if c[1] == best_key), heuristic_slots[s][0])
+
+        other_valid_keys = [k for k in valid_slot_keys[s] if k != best_key]
+        swap_ranked = []
+        for cand_key in other_valid_keys:
+            swap_L = list(best_L)
+            swap_L[s] = cand_key
+            swap_obj, swap_sim, swap_h = eval_lineup(swap_L)
+            cand_item = next((c for c in heuristic_slots[s] if c[1] == cand_key), None)
+            if cand_item:
+                swap_ranked.append((swap_obj, swap_sim["loss_pct"], swap_sim["won"], cand_item))
+
+        # Sort backup candidates by 1-slot swap simulation objective (lowest loss / won first)
+        swap_ranked.sort(key=lambda x: x[0])
+
+        ranked_keys = {best_key}.union(other_valid_keys)
+        remaining_cands = [c for c in heuristic_slots[s] if c[1] not in ranked_keys]
+
+        slot_cands = [best_cand] + [item[3] for item in swap_ranked] + remaining_cands
+        final_slots.append(slot_cands)
 
     return final_slots
 

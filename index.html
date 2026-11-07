@@ -2500,7 +2500,7 @@
         rawSlotCandidates[s].forEach(c => {
           slotScoreMap[s][c.key] = c.score;
         });
-        let vKeys = rawSlotCandidates[s].slice(0, 3).filter(c => c.score > -10.0).map(c => c.key);
+        let vKeys = rawSlotCandidates[s].slice(0, 6).filter(c => c.score > -10.0).map(c => c.key);
         if (vKeys.length === 0 && rawSlotCandidates[s].length > 0) {
           vKeys = [rawSlotCandidates[s][0].key];
         }
@@ -2604,14 +2604,34 @@
         }
       }
 
-      // Re-order slots
+      // Stage 3: Rank Backup Candidates by 1-Slot Swap Simulation Performance
       for (let s = 0; s < 5; s++) {
-        const bKey = bestL[s];
-        const idx = rawSlotCandidates[s].findIndex(c => c.key === bKey);
-        if (idx > 0) {
-          const topCand = rawSlotCandidates[s].splice(idx, 1)[0];
-          rawSlotCandidates[s].unshift(topCand);
-        }
+        const bestKey = bestL[s];
+        const bestCand = rawSlotCandidates[s].find(c => c.key === bestKey) || rawSlotCandidates[s][0];
+        bestCand.swapLossPct = bestSim ? bestSim.lossPct : 0.0;
+        bestCand.swapWon = bestSim ? bestSim.won : true;
+
+        const otherValidKeys = validSlotKeys[s].filter(k => k !== bestKey);
+        const swapRanked = [];
+        otherValidKeys.forEach(candKey => {
+          const swapL = [...bestL];
+          swapL[s] = candKey;
+          const r = evalLineup(swapL);
+          const candObj = rawSlotCandidates[s].find(c => c.key === candKey);
+          if (candObj) {
+            candObj.swapLossPct = r.sim.lossPct;
+            candObj.swapWon = r.sim.won;
+            swapRanked.push({ obj: r.obj, candObj });
+          }
+        });
+
+        // Sort backup candidates by simulation objective (lowest loss / won first)
+        swapRanked.sort((a, b) => a.obj - b.obj);
+
+        const rankedKeys = new Set([bestKey, ...otherValidKeys]);
+        const remainingCands = rawSlotCandidates[s].filter(c => !rankedKeys.has(c.key));
+
+        rawSlotCandidates[s] = [bestCand, ...swapRanked.map(x => x.candObj), ...remainingCands];
       }
 
       const avgTeamScore = (bestSim && bestSim.won ? (100.0 - bestSim.lossPct) : -100.0) + (bestHAvg * 0.1);
@@ -3273,13 +3293,14 @@
             const ds = cand.directStats;
             const isAct = (u.id === currentKey || u.base === currentKey);
             let badge = ds.atkBonusPct > 0 ? `+${ds.atkBonusPct}% ATK` : (ds.defBonusPct > 0 ? `-${ds.defBonusPct}% DEF` : '');
+            const simTag = (cand.swapLossPct !== undefined) ? ` • Sim ~${cand.swapLossPct}%` : '';
             return `
               <div onclick="setPlayerSlot(${slotIdx}, '${u.id}')" style="background:${isAct ? 'rgba(56,189,248,0.22)' : 'rgba(30,41,59,0.7)'};border:1.5px solid ${isAct ? '#38bdf8' : 'rgba(255,255,255,0.1)'};border-radius:8px;padding:6px 4px;text-align:center;cursor:pointer;position:relative;">
                 <span style="position:absolute;top:3px;left:4px;font-size:8px;font-weight:800;color:${cIdx === 0 ? '#34d399' : '#fde047'};">#${cIdx + 1} ${cIdx === 0 ? 'Top 1' : 'Dự phòng'}</span>
                 <img src="${u.icon}" style="width:36px;height:36px;object-fit:contain;margin:12px auto 2px auto;display:block;">
                 <div style="font-size:9.5px;font-weight:800;color:#f8fafc;">${u.short}</div>
                 <div style="font-size:8px;color:${cm.color};font-weight:700;">${cm.code} ${badge ? `• ${badge}` : ''}</div>
-                <div style="font-size:8px;color:#94a3b8;margin-top:1px;">Kho: ${Math.floor(cand.stock)} sq</div>
+                <div style="font-size:8px;color:#94a3b8;margin-top:1px;">Kho: ${Math.floor(cand.stock)} sq${simTag}</div>
               </div>
             `;
           }).join('')}
@@ -3805,10 +3826,26 @@
           })()}
 
           <!-- 6.B Dedicated Backup / Alternative Lineup (5 Slots) -->
-          <div class="adv-section-label" style="margin-top:12px;">
-            <span>🔄 ĐỘI HÌNH DỰ PHÒNG #2 (ALTERNATIVE PICKS)</span>
-            <span style="color:#fde047;">Chạm để thay vào Đội hình chính</span>
-          </div>
+          ${(() => {
+            const pSqSize = Number(enc.playerSquadSize) || (state.arm && Number(state.arm.squadSize)) || 1000;
+            const eSqSize = Number(enc.enemySquadSize) || Math.round(pSqSize * 1.5);
+            const simBuffs = getActiveArmyBuffs();
+            const liveObstacles = (!isManualOverride && enc && Array.isArray(enc.obstacles) && enc.obstacles.length > 0) ? enc.obstacles : null;
+            const backupLineup = slotRecs.map(cands => (cands[1] ? cands[1].key : (cands[0] ? cands[0].key : 'eb_lr_3')));
+            const backupSim = (advisorWaves && advisorWaves.length > 1)
+              ? simulateMultiWave(backupLineup, advisorWaves, pSqSize, eSqSize, simBuffs, liveObstacles)
+              : simulateBattle(backupLineup, curWave, pSqSize, eSqSize, simBuffs, liveObstacles);
+            const bWon = backupSim.won;
+            const bLoss = backupSim.lossPct;
+            return `
+              <div class="adv-section-label" style="margin-top:12px;">
+                <span>🔄 ĐỘI HÌNH DỰ PHÒNG #2 (1-SLOT SWAP / BACKUP)</span>
+                <span style="color:${bWon ? (bLoss < 25 ? '#34d399' : '#fde047') : '#f87171'};font-weight:700;">
+                  ${bWon ? `Full #2: ~${bLoss}% loss` : 'Full #2: Nguy cơ'} • Chạm để thay 1 ô ↴
+                </span>
+              </div>
+            `;
+          })()}
           <div class="slot-grid-5">
             ${slotRecs.map((cands, sIdx) => {
               const alt2 = cands[1];
@@ -3843,8 +3880,15 @@
                 badgeCls = "pill-warn";
               }
 
+              const swapLossStr = (alt2.swapLossPct !== undefined)
+                ? (alt2.swapWon ? `Swap: ~${alt2.swapLossPct}%` : `Swap: 💀Nguy cơ`)
+                : `Stock: ${Math.floor(alt2.stock)}⬢`;
+              const swapPillCls = (alt2.swapLossPct !== undefined)
+                ? (alt2.swapWon ? (alt2.swapLossPct < 20 ? "pill-safe" : (alt2.swapLossPct < 40 ? "pill-counter" : "pill-warn")) : "pill-danger")
+                : "pill-warn";
+
               return `
-                <div class="adv-slot-card backup-slot" onclick="setPlayerSlot(${sIdx}, '${u.id}')" title="Chạm để dùng quân dự phòng #${u.short} này cho Ô S${sIdx + 1}">
+                <div class="adv-slot-card backup-slot" onclick="setPlayerSlot(${sIdx}, '${u.id}')" title="Chạm để thay ${u.short} vào Ô S${sIdx + 1} (Tổn thất 1-slot swap: ${alt2.swapLossPct !== undefined ? `~${alt2.swapLossPct}%` : 'N/A'} • Kho: ${Math.floor(alt2.stock)}⬢)">
                   <div class="slot-num-badge backup-badge">
                     <span style="color:#fbbf24;">S${sIdx + 1} #2</span>
                     <span class="slot-pos-tag" style="color:#fde047;">Dùng ô này ↴</span>
@@ -3853,7 +3897,9 @@
                   <img src="${u.icon}" class="slot-portrait" alt="${u.name}">
                   <div class="slot-unit-name" style="color:#fde047;">${u.short}</div>
                   <div class="slot-meta-pill ${badgeCls}">${badgeText}</div>
-                  <div class="slot-meta-pill pill-warn" style="margin-top:2px;">Stock: ${Math.floor(alt2.stock)}⬢</div>
+                  <div class="slot-meta-pill ${swapPillCls}" style="margin-top:2px;" title="Tổn thất dự báo nếu thay quân này vào Đội 1 (Kho: ${Math.floor(alt2.stock)} squads)">
+                    ${swapLossStr} • ${Math.floor(alt2.stock)}⬢
+                  </div>
                 </div>
               `;
             }).join('')}
