@@ -3,6 +3,7 @@
 > **Phạm vi:** Engine đề xuất đội hình (`recommendLineupForWaves` / `recommend_v661`) và simulator (`simulateBattle` / `simulate_battle`) trong `index.html` + `tools/benchmark_dump.py`.
 > **Dữ liệu kiểm định:** 40 trận `InstantBattleResultVO` lấy từ 4 file dump (31 trận Tourney 6★ + 9 trận live ngày 05–06/11/2026).
 > **Công cụ đo:** `python tools/audit_engine_fidelity.py` — chạy lại sau mỗi phase để đo KPI.
+> **Playbook giao việc cho Subagent Flash:** Xem chi tiết đặc tả toán học, code từng hàm và mẫu biên bản bàn giao tại [`docs/SUBAGENT_IMPLEMENTATION_PLAYBOOK.md`](./SUBAGENT_IMPLEMENTATION_PLAYBOOK.md).
 > **Ngày audit:** 2026-11-07
 
 ---
