@@ -400,8 +400,27 @@ def recommend_v661(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
 
 recommend_v652 = recommend_v661
 
+OBSTACLE_PRESETS = [
+    [(3, 4), (4, 4)],
+    [(3, 3), (4, 5)],
+    [(3, 5), (4, 3)],
+    [(2, 4), (5, 4)],
+    [(3, 2), (3, 4), (4, 6)],
+    [(4, 2), (4, 4), (3, 6)],
+    [(2, 3), (4, 4), (5, 5)],
+    [(2, 5), (3, 4), (5, 3)],
+    [(3, 3), (3, 5), (4, 4)],
+    [(4, 3), (4, 5), (3, 4)],
+    [(2, 2), (3, 4), (4, 4), (5, 6)],
+    [(2, 6), (3, 4), (4, 4), (5, 2)],
+    [(3, 1), (3, 4), (4, 4), (4, 7)],
+    [(2, 4), (3, 3), (4, 5), (5, 4)],
+    [(2, 4), (3, 5), (4, 3), (5, 4)],
+]
 
-def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None):
+
+def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None):
+    active_buffs = active_buffs or {"hp": 0.0, "atk": {}}
     DMG_EXPECTED_MULT = 1.07
     RETALIATION_MULT = 0.50
 
@@ -409,8 +428,8 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
     for i in range(5):
         pkey = player_unit_keys[i]
         u = resolve_unit(pkey, player_tiers)
-        hp_mult = 1.0 + active_buffs["hp"]
-        atk_mult = 1.0 + active_buffs["atk"].get(u["cls"], 0)
+        hp_mult = 1.0 + active_buffs.get("hp", 0.0)
+        atk_mult = 1.0 + active_buffs.get("atk", {}).get(u["cls"], 0)
         wt = u.get("wt", 1)
         count = max(1, int(player_squad_size / wt))
         hp_per_unit = u["hp"] * hp_mult
@@ -475,6 +494,9 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
             start = (attacker["x"], attacker["y"])
             blocked = {(u["x"], u["y"]) for u in p_units + e_units if u["count"] > 0 and u["id"] != attacker["id"]}
+            if obstacle_set:
+                for obs in obstacle_set:
+                    blocked.add((obs[0], obs[1]))
             reach_cells = bfs_reachable(start, attacker["mv"], blocked)
 
             cand_targets = []
@@ -548,6 +570,26 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
     won = (e_alive <= 0 and p_alive > 0)
 
     return {"won": won, "loss_pct": loss_pct, "rounds": round_num}
+
+
+def simulate_battle_monte_carlo(player_unit_keys, enemy_unit_ids, player_squad_size=1000, enemy_squad_size=1500, active_buffs=None, player_tiers=None):
+    losses = []
+    wins = 0
+    for obs in OBSTACLE_PRESETS:
+        res = simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obs)
+        losses.append(res["loss_pct"])
+        if res["won"]:
+            wins += 1
+    losses.sort()
+    mean_loss = round(sum(losses) / len(losses), 1)
+    p90_loss = round(losses[13], 1)
+    win_rate = round(wins * 100.0 / len(OBSTACLE_PRESETS), 1)
+    return {
+        "mean_loss": mean_loss,
+        "p90_loss": p90_loss,
+        "win_rate": win_rate,
+        "losses": losses
+    }
 
 
 def run_benchmark(dump_file):

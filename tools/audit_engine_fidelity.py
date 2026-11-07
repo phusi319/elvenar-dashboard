@@ -175,7 +175,7 @@ def calc_kpi_dict(label, rows):
     }
 
 
-def main(paths, split="all"):
+def main(paths, split="all", use_mc=False):
     B_all = load_battles(paths)
     if not B_all:
         print("No battles with stepHistory found.")
@@ -311,9 +311,16 @@ def main(paths, split="all"):
         p_sq = int(sum(u["startAmountOfUnits"] * u["unitType"]["unitWeight"] for u in p) / 5)
         e_sq = int(sum(u["startAmountOfUnits"] * u["unitType"]["unitWeight"] for u in e) / 5)
         buffs = {"hp": p[0]["startHitpoints"] / p[0]["unitType"]["hitpoints"] - 1, "atk": CITY_ATK}
-        sim = bd.simulate_battle([u["unitType"]["unitTypeId"] for u in p], [u["unitType"]["unitTypeId"] for u in e], p_sq, e_sq, buffs, None)
+        if use_mc:
+            sim_mc = bd.simulate_battle_monte_carlo([u["unitType"]["unitTypeId"] for u in p], [u["unitType"]["unitTypeId"] for u in e], p_sq, e_sq, buffs, None)
+            sim_won = (sim_mc["win_rate"] >= 50.0)
+            sim_loss = sim_mc["mean_loss"]
+        else:
+            sim = bd.simulate_battle([u["unitType"]["unitTypeId"] for u in p], [u["unitType"]["unitTypeId"] for u in e], p_sq, e_sq, buffs, None)
+            sim_won = sim["won"]
+            sim_loss = sim["loss_pct"]
         act = sum((u["startAmountOfUnits"] - (u.get("amountOfUnits") or 0)) * u["unitType"]["unitWeight"] for u in p) / (p_sq * 5) * 100
-        all_rows.append((st["winnerBit"] == 1, act, sim["won"], sim["loss_pct"]))
+        all_rows.append((st["winnerBit"] == 1, act, sim_won, sim_loss))
 
     train_rows = all_rows[:30] if len(all_rows) >= 30 else all_rows
     holdout_rows = all_rows[30:40] if len(all_rows) >= 40 else []
@@ -351,6 +358,7 @@ if __name__ == "__main__":
     parser.add_argument("files", nargs="*", help="Optional path(s) to dump JSON files (defaults to standard 4 dumps)")
     parser.add_argument("--split", choices=["all", "train", "holdout"], default="all", help="Dataset split to evaluate (default: all)")
     parser.add_argument("--holdout", action="store_true", help="Shortcut for --split holdout")
+    parser.add_argument("--mc", action="store_true", help="Run 15-preset Monte Carlo terrain simulation instead of single run")
     args = parser.parse_args()
 
     split_mode = "holdout" if args.holdout else args.split
@@ -358,4 +366,4 @@ if __name__ == "__main__":
     if not target_files:
         print(__doc__)
         sys.exit(1)
-    main(target_files, split=split_mode)
+    main(target_files, split=split_mode, use_mc=args.mc)
