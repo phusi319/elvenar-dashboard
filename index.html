@@ -2493,10 +2493,126 @@
         rawSlotCandidates.push(candidates);
       }
 
-      const avgTeamScore = rawSlotCandidates.reduce((acc, c) => acc + (c[0] ? c[0].score : 0), 0) / 5.0;
+      // Stage 1.B: Extract Heuristic Candidate Pool
+      const slotScoreMap = [{}, {}, {}, {}, {}];
+      for (let s = 0; s < 5; s++) {
+        rawSlotCandidates[s].forEach(c => {
+          slotScoreMap[s][c.key] = c.score;
+        });
+      }
+
+      const top1 = [0, 1, 2, 3, 4].map(s => rawSlotCandidates[s][0].key);
+      const top2 = [0, 1, 2, 3, 4].map(s => rawSlotCandidates[s][Math.min(1, rawSlotCandidates[s].length - 1)].key);
+      const candLineups = [top1, top2];
+
+      for (let s = 0; s < 5; s++) {
+        if (rawSlotCandidates[s].length > 1) {
+          const var1 = [...top1];
+          var1[s] = rawSlotCandidates[s][1].key;
+          candLineups.push(var1);
+        }
+        if (rawSlotCandidates[s].length > 2) {
+          const var2 = [...top1];
+          var2[s] = rawSlotCandidates[s][2].key;
+          candLineups.push(var2);
+        }
+      }
+
+      const unitAvgH = {};
+      pool.forEach(uKey => {
+        let sumH = 0;
+        for (let s = 0; s < 5; s++) sumH += (slotScoreMap[s][uKey] !== undefined ? slotScoreMap[s][uKey] : -999.0);
+        const avgH = sumH / 5.0;
+        if (avgH > -200.0) unitAvgH[uKey] = avgH;
+      });
+
+      const topMono = Object.keys(unitAvgH).sort((a, b) => unitAvgH[b] - unitAvgH[a]).slice(0, 8);
+      topMono.forEach(uKey => {
+        candLineups.push([uKey, uKey, uKey, uKey, uKey]);
+      });
+
+      const uniqueCands = [];
+      const seen = new Set();
+      candLineups.forEach(L => {
+        const k = L.join(',');
+        if (!seen.has(k)) {
+          seen.add(k);
+          uniqueCands.push(L);
+        }
+      });
+
+      // Stage 2: Full-Team Simulation Re-Ranking
+      const evalCache = new Map();
+      function evalLineup(L) {
+        const k = L.join(',');
+        if (evalCache.has(k)) return evalCache.get(k);
+        const sim = simulateMultiWave(L, waves, pSqVal, eSqVal, activeBuffs);
+        let hAvg = 0;
+        for (let s = 0; s < 5; s++) hAvg += (slotScoreMap[s][L[s]] || 0.0);
+        hAvg /= 5.0;
+
+        let hasStockOut = false;
+        for (let s = 0; s < 5; s++) {
+          if ((slotScoreMap[s][L[s]] || 0.0) < -300.0) { hasStockOut = true; break; }
+        }
+        const stockPen = hasStockOut ? 5000.0 : 0.0;
+        const defeatPen = sim.won ? 0.0 : 1000.0;
+        const obj = stockPen + defeatPen + sim.lossPct - (hAvg * 0.005);
+        const res = { obj, sim, hAvg };
+        evalCache.set(k, res);
+        return res;
+      }
+
+      let bestObj = 999999.0;
+      let bestL = uniqueCands[0];
+      let bestSim = null;
+      let bestHAvg = 0;
+
+      uniqueCands.forEach(L => {
+        const r = evalLineup(L);
+        if (r.obj < bestObj) {
+          bestObj = r.obj;
+          bestL = L;
+          bestSim = r.sim;
+          bestHAvg = r.hAvg;
+        }
+      });
+
+      // 1-Pass Coordinate Polish
+      for (let s = 0; s < 5; s++) {
+        const curUnit = bestL[s];
+        for (let optIdx = 0; optIdx < Math.min(3, rawSlotCandidates[s].length); optIdx++) {
+          const candUnit = rawSlotCandidates[s][optIdx].key;
+          if (candUnit !== curUnit) {
+            const trialL = [...bestL];
+            trialL[s] = candUnit;
+            const r = evalLineup(trialL);
+            if (r.obj < bestObj) {
+              bestObj = r.obj;
+              bestL = trialL;
+              bestSim = r.sim;
+              bestHAvg = r.hAvg;
+            }
+          }
+        }
+      }
+
+      // Re-order slots
+      for (let s = 0; s < 5; s++) {
+        const bKey = bestL[s];
+        const idx = rawSlotCandidates[s].findIndex(c => c.key === bKey);
+        if (idx > 0) {
+          const topCand = rawSlotCandidates[s].splice(idx, 1)[0];
+          rawSlotCandidates[s].unshift(topCand);
+        }
+      }
+
+      const avgTeamScore = (bestSim && bestSim.won ? (100.0 - bestSim.lossPct) : -100.0) + (bestHAvg * 0.1);
+
       return {
         slots: rawSlotCandidates.map(c => c.slice(0, 3)),
-        avgTeamScore
+        avgTeamScore,
+        bestLineup: bestL
       };
     }
 
@@ -2569,7 +2685,7 @@
       [[2, 4], [3, 5], [4, 3], [5, 4]],
     ];
 
-    function simulateBattle(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet = null) {
+    function simulateBattle(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet = null, initialCounts = null) {
       const pSq = playerSquadSize || (state.enc && state.enc.playerSquadSize) || (state.arm && state.arm.squadSize) || 1000;
       const eSq = enemySquadSize || (state.enc && state.enc.enemySquadSize) || Math.round(pSq * 1.5);
       const buffs = activeBuffs || getActiveArmyBuffs();
@@ -2583,7 +2699,8 @@
         const hpMult = 1.0 + (buffs.hp || 0);
         const atkMult = 1.0 + ((buffs.atk && buffs.atk[u.cls]) || 0);
         const wt = u.wt || 1;
-        const count = Math.max(1, Math.floor(pSq / wt));
+        const fullCount = Math.max(1, Math.floor(pSq / wt));
+        const count = (initialCounts && initialCounts[i] !== undefined && initialCounts[i] !== null) ? initialCounts[i] : fullCount;
         const hpPerUnit = (u.hp || 100) * hpMult;
         pUnits.push({
           slot: i + 1,
@@ -2594,7 +2711,7 @@
           name: u.short,
           cls: u.cls,
           u: u,
-          startCount: count,
+          startCount: fullCount,
           count: count,
           hpPerUnit: hpPerUnit,
           hpPool: count * hpPerUnit,
@@ -2864,16 +2981,79 @@
         squadsRemaining: Math.round(squadsRemaining * 10) / 10,
         squadsLost: Math.round((5.0 - squadsRemaining) * 10) / 10,
         slotLosses: slotLosses,
-        rounds: roundNum
+        rounds: roundNum,
+        endCounts: pUnits.map(u => u.count)
+      };
+    }
+
+    function simulateMultiWave(playerUnitKeys, waves, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet = null) {
+      if (!waves || waves.length === 0) {
+        return { won: true, lossPct: 0.0, rounds: 0, endCounts: [0, 0, 0, 0, 0], squadsRemaining: 5.0, squadsLost: 0.0, slotLosses: [] };
+      }
+      if (waves.length === 1) {
+        return simulateBattle(playerUnitKeys, waves[0], playerSquadSize, enemySquadSize, activeBuffs, obstacleSet);
+      }
+
+      const pSq = playerSquadSize || (state.enc && state.enc.playerSquadSize) || (state.arm && state.arm.squadSize) || 1000;
+      let totPStart = 0;
+      for (let i = 0; i < 5; i++) {
+        const u = resolveUnit(playerUnitKeys[i]);
+        const wt = (u && u.wt) || 1;
+        totPStart += Math.max(1, Math.floor(pSq / wt)) * wt;
+      }
+
+      let curCounts = null;
+      let lastRes = null;
+      let totalRounds = 0;
+      for (let wIdx = 0; wIdx < waves.length; wIdx++) {
+        const w = waves[wIdx];
+        const res = simulateBattle(playerUnitKeys, w, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet, curCounts);
+        lastRes = res;
+        totalRounds += res.rounds;
+        if (!res.won) {
+          return {
+            won: false,
+            lossPct: 100.0,
+            squadsRemaining: 0.0,
+            squadsLost: 5.0,
+            slotLosses: res.slotLosses,
+            rounds: totalRounds,
+            endCounts: [0, 0, 0, 0, 0]
+          };
+        }
+        curCounts = res.endCounts || [0, 0, 0, 0, 0];
+      }
+
+      let totPEnd = 0;
+      for (let i = 0; i < 5; i++) {
+        const u = resolveUnit(playerUnitKeys[i]);
+        const wt = (u && u.wt) || 1;
+        totPEnd += (curCounts[i] || 0) * wt;
+      }
+      const overallLossPct = totPStart > 0 ? ((totPStart - totPEnd) / totPStart * 100.0) : 0.0;
+      const roundedLoss = Math.round(overallLossPct * 10) / 10;
+      const squadsRemaining = Math.max(0, Math.min(5.0, 5.0 * (1.0 - roundedLoss / 100.0)));
+
+      return {
+        won: true,
+        lossPct: roundedLoss,
+        squadsRemaining: Math.round(squadsRemaining * 10) / 10,
+        squadsLost: Math.round((5.0 - squadsRemaining) * 10) / 10,
+        slotLosses: lastRes.slotLosses,
+        rounds: totalRounds,
+        endCounts: curCounts
       };
     }
 
     function simulateBattleMonteCarlo(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs) {
       const losses = [];
       let wins = 0;
+      const isMultiWave = Array.isArray(enemyUnitIds) && Array.isArray(enemyUnitIds[0]);
       for (let i = 0; i < OBSTACLE_PRESETS.length; i++) {
         const obs = OBSTACLE_PRESETS[i];
-        const res = simulateBattle(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs, obs);
+        const res = isMultiWave
+          ? simulateMultiWave(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs, obs)
+          : simulateBattle(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs, obs);
         losses.push(res.lossPct);
         if (res.won) wins++;
       }
@@ -3558,7 +3738,10 @@
             const pSqSize = Number(enc.playerSquadSize) || (state.arm && Number(state.arm.squadSize)) || 1000;
             const eSqSize = Number(enc.enemySquadSize) || Math.round(pSqSize * 1.5);
             const simBuffs = getActiveArmyBuffs();
-            const simRes = simulateBattle(recPKeys, curWave, pSqSize, eSqSize, simBuffs);
+            const simRes = (advisorWaves && advisorWaves.length > 1)
+              ? simulateMultiWave(recPKeys, advisorWaves, pSqSize, eSqSize, simBuffs)
+              : simulateBattle(recPKeys, curWave, pSqSize, eSqSize, simBuffs);
+            const mcRes = simulateBattleMonteCarlo(recPKeys, (advisorWaves && advisorWaves.length > 1) ? advisorWaves : curWave, pSqSize, eSqSize, simBuffs);
 
             let simCardClass = 'sim-safe';
             let titleText = hasCustomSlots ? '📊 DỰ BÁO: ĐỘI HÌNH TÙY CHỈNH CỦA BẠN' : '🔵 DỰ BÁO: THẮNG AN TOÀN (SAFE AUTO)';
@@ -3593,6 +3776,9 @@
                     <span>🛡️ Lực lượng bảo toàn: <strong>${simRes.squadsRemaining} / 5.0 Squads</strong></span>
                     <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
                       (Mất ~${simRes.lossPct}% • -${simRes.squadsLost} squads)
+                    </span>
+                    <span style="color:${mcRes.p90Loss >= 40 ? '#f87171' : (mcRes.p90Loss >= 25 ? '#facc15' : '#94a3b8')};font-weight:600;margin-left:6px;" title="Tổn thất tối đa trong kịch bản địa hình bất lợi nhất (p90)">
+                      ⛰️ Địa hình xấu (p90): ~${mcRes.p90Loss}%
                     </span>
                   </div>
                   <div class="adv-sim-slots">

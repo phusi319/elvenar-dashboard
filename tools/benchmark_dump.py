@@ -200,7 +200,7 @@ def score_unit_pair(p_unit, e_unit, dy, w_ctx, active_buffs):
     kill_rate = eff_offense / max(1.0, e_hp)
     eff_incoming = e_dmg * (1.0 + e_atk_bonus) * (1.0 - def_bonus)
     loss_rate = eff_incoming / max(1.0, p_hp)
-    mitigation_bonus = (def_bonus * 34.0) if def_bonus >= 0.40 else (def_bonus * 16.0)
+    mitigation_bonus = (def_bonus * 42.0) if def_bonus >= 0.40 else (def_bonus * 18.0)
 
     first_strike_mult = 1.0
     incoming_mult = 1.0
@@ -265,7 +265,7 @@ def score_unit_pair(p_unit, e_unit, dy, w_ctx, active_buffs):
     return (kill_rate * first_strike_mult * 95.0) + spec_bonus + mitigation_bonus + ability_bonus - (loss_rate * incoming_mult * 125.0) - hard_counter_penalty - focus_fire_penalty - ret_penalty
 
 
-def recommend_v661(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
+def recommend_heuristic(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
     squad_ratio = (e_sq / p_sq) if (p_sq and p_sq > 0) else 1.5
     cls_counts = {}
     has_mist_walker = False
@@ -308,7 +308,7 @@ def recommend_v661(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
                 mv = e_unit.get("mv", 2)
                 reach = rng + mv
                 if dy == 0: sw = 1.00
-                elif dy == 1: sw = 0.45 if reach >= 8 else (0.38 if (rng >= 3 or mv >= 4) else 0.25)
+                elif dy == 1: sw = 0.42 if reach >= 8 else (0.34 if (rng >= 3 or mv >= 4) else 0.18)
                 elif dy == 2: sw = 0.28 if reach >= 8 else (0.18 if (reach >= 7 or rng >= 4) else 0.08)
                 elif dy == 3: sw = 0.18 if reach >= 8 else (0.10 if (rng >= 4 or reach >= 7) else 0.04)
                 else: sw = 0.12 if reach >= 8 else (0.06 if (rng >= 4 or reach >= 7) else 0.02)
@@ -332,7 +332,7 @@ def recommend_v661(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
                         elif dy == 2 and (rng >= 3 or reach >= 7):
                             neighbor_hazard += unmitigated * 18.0 * frag_mult * backline_safe
 
-                    if is_barracks_dual and e_unit["cls"] in other_countered_cls:
+                    if is_barracks_dual and e_unit["cls"] in other_countered_cls and not (p_unit["cls"] == "mage" and w_ctx["hasMistWalker"]):
                         if dy == 1:
                             dual_bridge_bonus += 11.0 + (p_def * 12.0) + (p_atk * 6.0)
                         elif dy == 2:
@@ -348,7 +348,7 @@ def recommend_v661(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
             if direct_star == 0 and direct_atk == 0 and direct_def == 0:
                 s_wave -= 150.0
 
-            if is_barracks_dual and any(w_ctx["clsCounts"].get(c, 0) > 0 for c in other_countered_cls):
+            if is_barracks_dual and any(w_ctx["clsCounts"].get(c, 0) > 0 for c in other_countered_cls) and not (p_unit["cls"] == "mage" and w_ctx["hasMistWalker"]):
                 s_wave += 6.0
 
             # Empirical 6-Star Tournament Survival Rules (v6.6.1):
@@ -398,7 +398,6 @@ def recommend_v661(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
         slots.append(cands)
     return slots
 
-recommend_v652 = recommend_v661
 
 OBSTACLE_PRESETS = [
     [(3, 4), (4, 4)],
@@ -419,7 +418,7 @@ OBSTACLE_PRESETS = [
 ]
 
 
-def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None):
+def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None, initial_counts=None):
     active_buffs = active_buffs or {"hp": 0.0, "atk": {}}
     DMG_EXPECTED_MULT = 1.07
     RETALIATION_MULT = 0.50
@@ -431,11 +430,12 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
         hp_mult = 1.0 + active_buffs.get("hp", 0.0)
         atk_mult = 1.0 + active_buffs.get("atk", {}).get(u["cls"], 0)
         wt = u.get("wt", 1)
-        count = max(1, int(player_squad_size / wt))
+        full_count = max(1, int(player_squad_size / wt))
+        count = initial_counts[i] if (initial_counts is not None and i < len(initial_counts) and initial_counts[i] is not None) else full_count
         hp_per_unit = u["hp"] * hp_mult
         p_units.append({
             "slot": i + 1, "x": 0, "y": SLOT_Y[i], "team": 1, "id": f"P{i+1}", "name": u["short"],
-            "cls": u["cls"], "u": u, "startCount": count, "count": count,
+            "cls": u["cls"], "u": u, "startCount": full_count, "count": count,
             "hp_per_unit": hp_per_unit, "dmg_per_unit": (u["dmg"] * atk_mult),
             "hp_pool": count * hp_per_unit,
             "wt": wt, "init": u.get("init", 10), "rng": u.get("rng", 1), "mv": u.get("mv", 2),
@@ -569,14 +569,44 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
     loss_pct = (tot_p_start - tot_p_end) / tot_p_start * 100.0 if tot_p_start > 0 else 0.0
     won = (e_alive <= 0 and p_alive > 0)
 
-    return {"won": won, "loss_pct": loss_pct, "rounds": round_num}
+    return {"won": won, "loss_pct": loss_pct, "rounds": round_num, "end_counts": [u["count"] for u in p_units]}
+
+
+def simulate_multi_wave(player_unit_keys, waves, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None):
+    if not waves:
+        return {"won": True, "loss_pct": 0.0, "rounds": 0, "end_counts": [0] * 5}
+    if len(waves) == 1:
+        return simulate_battle(player_unit_keys, waves[0], player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obstacle_set)
+
+    tot_p_start = 0
+    for i in range(5):
+        u = resolve_unit(player_unit_keys[i], player_tiers)
+        wt = u.get("wt", 1)
+        cnt = max(1, int(player_squad_size / wt))
+        tot_p_start += cnt * wt
+
+    cur_counts = None
+    last_res = None
+    total_rounds = 0
+    for w in waves:
+        res = simulate_battle(player_unit_keys, w, player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obstacle_set, initial_counts=cur_counts)
+        last_res = res
+        total_rounds += res["rounds"]
+        if not res["won"]:
+            return {"won": False, "loss_pct": 100.0, "rounds": total_rounds, "end_counts": [0] * 5}
+        cur_counts = res.get("end_counts", [0] * 5)
+
+    tot_p_end = sum(cur_counts[i] * resolve_unit(player_unit_keys[i], player_tiers).get("wt", 1) for i in range(5))
+    overall_loss_pct = (tot_p_start - tot_p_end) / tot_p_start * 100.0 if tot_p_start > 0 else 0.0
+    return {"won": True, "loss_pct": round(overall_loss_pct, 1), "rounds": total_rounds, "end_counts": cur_counts}
 
 
 def simulate_battle_monte_carlo(player_unit_keys, enemy_unit_ids, player_squad_size=1000, enemy_squad_size=1500, active_buffs=None, player_tiers=None):
     losses = []
     wins = 0
+    is_multi_wave = isinstance(enemy_unit_ids, list) and len(enemy_unit_ids) > 0 and isinstance(enemy_unit_ids[0], list)
     for obs in OBSTACLE_PRESETS:
-        res = simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obs)
+        res = simulate_multi_wave(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obs) if is_multi_wave else simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obs)
         losses.append(res["loss_pct"])
         if res["won"]:
             wins += 1
@@ -590,6 +620,116 @@ def simulate_battle_monte_carlo(player_unit_keys, enemy_unit_ids, player_squad_s
         "win_rate": win_rate,
         "losses": losses
     }
+
+
+def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_size=25000, enemy_squad_size=25000):
+    if not waves_or_wave:
+        return []
+    if isinstance(waves_or_wave[0], list):
+        waves = waves_or_wave
+        first_wave = waves[0]
+    else:
+        waves = [waves_or_wave]
+        first_wave = waves_or_wave
+
+    p_sq = player_squad_size or 25000
+    e_sq = enemy_squad_size or 25000
+
+    # Stage 1: Heuristic Slot Scoring
+    heuristic_slots = recommend_heuristic(first_wave, active_buffs, player_tiers, p_sq, e_sq)
+    slot_score_map = [{c[1]: c[0] for c in heuristic_slots[s]} for s in range(5)]
+
+    # Candidate Lineup Generation
+    top1 = [heuristic_slots[s][0][1] for s in range(5)]
+    top2 = [heuristic_slots[s][min(1, len(heuristic_slots[s]) - 1)][1] for s in range(5)]
+
+    cand_lineups = [tuple(top1), tuple(top2)]
+
+    for s in range(5):
+        if len(heuristic_slots[s]) > 1:
+            var1 = list(top1)
+            var1[s] = heuristic_slots[s][1][1]
+            cand_lineups.append(tuple(var1))
+        if len(heuristic_slots[s]) > 2:
+            var2 = list(top1)
+            var2[s] = heuristic_slots[s][2][1]
+            cand_lineups.append(tuple(var2))
+
+    unit_avg_h = {}
+    for u in PLAYER_UNIT_KEYS:
+        avg_h = sum(slot_score_map[s].get(u, -999.0) for s in range(5)) / 5.0
+        if avg_h > -200.0:
+            unit_avg_h[u] = avg_h
+
+    top_mono = sorted(unit_avg_h.keys(), key=lambda u: unit_avg_h[u], reverse=True)[:8]
+    for u in top_mono:
+        cand_lineups.append(tuple([u] * 5))
+
+    unique_cands = []
+    seen = set()
+    for L in cand_lineups:
+        if L not in seen:
+            seen.add(L)
+            unique_cands.append(L)
+
+    # Stage 2: Full-Team Simulation Re-Ranking
+    eval_cache = {}
+    def eval_lineup(L):
+        t = tuple(L)
+        if t in eval_cache:
+            return eval_cache[t]
+        sim = simulate_multi_wave(list(L), waves, p_sq, e_sq, active_buffs, player_tiers)
+        h_avg = sum(slot_score_map[s].get(L[s], 0.0) for s in range(5)) / 5.0
+        stock_pen = 5000.0 if any(slot_score_map[s].get(L[s], 0.0) < -300.0 for s in range(5)) else 0.0
+        defeat_pen = 0.0 if sim["won"] else 1000.0
+        obj = stock_pen + defeat_pen + sim["loss_pct"] - (h_avg * 0.005)
+        res = (obj, sim, h_avg)
+        eval_cache[t] = res
+        return res
+
+    best_obj = 999999.0
+    best_L = list(unique_cands[0])
+    best_sim = None
+    best_h_avg = 0.0
+    for L in unique_cands:
+        obj, sim, h_avg = eval_lineup(L)
+        if obj < best_obj:
+            best_obj = obj
+            best_L = list(L)
+            best_sim = sim
+            best_h_avg = h_avg
+
+    # 1-Pass Coordinate Polish
+    for s in range(5):
+        cur_unit = best_L[s]
+        for opt_idx in range(min(3, len(heuristic_slots[s]))):
+            cand_unit = heuristic_slots[s][opt_idx][1]
+            if cand_unit != cur_unit:
+                trial_L = list(best_L)
+                trial_L[s] = cand_unit
+                trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L)
+                if trial_obj < best_obj:
+                    best_obj = trial_obj
+                    best_L = trial_L
+                    best_sim = trial_sim
+                    best_h_avg = trial_h_avg
+
+    # Re-order heuristic_slots so best_L[s] is index 0
+    final_slots = []
+    for s in range(5):
+        best_key = best_L[s]
+        cands_copy = list(heuristic_slots[s])
+        idx = next((i for i, c in enumerate(cands_copy) if c[1] == best_key), 0)
+        if idx > 0:
+            top_cand = cands_copy.pop(idx)
+            cands_copy.insert(0, top_cand)
+        final_slots.append(cands_copy)
+
+    return final_slots
+
+
+recommend_v661 = recommend_v70
+recommend_v652 = recommend_v70
 
 
 def run_benchmark(dump_file):
@@ -731,9 +871,161 @@ def run_benchmark(dump_file):
     print("=" * 90)
 
 
+DEFAULT_DUMP_FILES = [
+    os.path.join(REPO_DIR, "..", "Batte AI Data", "(tourney 6 stars) )elvenar_debug_dump_live_2026-11-05T22-34-01-612Z.json"),
+    os.path.join(REPO_DIR, "..", "Batte AI Data", "elvenar_debug_dump_live_2026-11-06T08-08-29-735Z.json"),
+    os.path.join(REPO_DIR, "..", "elvenar_debug_dump_live_2026-11-05T17-50-42-275Z.json"),
+    os.path.join(REPO_DIR, "..", "elvenar_debug_dump_live_2026-11-05T18-54-06-095Z.json"),
+]
+
+
+def load_all_dump_battles():
+    out = []
+    for p in DEFAULT_DUMP_FILES:
+        p = os.path.normpath(p)
+        if not os.path.exists(p):
+            continue
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                dump = json.load(f)
+        except Exception:
+            continue
+
+        def walk(d):
+            if isinstance(d, dict):
+                if d.get("__class__") == "InstantBattleResultVO" and d.get("state", {}).get("stepHistory"):
+                    out.append(d)
+                for v in d.values():
+                    walk(v)
+            elif isinstance(d, list):
+                for x in d:
+                    walk(x)
+
+        for e in dump:
+            data = e.get("payload") or e.get("data")
+            if not data:
+                continue
+            try:
+                walk(json.loads(data) if isinstance(data, str) else data)
+            except Exception:
+                pass
+    return out
+
+
+def run_all_benchmark():
+    battles = load_all_dump_battles()
+    print("=" * 105)
+    print("ELVENAR RADAR — COMPREHENSIVE 40-BATTLE BENCHMARK SUITE (PHASE P5)")
+    print(f"Total Battles Loaded: {len(battles)} (Train: 30, Holdout: 10)")
+    print("=" * 105)
+
+    if not battles:
+        print("[-] Error: No dump battles found!")
+        return
+
+    city_atk = {"light_melee": .73, "light_ranged": 1.04, "mage": .90, "heavy_melee": .83, "heavy_ranged": .60}
+
+    results = []
+    print(f"{'#':3} | {'Split':7} | {'Enemy Lineup (S1..S5)':28} | {'Actual Real':12} | {'Actual Sim':12} | {'Advisor Sim':12} | {'Fair Outcome':16}")
+    print("-" * 105)
+
+    for b_idx, b in enumerate(battles):
+        split = "TRAIN" if b_idx < 30 else "HOLDOUT"
+        st = b.get("state", {})
+        units_order = st.get("unitsOrder", [])
+        p_units = sorted([u for u in units_order if u.get("teamFlag") == 1], key=lambda u: Y_TO_SLOT.get(u.get("startpos", {}).get("y", 0), 99))
+        e_units = sorted([u for u in units_order if u.get("teamFlag") == 2], key=lambda u: Y_TO_SLOT.get(u.get("startpos", {}).get("y", 0), 99))
+
+        p_sq = int(sum(u["startAmountOfUnits"] * u["unitType"]["unitWeight"] for u in p_units) / 5)
+        e_sq = int(sum(u["startAmountOfUnits"] * u["unitType"]["unitWeight"] for u in e_units) / 5)
+        buffs = {"hp": p_units[0]["startHitpoints"] / p_units[0]["unitType"]["hitpoints"] - 1, "atk": city_atk}
+
+        actual_won = (st.get("winnerBit") == 1)
+        tot_lost = sum((u["startAmountOfUnits"] - (u.get("amountOfUnits", 0) or 0)) * u["unitType"]["unitWeight"] for u in p_units)
+        actual_loss_pct = tot_lost / (p_sq * 5) * 100.0 if p_sq > 0 else 0.0
+
+        wave = [u["unitType"]["unitTypeId"] for u in e_units]
+        actual_p_keys = [u["unitType"]["unitTypeId"] for u in p_units]
+
+        actual_sim = simulate_battle(actual_p_keys, wave, p_sq, e_sq, buffs, None)
+        rec_slots = recommend_v70(wave, buffs, None, p_sq, e_sq)
+        rec_lineup = [c[0][1] for c in rec_slots]
+        advisor_sim = simulate_battle(rec_lineup, wave, p_sq, e_sq, buffs, None)
+
+        delta = actual_sim["loss_pct"] - advisor_sim["loss_pct"]
+        if advisor_sim["won"] and not actual_sim["won"]:
+            outcome = "SAVED (WIN)"
+        elif not advisor_sim["won"] and actual_sim["won"]:
+            outcome = "DEFEAT (WORSE)"
+        elif not advisor_sim["won"]:
+            outcome = "LOST"
+        elif delta > 1.0:
+            outcome = f"BETTER (+{delta:.1f}%)"
+        elif delta < -1.0:
+            outcome = f"WORSE ({delta:.1f}%)"
+        else:
+            outcome = "SAME"
+
+        e_str = "/".join(resolve_unit(w)["short"][:4] for w in wave)
+        act_status = f"{actual_loss_pct:4.1f}%" if actual_won else "100% (LOSS)"
+        act_sim_status = f"{actual_sim['loss_pct']:4.1f}%" if actual_sim["won"] else "LOSS"
+        adv_sim_status = f"{advisor_sim['loss_pct']:4.1f}%" if advisor_sim["won"] else "LOSS"
+
+        print(f"B{b_idx+1:02d} | {split:7} | {e_str:28} | {act_status:12} | {act_sim_status:12} | {adv_sim_status:12} | {outcome:16}")
+
+        results.append({
+            "idx": b_idx,
+            "split": split,
+            "actual_won": actual_won,
+            "actual_loss_pct": actual_loss_pct,
+            "actual_sim": actual_sim,
+            "advisor_sim": advisor_sim,
+            "delta": delta,
+            "outcome": outcome
+        })
+
+    def print_split_summary(name, subset):
+        n = len(subset)
+        if n == 0:
+            return
+        wins = sum(1 for r in subset if r["advisor_sim"]["won"])
+        act_sim_wins = sum(1 for r in subset if r["actual_sim"]["won"])
+        act_real_wins = sum(1 for r in subset if r["actual_won"])
+
+        act_real_avg = sum(r["actual_loss_pct"] for r in subset) / n
+        act_sim_avg = sum(r["actual_sim"]["loss_pct"] for r in subset) / n
+        adv_sim_avg = sum(r["advisor_sim"]["loss_pct"] for r in subset) / n
+
+        better_c = sum(1 for r in subset if "BETTER" in r["outcome"])
+        saved_c = sum(1 for r in subset if "SAVED" in r["outcome"])
+        same_c = sum(1 for r in subset if "SAME" in r["outcome"])
+        worse_c = sum(1 for r in subset if "WORSE" in r["outcome"])
+        lost_c = sum(1 for r in subset if "LOST" in r["outcome"] or "DEFEAT" in r["outcome"])
+
+        print("\n" + "=" * 90)
+        print(f"SPLIT PERFORMANCE SUMMARY: {name} ({n} BATTLES)")
+        print("=" * 90)
+        print(f"{'Metric':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor Hybrid (Sim)':22}")
+        print("-" * 90)
+        print(f"{'Win Rate':26} | {act_real_wins}/{n} ({act_real_wins/n*100:5.1f}%)          | {act_sim_wins}/{n} ({act_sim_wins/n*100:5.1f}%)          | {wins}/{n} ({wins/n*100:5.1f}%)")
+        print(f"{'Average Casualties':26} | {act_real_avg:5.1f}%                 | {act_sim_avg:5.1f}%                 | {adv_sim_avg:5.1f}%")
+        print("-" * 90)
+        print(f"[*] Head-to-Head vs Actual Sim : Better: {better_c} | Saved: {saved_c} | Same: {same_c} | Worse: {worse_c} | Lost: {lost_c}")
+        delta_net = act_sim_avg - adv_sim_avg
+        print(f"[*] Net Casualty Reduction     : {delta_net:+.2f} pts {'(Advisor Better)' if delta_net > 0 else ''}")
+
+    print_split_summary("ALL", results)
+    print_split_summary("TRAIN (Battles 1-30)", results[:30])
+    print_split_summary("HOLDOUT (Battles 31-40)", results[30:])
+
+
 if __name__ == "__main__":
+    if "--all" in sys.argv:
+        run_all_benchmark()
+        sys.exit(0)
+
     target_file = None
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         target_file = sys.argv[1]
     else:
         # Auto-discover newest json dump in data folders
@@ -750,7 +1042,7 @@ if __name__ == "__main__":
             target_file = candidates[0]
 
     if not target_file or not os.path.exists(target_file):
-        print("Usage: python benchmark_dump.py <path_to_dump.json>")
+        print("Usage: python benchmark_dump.py [--all] [<path_to_dump.json>]")
         sys.exit(1)
 
     run_benchmark(target_file)
