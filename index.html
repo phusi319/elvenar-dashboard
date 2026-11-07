@@ -3623,7 +3623,18 @@
             if (!ab.hasSynced) return '';
             const p = ab.rawPct;
             const titlePrefix = ab.isSpire ? "🗼 City + Spire Buffs:" : "🔥 City Buffs:";
-            const spireTag = ab.isSpire && ab.spirePct ? ` <span style="color:#a78bfa;font-size:8.5px;" title="Spire Perk Active">(Spire +${ab.spirePct[1]}% LR)</span>` : "";
+            let spireTag = "";
+            if (ab.isSpire && ab.spirePct) {
+              const sParts = [];
+              if (ab.spirePct[0]) sParts.push(`LM +${ab.spirePct[0]}%`);
+              if (ab.spirePct[1]) sParts.push(`LR +${ab.spirePct[1]}%`);
+              if (ab.spirePct[2]) sParts.push(`MA +${ab.spirePct[2]}%`);
+              if (ab.spirePct[3]) sParts.push(`HM +${ab.spirePct[3]}%`);
+              if (ab.spirePct[4]) sParts.push(`HR +${ab.spirePct[4]}%`);
+              if (sParts.length > 0) {
+                spireTag = ` <span style="color:#a78bfa;font-size:8.5px;" title="Spire Perks Active">(Spire ${sParts.join(', ')})</span>`;
+              }
+            }
             return `
               <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:space-between;background:rgba(15,23,42,0.65);border:1px solid rgba(250,204,21,0.25);border-radius:8px;padding:5px 8px;margin-bottom:8px;font-size:9px;font-weight:800;">
                 <span style="color:#fde047;">${titlePrefix}${spireTag}</span>
