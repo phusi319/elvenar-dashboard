@@ -587,7 +587,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                         bhp = (tgt["hp_per_unit"] / (1.0 + active_buffs["hp"])) / tgt["wt"]
                         if bhp < 120:
                             fb = (120.0 - bhp) * 0.8
-                    score = ((em - 1.0) * 100.0) + (kr * 45.0) - (min_steps * 35.0) - (d_now * 12.0) + fb
+                    score = ((em - 1.0) * 180.0) + (kr * 80.0) - (min_steps * 12.0) - (d_now * 6.0) + fb
                     if score > best_score:
                         best_score = score
                         best_t = tgt
