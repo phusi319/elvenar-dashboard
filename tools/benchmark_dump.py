@@ -484,11 +484,12 @@ def run_benchmark(dump_file):
     # 1. Empirical Unit Survival Stats
     unit_stats = defaultdict(lambda: {"picks": 0, "loss_sum": 0.0, "wiped": 0, "under20": 0})
     actual_records = []
+    actual_sim_results = []
     v661_sim_results = []
 
-    print("-" * 80)
-    print(f"{'Battle':8} | {'Enemy Lineup (S1..S5)':34} | {'Actual Loss':12} | {'v6.6.1 Sim Loss':16} | {'Outcome':8}")
-    print("-" * 80)
+    print("-" * 105)
+    print(f"{'Battle':8} | {'Enemy Lineup (S1..S5)':28} | {'Actual Real':13} | {'Actual Sim':13} | {'Advisor Sim':13} | {'Fair Outcome':18}")
+    print("-" * 105)
 
     for b_idx, bvo in enumerate(battles, 1):
         st = bvo.get("state", {})
@@ -524,15 +525,32 @@ def run_benchmark(dump_file):
         actual_records.append((actual_won, actual_loss_pct))
 
         wave = [x["id"] for x in e_units]
+        actual_p_keys = [x["id"] for x in p_units]
+        actual_sim = simulate_battle(actual_p_keys, wave, p_sq, e_sq, active_buffs, player_tiers)
+        actual_sim_results.append(actual_sim)
+
         r661 = [c[0][1] for c in recommend_v661(wave, active_buffs, player_tiers, p_sq, e_sq)]
-        sim_res = simulate_battle(r661, wave, p_sq, e_sq, active_buffs, player_tiers)
-        v661_sim_results.append(sim_res)
+        advisor_sim = simulate_battle(r661, wave, p_sq, e_sq, active_buffs, player_tiers)
+        v661_sim_results.append(advisor_sim)
 
         e_str = "/".join(resolve_unit(w)["short"][:4] for w in wave)
         act_status = f"{actual_loss_pct:4.1f}%" if actual_won else "100% (LOSS)"
-        sim_status = f"{sim_res['loss_pct']:4.1f}%" if sim_res["won"] else "LOSS"
-        diff_str = "BETTER" if sim_res["loss_pct"] < actual_loss_pct else ("SAME" if abs(sim_res["loss_pct"] - actual_loss_pct) < 1 else "WORSE")
-        print(f"B{b_idx:02d}     | {e_str:34} | {act_status:12} | {sim_status:16} | {diff_str:8}")
+        act_sim_status = f"{actual_sim['loss_pct']:4.1f}%" if actual_sim["won"] else "LOSS"
+        adv_sim_status = f"{advisor_sim['loss_pct']:4.1f}%" if advisor_sim["won"] else "LOSS"
+
+        # Fair Outcome: Advisor Sim vs Actual Sim
+        delta = actual_sim["loss_pct"] - advisor_sim["loss_pct"]
+        if advisor_sim["won"] and not actual_sim["won"]:
+            diff_str = "SAVED (WIN)"
+        elif not advisor_sim["won"] and actual_sim["won"]:
+            diff_str = "DEFEAT (WORSE)"
+        elif delta > 1.0:
+            diff_str = f"BETTER (+{delta:.1f}%)"
+        elif delta < -1.0:
+            diff_str = f"WORSE ({delta:.1f}%)"
+        else:
+            diff_str = "SAME"
+        print(f"B{b_idx:02d}     | {e_str:28} | {act_status:13} | {act_sim_status:13} | {adv_sim_status:13} | {diff_str:18}")
 
     print("\n" + "=" * 80)
     print("EMPIRICAL UNIT SURVIVAL RANKING (RECORDED FROM USER PLAY)")
@@ -546,22 +564,32 @@ def run_benchmark(dump_file):
         s_pct = (s["under20"] / s["picks"]) * 100.0
         print(f"{u_name:24} | {s['picks']:6d} | {avg_l:9.1f}% | {s['wiped']:3d} ({w_pct:4.0f}%)   | {s['under20']:3d} ({s_pct:4.0f}%)")
 
-    print("\n" + "=" * 80)
-    print("OVERALL PERFORMANCE SUMMARY: ACTUAL PLAYED vs ADVISOR v6.6.1")
-    print("=" * 80)
+    print("\n" + "=" * 90)
+    print("OVERALL PERFORMANCE SUMMARY: ACTUAL PLAYED vs ACTUAL SIMULATED vs ADVISOR v6.6.1")
+    print("=" * 90)
     act_wins = sum(1 for w, _ in actual_records if w)
     act_avg = sum(l for _, l in actual_records) / len(actual_records)
+
+    act_sim_wins = sum(1 for r in actual_sim_results if r["won"])
+    act_sim_avg = sum(r["loss_pct"] for r in actual_sim_results) / len(actual_sim_results)
+
     sim_wins = sum(1 for r in v661_sim_results if r["won"])
     sim_avg = sum(r["loss_pct"] for r in v661_sim_results) / len(v661_sim_results)
 
-    print(f"Metric                     | Actual Played      | Advisor v6.6.1 Simulated")
-    print("-" * 80)
-    print(f"Win Rate                   | {act_wins}/{len(actual_records)} ({act_wins/len(actual_records)*100:5.1f}%)    | {sim_wins}/{len(v661_sim_results)} ({sim_wins/len(v661_sim_results)*100:5.1f}%)")
-    print(f"Average Casualties         | {act_avg:5.1f}%             | {sim_avg:5.1f}% (Reduced by {act_avg - sim_avg:4.1f}%)")
+    sim_fidelity_mae = sum(abs(actual_records[i][1] - actual_sim_results[i]["loss_pct"]) for i in range(len(actual_records))) / len(actual_records)
+    fair_delta = act_sim_avg - sim_avg
+
+    print(f"{'Metric':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v6.6.1 (Sim)':22}")
+    print("-" * 90)
+    print(f"{'Win Rate':26} | {act_wins}/{len(actual_records)} ({act_wins/len(actual_records)*100:5.1f}%)          | {act_sim_wins}/{len(actual_sim_results)} ({act_sim_wins/len(actual_sim_results)*100:5.1f}%)          | {sim_wins}/{len(v661_sim_results)} ({sim_wins/len(v661_sim_results)*100:5.1f}%)")
+    print(f"{'Average Casualties':26} | {act_avg:5.1f}%                 | {act_sim_avg:5.1f}%                 | {sim_avg:5.1f}%")
+    print("-" * 90)
+    print(f"[*] Simulator Fidelity MAE (|Actual Sim - Actual Real|): {sim_fidelity_mae:.2f} pts")
+    print(f"[*] Fair Sim-vs-Sim Delta (Actual Sim Avg - Advisor Sim Avg): {fair_delta:+.2f} pts {'(Advisor Better)' if fair_delta > 0 else '(Advisor Worse)'}")
 
     print("\nCASUALTY DISTRIBUTION BRACKETS:")
-    print(f"{'Bracket':26} | {'Actual Played':18} | {'Advisor v6.6.1':18}")
-    print("-" * 80)
+    print(f"{'Bracket':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v6.6.1 (Sim)':22}")
+    print("-" * 90)
     brackets = [
         ("< 15% (Flawless)", 0, 15),
         ("15% - 30% (Light)", 15, 30),
@@ -570,9 +598,10 @@ def run_benchmark(dump_file):
     ]
     for label, low, high in brackets:
         c_act = sum(1 for won, l in actual_records if low <= l < high or (not won and high >= 100))
+        c_act_sim = sum(1 for r in actual_sim_results if low <= r["loss_pct"] < high or (not r["won"] and high >= 100))
         c_sim = sum(1 for r in v661_sim_results if low <= r["loss_pct"] < high or (not r["won"] and high >= 100))
-        print(f"{label:26} | {c_act:2d} ({c_act/len(actual_records)*100:4.1f}%)         | {c_sim:2d} ({c_sim/len(v661_sim_results)*100:4.1f}%)")
-    print("=" * 80)
+        print(f"{label:26} | {c_act:2d} ({c_act/len(actual_records)*100:4.1f}%)               | {c_act_sim:2d} ({c_act_sim/len(actual_sim_results)*100:4.1f}%)               | {c_sim:2d} ({c_sim/len(v661_sim_results)*100:4.1f}%)")
+    print("=" * 90)
 
 
 if __name__ == "__main__":

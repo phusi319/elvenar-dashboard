@@ -20,14 +20,22 @@ Sections:
     7. Simulator fidelity: simulate_battle(ACTUAL lineup) vs ACTUAL result
        -> the KPI every roadmap phase must improve (MAE, outcome agreement)
 """
-import os, sys, glob, json, math
+import os, sys, glob, json, math, argparse
 from collections import Counter, defaultdict, deque
 
 if sys.stdout.encoding.lower() != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 sys.path.insert(0, SCRIPT_DIR)
 import benchmark_dump as bd  # noqa: E402
+
+DEFAULT_DUMP_FILES = [
+    os.path.join(REPO_DIR, "..", "Batte AI Data", "(tourney 6 stars) )elvenar_debug_dump_live_2026-11-05T22-34-01-612Z.json"),
+    os.path.join(REPO_DIR, "..", "Batte AI Data", "elvenar_debug_dump_live_2026-11-06T08-08-29-735Z.json"),
+    os.path.join(REPO_DIR, "..", "elvenar_debug_dump_live_2026-11-05T17-50-42-275Z.json"),
+    os.path.join(REPO_DIR, "..", "elvenar_debug_dump_live_2026-11-05T18-54-06-095Z.json"),
+]
 
 W, H = 8, 9
 CITY_ATK = {"light_melee": .73, "light_ranged": 1.04, "mage": .90, "heavy_melee": .83, "heavy_ranged": .60}
@@ -117,11 +125,68 @@ def replay(b):
                 dead.add(t)
 
 
-def main(paths):
-    B = load_battles(paths)
-    if not B:
+def print_kpi_block(label, rows):
+    N = len(rows)
+    if N == 0:
+        print(f"   [{label}] No battles in set.")
+        return
+    err = [abs(r[1] - r[3]) for r in rows]
+    agree = sum(r[0] == r[2] for r in rows)
+    lost = [r for r in rows if not r[0]]
+    lost_pred = sum(not r[2] for r in lost)
+    mx, my = sum(r[1] for r in rows) / N, sum(r[3] for r in rows) / N
+    cov = sum((r[1] - mx) * (r[3] - my) for r in rows)
+    vx = sum((r[1] - mx) ** 2 for r in rows)
+    vy = sum((r[3] - my) ** 2 for r in rows)
+    r_val = cov / math.sqrt(vx * vy) if (vx > 0 and vy > 0) else 0.0
+    mae = sum(err) / N
+    bias = my - mx
+
+    print(f"\n   --- {label} ({N} battles) ---")
+    print(f"   Outcome Agreement       : {agree}/{N} ({agree/N*100:.1f}%)")
+    print(f"   Real Defeats Flagged    : {lost_pred}/{len(lost)} ({lost_pred/len(lost)*100:.1f}%)" if lost else f"   Real Defeats Flagged    : 0/0 (N/A)")
+    print(f"   Loss% MAE               : {mae:.1f} pts")
+    print(f"   Bias (Sim - Real)       : {bias:+.1f} pts")
+    print(f"   Pearson r               : {r_val:.3f}")
+    print(f"   |err|<=5: {sum(x <= 5 for x in err)} | <=10: {sum(x <= 10 for x in err)} | >20: {sum(x > 20 for x in err)}")
+
+
+def calc_kpi_dict(label, rows):
+    N = len(rows)
+    if N == 0:
+        return {"label": label, "N": 0, "agree": "0/0", "lost": "0/0", "mae": 0.0, "bias": 0.0, "r": 0.0}
+    err = [abs(r[1] - r[3]) for r in rows]
+    agree = sum(r[0] == r[2] for r in rows)
+    lost = [r for r in rows if not r[0]]
+    lost_pred = sum(not r[2] for r in lost)
+    mx, my = sum(r[1] for r in rows) / N, sum(r[3] for r in rows) / N
+    cov = sum((r[1] - mx) * (r[3] - my) for r in rows)
+    vx = sum((r[1] - mx) ** 2 for r in rows)
+    vy = sum((r[3] - my) ** 2 for r in rows)
+    r_val = cov / math.sqrt(vx * vy) if (vx > 0 and vy > 0) else 0.0
+    return {
+        "label": label,
+        "N": N,
+        "agree": f"{agree}/{N} ({agree/N*100:.1f}%)",
+        "lost": f"{lost_pred}/{len(lost)} ({lost_pred/len(lost)*100:.1f}%)" if lost else "0/0",
+        "mae": sum(err) / N,
+        "bias": my - mx,
+        "r": r_val,
+    }
+
+
+def main(paths, split="all"):
+    B_all = load_battles(paths)
+    if not B_all:
         print("No battles with stepHistory found.")
         return
+
+    if split == "train":
+        B = B_all[:30]
+    elif split == "holdout":
+        B = B_all[30:40] if len(B_all) >= 40 else B_all[30:]
+    else:
+        B = B_all
 
     hr("1. BATTLE SHAPE")
     rounds = Counter(b["state"]["round"] for b in B)
@@ -238,8 +303,8 @@ def main(paths):
     print("   rule: modifier = (1 + atk - def) * (1 + attackerAtkBuff) * (1 - targetDefBuff) - 1   [verified on samples]")
 
     hr("7. SIMULATOR FIDELITY  (simulate_battle with ACTUAL lineup vs ACTUAL result)")
-    rows = []
-    for b in B:
+    all_rows = []
+    for b in B_all:
         st = b["state"]
         p = sorted([u for u in st["unitsOrder"] if u["teamFlag"] == 1], key=lambda u: bd.Y_TO_SLOT[u["startpos"].get("y", 0)])
         e = sorted([u for u in st["unitsOrder"] if u["teamFlag"] == 2], key=lambda u: bd.Y_TO_SLOT[u["startpos"].get("y", 0)])
@@ -248,24 +313,49 @@ def main(paths):
         buffs = {"hp": p[0]["startHitpoints"] / p[0]["unitType"]["hitpoints"] - 1, "atk": CITY_ATK}
         sim = bd.simulate_battle([u["unitType"]["unitTypeId"] for u in p], [u["unitType"]["unitTypeId"] for u in e], p_sq, e_sq, buffs, None)
         act = sum((u["startAmountOfUnits"] - (u.get("amountOfUnits") or 0)) * u["unitType"]["unitWeight"] for u in p) / (p_sq * 5) * 100
-        rows.append((st["winnerBit"] == 1, act, sim["won"], sim["loss_pct"]))
-    N = len(rows)
-    err = [abs(r[1] - r[3]) for r in rows]
-    agree = sum(r[0] == r[2] for r in rows)
-    lost = [r for r in rows if not r[0]]
-    mx, my = sum(r[1] for r in rows) / N, sum(r[3] for r in rows) / N
-    cov = sum((r[1] - mx) * (r[3] - my) for r in rows)
-    vx = sum((r[1] - mx) ** 2 for r in rows)
-    vy = sum((r[3] - my) ** 2 for r in rows)
-    print(f"   battles {N} | outcome agreement {agree}/{N} | real defeats predicted as defeat: {sum(not r[2] for r in lost)}/{len(lost)}")
-    print(f"   loss% MAE {sum(err)/N:.1f} pts | bias(sim-real) {my - mx:+.1f} pts | Pearson r {cov / math.sqrt(vx * vy):.3f}")
-    print(f"   |err|<=5: {sum(x <= 5 for x in err)}  <=10: {sum(x <= 10 for x in err)}  >20: {sum(x > 20 for x in err)}")
-    print("   TARGETS (roadmap): MAE <= 6 pts, Pearson >= 0.90, all real defeats flagged as risky")
+        all_rows.append((st["winnerBit"] == 1, act, sim["won"], sim["loss_pct"]))
+
+    train_rows = all_rows[:30] if len(all_rows) >= 30 else all_rows
+    holdout_rows = all_rows[30:40] if len(all_rows) >= 40 else []
+
+    if split == "train":
+        print_kpi_block("TRAIN SET", train_rows)
+    elif split == "holdout":
+        print_kpi_block("HOLDOUT SET", holdout_rows)
+    else:  # "all"
+        print_kpi_block("ALL SET", all_rows)
+        if len(all_rows) >= 40:
+            print_kpi_block("TRAIN SET (first 30 battles, idx 0..29)", train_rows)
+            print_kpi_block("HOLDOUT SET (last 10 battles, idx 30..39)", holdout_rows)
+
+        print("\n" + "-" * 95)
+        print("SIMULATOR FIDELITY SUMMARY TABLE ACROSS DATASET SPLITS:")
+        print("-" * 95)
+        print(f"| {'Dataset Split':14} | {'Battles':7} | {'Outcome Agreement':18} | {'Real Defeats Flagged':20} | {'Loss% MAE':10} | {'Bias (Sim-Real)':16} | {'Pearson r':10} |")
+        print(f"| {':---':14} | {':---:':7} | {':---:':18} | {':---:':20} | {':---:':10} | {':---:':16} | {':---:':10} |")
+
+        splits_to_show = [("ALL (40)", all_rows)]
+        if len(all_rows) >= 40:
+            splits_to_show.append(("TRAIN (30)", train_rows))
+            splits_to_show.append(("HOLDOUT (10)", holdout_rows))
+
+        for s_label, s_rows in splits_to_show:
+            d = calc_kpi_dict(s_label, s_rows)
+            print(f"| {d['label']:14} | {d['N']:7d} | {d['agree']:18} | {d['lost']:20} | {d['mae']:8.1f} pt | {d['bias']:+13.1f} pt | {d['r']:10.3f} |")
+        print("-" * 95)
+        print("TARGETS (roadmap): MAE <= 6.0 pts, Pearson >= 0.90, all real defeats flagged as risky")
 
 
 if __name__ == "__main__":
-    files = sys.argv[1:] or sorted(glob.glob(os.path.join(SCRIPT_DIR, "..", "..", "Batte AI Data", "*.json")))
-    if not files:
+    parser = argparse.ArgumentParser(description="Elvenar Radar — Simulator Fidelity Audit")
+    parser.add_argument("files", nargs="*", help="Optional path(s) to dump JSON files (defaults to standard 4 dumps)")
+    parser.add_argument("--split", choices=["all", "train", "holdout"], default="all", help="Dataset split to evaluate (default: all)")
+    parser.add_argument("--holdout", action="store_true", help="Shortcut for --split holdout")
+    args = parser.parse_args()
+
+    split_mode = "holdout" if args.holdout else args.split
+    target_files = args.files or [f for f in DEFAULT_DUMP_FILES if os.path.exists(f)]
+    if not target_files:
         print(__doc__)
         sys.exit(1)
-    main(files)
+    main(target_files, split=split_mode)
