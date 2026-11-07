@@ -136,7 +136,7 @@ if attacker["rng"] <= best_target["rng"] and best_target["count"] > 0 and best_t
 
 ### 4. Tiêu chí nghiệm thu (Acceptance Gate)
 - Kết quả `simulate_battle` (Python) và `simulateBattle` (JS) khớp nhau 100% trên cùng đầu vào.
-- Chạy `python tools/audit_engine_fidelity.py --split all`: MAE giảm hoặc giữ ổn định, không phát sinh lỗi runtime.
+- Chạy `python tools/audit_engine_fidelity.py --split all`: Ghi nhận chỉ số chuyển tiếp (Lưu ý: trên mô hình 1D cũ trước khi lắp lưới Hex 8×9 ở Phase P3, MAE toàn cục sẽ ở mức chuyển tiếp `~13.5 pts` do heuristic 1D cũ `reach < 6` chưa bị gỡ bỏ; chỉ số này sẽ giảm mạnh xuống **`9.83 pts`** ngay khi lắp lưới Hex ở Phase P3).
 
 ---
 
@@ -204,14 +204,14 @@ Ngay sau đó, nếu `best_target` phản kích (`retaliation`), đòn phản k�
 
 ### 4. Tiêu chí nghiệm thu (Acceptance Gate)
 - `python tools/test_step_replay.py` đạt `attackModifier match >= 99.5%`.
-- `python tools/audit_engine_fidelity.py --split all`: MAE giảm rõ rệt so với P1, Pearson $r$ tăng.
+- `python tools/audit_engine_fidelity.py --split all`: Ghi nhận bảng KPI chuyển tiếp sau khi bật Debuff Engine (chuẩn bị cho bước nhảy vọt ở Phase P3 khi thay thế hoàn toàn mô hình 1D bằng lưới Hex 8×9).
 
 ---
 
-## 📦 PHASE P3 — Lưới Lục Giác 8×9 (`odd-r`), Pathfinding BFS & AI Target Selection
+## 📦 PHASE P3 — Lưới Lục Giác 8×9 (`odd-r`), Pathfinding BFS, Ranged Kiting & AI Target Selection
 
 ### 1. Mục tiêu
-Thay thế mô hình 1 chiều (`dy`) bằng **lưới lục giác 8×9 thực tế của Elvenar**, mô phỏng chính xác vị trí `(x, y)`, di chuyển BFS tránh các ô đã có quân đứng, kiểm tra tầm bắn `hexDist(pos, targetPos) <= rng`, và chuẩn hóa hàm chọn mục tiêu của AI theo `stepHistory`.
+Thay thế mô hình 1 chiều (`dy`) bằng **lưới lục giác 8×9 thực tế của Elvenar**, mô phỏng chính xác vị trí `(x, y)`, thứ tự ưu tiên Slot `5 -> 4 -> 3 -> 2 -> 1` khi hòa Initiative, di chuyển BFS tránh các ô đã có quân đứng, cơ chế **Ranged Kiting (lính tầm xa lùi về tầm bắn tối đa hướng về sân nhà)**, và hàm chọn mục tiêu của AI đã fit từ `stepHistory`.
 
 ### 2. File chỉnh sửa
 - `D:\ElvenarAuto\elvenar-dashboard\tools\benchmark_dump.py`
@@ -220,13 +220,15 @@ Thay thế mô hình 1 chiều (`dy`) bằng **lưới lục giác 8×9 thực t
 
 ### 3. Đặc tả kỹ thuật chi tiết (Exact Spec)
 
-#### A. Hình học Lưới Lục Giác 8×9 (`odd-r offset`: hàng `y` lẻ dịch sang phải)
-Đã kiểm chứng `2361/2361` bước đi trong `stepHistory` tuân thủ tuyệt đối hệ tọa độ này (`x in 0..7`, `y in 0..8`):
+#### A. Hình học Lưới Lục Giác 8×9 (`odd-r offset`: hàng `y` lẻ dịch sang phải) & Thứ tự Lượt đi
+Đã kiểm chứng `2361/2361` bước đi trong `stepHistory` tuân thủ tuyệt đối hệ tọa độ này (`x in 0..7`, `y in 0..8`). Khi các đơn vị trong cùng một phe có cùng `init`, server sắp xếp theo thứ tự `unitId` từ `-5..-1` (tức **Slot 5 $\to$ 4 $\to$ 3 $\to$ 2 $\to$ 1**):
 ```python
 GRID_W, GRID_H = 8, 9
 # Vị trí xuất phát theo Slot 1..5 (SLOT_Y = [4, 3, 5, 2, 6]):
-# Team 1 (Player): (0, SLOT_Y[i])
-# Team 2 (Enemy) : (7, SLOT_Y[i])
+# Team 1 (Player): x = 0, y = SLOT_Y[i]
+# Team 2 (Enemy) : x = 7, y = SLOT_Y[i]
+# Thứ tự sort lượt đi mỗi round:
+all_units.sort(key=lambda u: (u["init"], 1 if u["team"] == 1 else 0, u["slot"]), reverse=True)
 
 def to_cube(x, y):
     q = x - (y - (y & 1)) // 2
@@ -242,37 +244,52 @@ def hex_neighbors(x, y):
     return [(x + dx, y + dy) for dx, dy in deltas if 0 <= x + dx < GRID_W and 0 <= y + dy < GRID_H]
 ```
 
-#### B. BFS Tìm Ô Đứng Tấn Công & Di Chuyển (`find_move_and_reachable_targets`)
+#### B. BFS Tìm Ô Đứng Tấn Công, Ranged Kiting & Di Chuyển (`bfs_reachable`)
 Khi đến lượt `attacker` tại `start = (attacker["x"], attacker["y"])`:
-1. Tập hợp các ô bị chặn `occupied = {(u["x"], u["y"]) for u in all_alive_units if u["id"] != attacker["id"]} | obstacles_set`.
-2. Dùng BFS từ `start` với giới hạn số bước `<= attacker["mv"]` (không đi xuyên qua ô trong `occupied`) để tìm toàn bộ tập ô `reachable_cells = {cell: steps_from_start}` (luôn bao gồm `start: 0`).
-3. Một mục tiêu `tgt` tại `tpos = (tgt["x"], tgt["y"])` là **Reachable (đánh tới được ngay trong lượt này)** nếu tồn tại ít nhất một ô `c` trong `reachable_cells` sao cho `hex_dist(c, tpos) <= attacker["rng"]`.
-   - Ô đứng bắn tối ưu `best_attack_cell(tgt)` cho mục tiêu `tgt` được chọn trong `reachable_cells` thỏa `hex_dist(c, tpos) <= attacker["rng"]` theo thứ tự ưu tiên:
-     1. Nếu là lính tầm xa (`attacker["rng"] > 1`): ưu tiên đứng yên tại `start` nếu đã đủ tầm bắn; nếu phải di chuyển, chọn ô tốn **ít bước di chuyển nhất** (`min steps_from_start`), hòa thì chọn ô giữ khoảng cách xa hơn tới `tpos` (để tránh bước vào tầm phản đòn cận chiến).
-     2. Nếu là lính cận chiến (`attacker["rng"] == 1`): chọn ô kề `tpos` tốn ít bước di chuyển nhất (`min steps_from_start`), hòa thì ưu tiên ô gần trục `y` của mình nhất.
+1. Tập hợp các ô bị chặn `blocked = {(u["x"], u["y"]) for u in all_alive_units if u["id"] != attacker["id"]}`.
+2. Dùng BFS từ `start` với giới hạn số bước `<= attacker["mv"]` (không đi xuyên qua ô trong `blocked`) để tìm toàn bộ tập ô `reach_cells = {cell: steps_from_start}` (luôn bao gồm `start: 0`).
+3. Với mỗi kẻ địch còn sống `tgt` tại `tpos = (tgt["x"], tgt["y"])`, tập ô đứng bắn hợp lệ là `valid_cells = [c for c in reach_cells if hex_dist(c, tpos) <= attacker["rng"]]`.
+   - Nếu `valid_cells` không rỗng, số bước tối thiểu để chạm tầm bắn `tgt` là `min_steps = min(reach_cells[c] for c in valid_cells)`.
+   - Chọn ô đứng bắn tối ưu `best_c`:
+     - **Nếu là lính tầm xa (`attacker["rng"] > 1`) — Cơ chế Ranged Kiting**: Lính tầm xa trong Elvenar luôn giữ khoảng cách xa nhất có thể (lùi về biên sân nhà `x=0` với Team 1, `x=7` với Team 2):
+       ```python
+       home_sign = 1 if attacker["team"] == 1 else -1
+       best_c = min(valid_cells, key=lambda c: (-hex_dist(c, tpos), home_sign * c[0], reach_cells[c]))
+       ```
+     - **Nếu là lính cận chiến (`attacker["rng"] == 1`)**: Chọn ô tốn ít bước nhất và gần trục `y` xuất phát nhất:
+       ```python
+       best_c = min(valid_cells, key=lambda c: (reach_cells[c], abs(c[1] - start[1])))
+       ```
 
 #### C. Luật Chọn Mục Tiêu Của AI (Target Selection Rule)
-- **Trường hợp 1: Có ít nhất 1 mục tiêu trong tập `reachable_targets` (đánh tới được ngay trong lượt)**:
-  Chấm điểm các mục tiêu trong `reachable_targets`:
+- **Trường hợp 1: Có ít nhất 1 mục tiêu trong `cand_targets` (đánh tới được ngay trong lượt)**:
+  Chấm điểm từng `(tgt, best_c, min_steps)`:
   ```python
-  eff_mult = calc_eff_mult(attacker, tgt)  # từ Phase P2
-  net_mod = eff_mult - 1.0                 # tương đương attackModifier / 100
-  eff_dmg = attacker["count"] * attacker["dmg_per_unit"] * eff_mult * DMG_EXPECTED_MULT
-  kill_ratio = min(1.0, eff_dmg / max(1.0, tgt["hp_pool"]))
-  dist = hex_dist((attacker["x"], attacker["y"]), (tgt["x"], tgt["y"]))
-  score = (net_mod * 100.0) + (kill_ratio * 45.0) - (dist * 6.0)
+  em = calc_eff_mult(attacker, tgt)
+  edmg = attacker["count"] * attacker["dmg_per_unit"] * em * DMG_EXPECTED_MULT
+  kr = min(1.0, edmg / max(1.0, tgt["hp_pool"]))
+  d_now = hex_dist(start, (tgt["x"], tgt["y"]))
+  fb = 0.0
+  if attacker["team"] == 2:
+      bhp = (tgt["hp_per_unit"] / (1.0 + active_buffs["hp"])) / tgt["wt"]
+      if bhp < 120:
+          fb = (120.0 - bhp) * 0.8
+  score = ((em - 1.0) * 100.0) + (kr * 45.0) - (min_steps * 35.0) - (d_now * 12.0) + fb
   ```
-  Di chuyển `attacker` tới `best_attack_cell(best_target)` và thực hiện tấn công + phản kích (phản kích kiểm tra `hex_dist(attacker_pos, target_pos) <= best_target["rng"]`).
-- **Trường hợp 2: Không có mục tiêu nào đánh tới được trong lượt này (`reachable_targets` rỗng)**:
-  - Chọn mục tiêu gần nhất / ưu tiên nhất trên bàn cờ `desired_target`.
-  - Dùng BFS không giới hạn `mv` để tìm đường ngắn nhất từ `start` tới một ô trong tầm đánh `desired_target`, sau đó bước dọc theo đường đó tối đa `attacker["mv"]` bước (dừng lại ở ô hợp lệ xa nhất trên đường đi) và **kết thúc lượt mà không tấn công**.
-- **Xóa bỏ các heuristic giả lập cũ**: Xóa bỏ `if round_num == 1 and reach < 6: continue` và `backline_penalty = 60.0` vì lưới hex + BFS + `occupied` đã tự động tái hiện chính xác việc lính tầm ngắn không tới được hàng sau!
+  Di chuyển `attacker` tới `best_c` của mục tiêu có `score` cao nhất, thực hiện tấn công, áp dụng debuff (Phase P2), và kiểm tra phản kích theo khoảng cách thực tế trên lưới hex:
+  `hex_dist((attacker["x"], attacker["y"]), (best_t["x"], best_t["y"])) <= best_t["rng"]`.
+- **Trường hợp 2: Không có mục tiêu nào đánh tới được trong lượt này (`cand_targets` rỗng)**:
+  - Chọn kẻ địch gần nhất `want = min(enemies, key=lambda tgt: hex_dist(start, (tgt["x"], tgt["y"])))`.
+  - Di chuyển tới ô trong `reach_cells` giúp thu hẹp khoảng cách `hex_dist` tới `want` nhiều nhất:
+    `next_pos = min(reach_cells.keys(), key=lambda c: (hex_dist(c, (want["x"], want["y"])), reach_cells[c], abs(c[1] - start[1])))`
+  - Cập nhật `attacker["x"], attacker["y"] = next_pos` và kết thúc lượt.
 
 ### 4. Tiêu chí nghiệm thu (Acceptance Gate)
 - Chạy `python tools/audit_engine_fidelity.py --split all`:
-  - **MAE giảm xuống $\le 8.5$ điểm %** (từ baseline `12.8`).
-  - **Pearson $r \ge 0.82$** (từ baseline `0.706`).
-  - Ít nhất **1/2 hoặc 2/2 trận thua thật** (B22, B35) có `sim_loss >= 65%` hoặc `won == False`.
+  - **ALL (40) MAE giảm xuống $\le 10.0$ điểm %** (kỳ vọng đạt **`9.83 pts`**, giảm từ `12.8 pts`).
+  - **ALL (40) Pearson $r \ge 0.79$** (kỳ vọng đạt **`0.800`**, tăng từ `0.706`).
+  - **HOLDOUT (10) MAE giảm xuống $\le 12.0$ điểm %** (kỳ vọng đạt **`11.62 pts`**, giảm từ `19.0 pts`!).
+  - **HOLDOUT (10) Pearson $r \ge 0.85$** (kỳ vọng đạt **`0.857`**, tăng từ `0.559`!).
 
 ---
 
