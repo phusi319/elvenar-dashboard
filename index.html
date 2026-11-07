@@ -2500,6 +2500,57 @@
       };
     }
 
+    function toCube(x, y) {
+      const q = x - ((y - (y & 1)) >> 1);
+      const r = y;
+      return [q, r, -q - r];
+    }
+
+    function hexDist(a, b) {
+      const [qa, ra, sa] = toCube(a[0], a[1]);
+      const [qb, rb, sb] = toCube(b[0], b[1]);
+      return Math.max(Math.abs(qa - qb), Math.abs(ra - rb), Math.abs(sa - sb));
+    }
+
+    function hexNeighbors(x, y) {
+      const deltas = (y % 2 === 0)
+        ? [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1]]
+        : [[-1, 0], [1, 0], [0, -1], [0, 1], [1, -1], [1, 1]];
+      const res = [];
+      for (let i = 0; i < deltas.length; i++) {
+        const nx = x + deltas[i][0];
+        const ny = y + deltas[i][1];
+        if (nx >= 0 && nx < 8 && ny >= 0 && ny < 9) {
+          res.push([nx, ny]);
+        }
+      }
+      return res;
+    }
+
+    function bfsReachable(start, maxMv, blockedSet) {
+      const reach = new Map();
+      const startKey = start[0] + ',' + start[1];
+      reach.set(startKey, { pos: start, steps: 0 });
+      const queue = [start];
+      let qHead = 0;
+      while (qHead < queue.length) {
+        const curr = queue[qHead++];
+        const currKey = curr[0] + ',' + curr[1];
+        const steps = reach.get(currKey).steps;
+        if (steps >= maxMv) continue;
+        const neighbors = hexNeighbors(curr[0], curr[1]);
+        for (let i = 0; i < neighbors.length; i++) {
+          const n = neighbors[i];
+          const nKey = n[0] + ',' + n[1];
+          if (!reach.has(nKey) && !blockedSet.has(nKey)) {
+            reach.set(nKey, { pos: n, steps: steps + 1 });
+            queue.push(n);
+          }
+        }
+      }
+      return reach;
+    }
+
     function simulateBattle(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs) {
       const pSq = playerSquadSize || (state.enc && state.enc.playerSquadSize) || (state.arm && state.arm.squadSize) || 1000;
       const eSq = enemySquadSize || (state.enc && state.enc.enemySquadSize) || Math.round(pSq * 1.5);
@@ -2518,9 +2569,10 @@
         const hpPerUnit = (u.hp || 100) * hpMult;
         pUnits.push({
           slot: i + 1,
+          x: 0,
           y: SLOT_Y[i],
           team: 1,
-          id: `p_${i + 1}`,
+          id: 'P' + (i + 1),
           name: u.short,
           cls: u.cls,
           u: u,
@@ -2549,9 +2601,10 @@
         const hpPerUnit = u.hp || 100;
         eUnits.push({
           slot: i + 1,
+          x: 7,
           y: SLOT_Y[i],
           team: 2,
-          id: `e_${i + 1}`,
+          id: 'E' + (i + 1),
           name: u.short,
           cls: u.cls,
           u: u,
@@ -2599,7 +2652,10 @@
         const allUnits = pUnits.concat(eUnits).filter(u => u.count > 0);
         allUnits.sort((a, b) => {
           if (b.init !== a.init) return b.init - a.init;
-          return (b.team === 1 ? 1 : 0) - (a.team === 1 ? 1 : 0);
+          const tA = a.team === 1 ? 1 : 0;
+          const tB = b.team === 1 ? 1 : 0;
+          if (tB !== tA) return tB - tA;
+          return b.slot - a.slot;
         });
 
         for (let idx = 0; idx < allUnits.length; idx++) {
@@ -2608,69 +2664,150 @@
           const targets = (attacker.team === 1 ? eUnits : pUnits).filter(u => u.count > 0);
           if (!targets.length) break;
 
-          let bestTarget = null;
-          let bestScore = -999999;
+          const start = [attacker.x, attacker.y];
+          const blockedSet = new Set();
+          pUnits.concat(eUnits).forEach(u => {
+            if (u.count > 0 && u.id !== attacker.id) {
+              blockedSet.add(u.x + ',' + u.y);
+            }
+          });
+
+          const reachCells = bfsReachable(start, attacker.mv, blockedSet);
+          const candTargets = [];
+
           for (let tIdx = 0; tIdx < targets.length; tIdx++) {
             const tgt = targets[tIdx];
-            const dy = Math.abs(attacker.y - tgt.y);
-            const atkB = ((attacker.u.atk && attacker.u.atk[tgt.cls]) || 0) / 100.0;
-            const defB = ((tgt.u.def && tgt.u.def[attacker.cls]) || 0) / 100.0;
-            const reach = attacker.rng + attacker.mv;
-            if (roundNum === 1 && reach < 6 && attacker.rng <= 2) continue;
+            const tpos = [tgt.x, tgt.y];
+            const validCells = [];
+            reachCells.forEach(entry => {
+              const c = entry.pos;
+              if (hexDist(c, tpos) <= attacker.rng) {
+                validCells.push({ c: c, steps: entry.steps });
+              }
+            });
 
-            // Realistic hex distance & targeting:
-            // 1. On Round 1, backline targets (Mage / slow units with mv <= 2) that are far away (dy >= 1)
-            // cannot be hit by short-ranged units (rng <= 4) because frontline enemies screen them!
-            let backlinePenalty = 0;
-            if (roundNum === 1 && attacker.rng <= 4 && (tgt.mv || 2) <= 2 && dy >= 1) {
-              backlinePenalty = 60.0;
-            }
+            if (validCells.length > 0) {
+              let minSteps = 999;
+              for (let v = 0; v < validCells.length; v++) {
+                if (validCells[v].steps < minSteps) minSteps = validCells[v].steps;
+              }
 
-            // 2. Enemy AI focus-fires squishy / low-HP targets:
-            let focusBonus = 0;
-            if (attacker.team === 2) {
-              const baseHp = ((tgt.hpPerUnit || 100) / (1.0 + (buffs.hp || 0))) / (tgt.wt || 1);
-              if (baseHp < 120) focusBonus = (120 - baseHp) * 0.4;
-            }
-
-            const effDmg = attacker.count * attacker.dmgPerUnit * calcEffMult(attacker, tgt) * DMG_EXPECTED_MULT;
-            const totalTgtHp = tgt.hpPool;
-            const killRatio = Math.min(1.0, effDmg / Math.max(1.0, totalTgtHp));
-            const score = (atkB * 100.0) + (killRatio * 60.0) - (dy * 12.0) - backlinePenalty + focusBonus;
-            if (score > bestScore) {
-              bestScore = score;
-              bestTarget = tgt;
+              let bestC = null;
+              if (attacker.rng > 1) {
+                const homeSign = attacker.team === 1 ? 1 : -1;
+                validCells.sort((a, b) => {
+                  const distA = -hexDist(a.c, tpos);
+                  const distB = -hexDist(b.c, tpos);
+                  if (distA !== distB) return distA - distB;
+                  const homeA = homeSign * a.c[0];
+                  const homeB = homeSign * b.c[0];
+                  if (homeA !== homeB) return homeA - homeB;
+                  return a.steps - b.steps;
+                });
+                bestC = validCells[0].c;
+              } else {
+                validCells.sort((a, b) => {
+                  if (a.steps !== b.steps) return a.steps - b.steps;
+                  const dyA = Math.abs(a.c[1] - start[1]);
+                  const dyB = Math.abs(b.c[1] - start[1]);
+                  return dyA - dyB;
+                });
+                bestC = validCells[0].c;
+              }
+              candTargets.push({ tgt: tgt, bestC: bestC, minSteps: minSteps });
             }
           }
 
-          if (!bestTarget) continue;
-
-          const effMult = calcEffMult(attacker, bestTarget);
-          const dealtDmg = attacker.count * attacker.dmgPerUnit * effMult * DMG_EXPECTED_MULT;
-          bestTarget.hpPool = Math.max(0.0, bestTarget.hpPool - dealtDmg);
-          bestTarget.count = bestTarget.hpPool > 0 ? Math.ceil(bestTarget.hpPool / bestTarget.hpPerUnit) : 0;
-
-          // On-Hit debuffs applied immediately to target if target survives
-          if (bestTarget.count > 0 && Array.isArray(attacker.u.ab)) {
-            for (let aIdx = 0; aIdx < attacker.u.ab.length; aIdx++) {
-              const ab = attacker.u.ab[aIdx];
-              const abType = ab.t;
-              const abVal = Number(ab.v) || 0;
-              const abDur = Number(ab.d) || 1;
-              if (abType === "attack" && abVal < 0) {
-                bestTarget.atkDebuff = { val: abVal, dur: abDur };
-              } else if (abType === "defense" && abVal < 0) {
-                bestTarget.defDebuff = { val: abVal, dur: abDur };
+          if (candTargets.length > 0) {
+            let bestT = null;
+            let bestPos = null;
+            let bestScore = -999999.0;
+            for (let cIdx = 0; cIdx < candTargets.length; cIdx++) {
+              const item = candTargets[cIdx];
+              const tgt = item.tgt;
+              const em = calcEffMult(attacker, tgt);
+              const edmg = attacker.count * attacker.dmgPerUnit * em * DMG_EXPECTED_MULT;
+              const kr = Math.min(1.0, edmg / Math.max(1.0, tgt.hpPool));
+              const dNow = hexDist(start, [tgt.x, tgt.y]);
+              let fb = 0.0;
+              if (attacker.team === 2) {
+                const baseHp = ((tgt.hpPerUnit || 100) / (1.0 + (buffs.hp || 0))) / (tgt.wt || 1);
+                if (baseHp < 120) {
+                  fb = (120.0 - baseHp) * 0.8;
+                }
+              }
+              const score = ((em - 1.0) * 100.0) + (kr * 45.0) - (item.minSteps * 35.0) - (dNow * 12.0) + fb;
+              if (score > bestScore) {
+                bestScore = score;
+                bestT = tgt;
+                bestPos = item.bestC;
               }
             }
-          }
 
-          if (attacker.rng <= bestTarget.rng && bestTarget.count > 0 && bestTarget.retLeft > 0) {
-            const retEffMult = calcEffMult(bestTarget, attacker);
-            const retDmg = bestTarget.count * bestTarget.dmgPerUnit * retEffMult * DMG_EXPECTED_MULT * RETALIATION_MULT;
-            attacker.hpPool = Math.max(0.0, attacker.hpPool - retDmg);
-            attacker.count = attacker.hpPool > 0 ? Math.ceil(attacker.hpPool / attacker.hpPerUnit) : 0;
-            bestTarget.retLeft -= 1;
+            attacker.x = bestPos[0];
+            attacker.y = bestPos[1];
+            const effMult = calcEffMult(attacker, bestT);
+            const dealtDmg = attacker.count * attacker.dmgPerUnit * effMult * DMG_EXPECTED_MULT;
+            bestT.hpPool = Math.max(0.0, bestT.hpPool - dealtDmg);
+            bestT.count = bestT.hpPool > 0 ? Math.ceil(bestT.hpPool / bestT.hpPerUnit) : 0;
+
+            if (bestT.count > 0 && Array.isArray(attacker.u.ab)) {
+              for (let aIdx = 0; aIdx < attacker.u.ab.length; aIdx++) {
+                const ab = attacker.u.ab[aIdx];
+                const abType = ab.t;
+                const abVal = Number(ab.v) || 0;
+                const abDur = Number(ab.d) || 1;
+                if (abType === 'attack' && abVal < 0) {
+                  bestT.atkDebuff = { val: abVal, dur: abDur };
+                } else if (abType === 'defense' && abVal < 0) {
+                  bestT.defDebuff = { val: abVal, dur: abDur };
+                }
+              }
+            }
+
+            if (bestT.count > 0 && bestT.retLeft > 0 && hexDist([attacker.x, attacker.y], [bestT.x, bestT.y]) <= bestT.rng) {
+              const retEffMult = calcEffMult(bestT, attacker);
+              const retDmg = bestT.count * bestT.dmgPerUnit * retEffMult * DMG_EXPECTED_MULT * RETALIATION_MULT;
+              attacker.hpPool = Math.max(0.0, attacker.hpPool - retDmg);
+              attacker.count = attacker.hpPool > 0 ? Math.ceil(attacker.hpPool / attacker.hpPerUnit) : 0;
+              bestT.retLeft -= 1;
+            }
+          } else {
+            let want = targets[0];
+            let minDist = hexDist(start, [want.x, want.y]);
+            for (let tIdx = 1; tIdx < targets.length; tIdx++) {
+              const d = hexDist(start, [targets[tIdx].x, targets[tIdx].y]);
+              if (d < minDist || (d === minDist && targets[tIdx].slot < want.slot)) {
+                minDist = d;
+                want = targets[tIdx];
+              }
+            }
+
+            const wantPos = [want.x, want.y];
+            let nextPos = start;
+            let bestAdvCriteria = null;
+            reachCells.forEach(entry => {
+              const c = entry.pos;
+              const distToWant = hexDist(c, wantPos);
+              const steps = entry.steps;
+              const dyToStart = Math.abs(c[1] - start[1]);
+              const criteria = [distToWant, steps, dyToStart];
+              if (!bestAdvCriteria) {
+                bestAdvCriteria = criteria;
+                nextPos = c;
+              } else {
+                if (criteria[0] < bestAdvCriteria[0] ||
+                   (criteria[0] === bestAdvCriteria[0] && criteria[1] < bestAdvCriteria[1]) ||
+                   (criteria[0] === bestAdvCriteria[0] && criteria[1] === bestAdvCriteria[1] && criteria[2] < bestAdvCriteria[2])) {
+                  bestAdvCriteria = criteria;
+                  nextPos = c;
+                }
+              }
+            });
+
+            attacker.x = nextPos[0];
+            attacker.y = nextPos[1];
+            continue;
           }
         }
 

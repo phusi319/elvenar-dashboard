@@ -22,7 +22,7 @@ import glob
 import json
 import re
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 
 if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -35,6 +35,39 @@ INDEX_HTML_PATH = os.path.join(REPO_DIR, "index.html")
 # Top (y=2): Slot 4 | Upper-Mid (y=3): Slot 2 | Center (y=4): Slot 1 | Lower-Mid (y=5): Slot 3 | Bottom (y=6): Slot 5
 SLOT_Y = [4, 3, 5, 2, 6]
 Y_TO_SLOT = {4: 1, 3: 2, 5: 3, 2: 4, 6: 5}
+
+GRID_W, GRID_H = 8, 9
+
+def to_cube(x, y):
+    q = x - ((y - (y & 1)) // 2)
+    r = y
+    return (q, r, -q - r)
+
+def hex_dist(a, b):
+    qa, ra, sa = to_cube(a[0], a[1])
+    qb, rb, sb = to_cube(b[0], b[1])
+    return max(abs(qa - qb), abs(ra - rb), abs(sa - sb))
+
+def hex_neighbors(x, y):
+    if y % 2 == 0:
+        deltas = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1)]
+    else:
+        deltas = [(-1, 0), (1, 0), (0, -1), (0, 1), (1, -1), (1, 1)]
+    return [(x + dx, y + dy) for dx, dy in deltas if 0 <= x + dx < GRID_W and 0 <= y + dy < GRID_H]
+
+def bfs_reachable(start, max_mv, blocked_set):
+    reach = {start: 0}
+    q = deque([start])
+    while q:
+        curr = q.popleft()
+        steps = reach[curr]
+        if steps >= max_mv:
+            continue
+        for n in hex_neighbors(curr[0], curr[1]):
+            if n not in reach and n not in blocked_set:
+                reach[n] = steps + 1
+                q.append(n)
+    return reach
 
 PLAYER_UNIT_KEYS = [
     "eb_lm", "eb_lr", "eb_ma", "eb_hm", "eb_hr",
@@ -368,9 +401,9 @@ def recommend_v661(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
 recommend_v652 = recommend_v661
 
 
-def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers):
-    DMG_EXPECTED_MULT = 1.07  # Median empirical damage multiplier from stepHistory
-    RETALIATION_MULT = 0.50   # 50% retaliation damage coefficient
+def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None):
+    DMG_EXPECTED_MULT = 1.07
+    RETALIATION_MULT = 0.50
 
     p_units = []
     for i in range(5):
@@ -379,10 +412,10 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
         hp_mult = 1.0 + active_buffs["hp"]
         atk_mult = 1.0 + active_buffs["atk"].get(u["cls"], 0)
         wt = u.get("wt", 1)
-        count = int(player_squad_size / wt)
+        count = max(1, int(player_squad_size / wt))
         hp_per_unit = u["hp"] * hp_mult
         p_units.append({
-            "slot": i + 1, "y": SLOT_Y[i], "team": 1, "id": f"p_{i+1}", "name": u["short"],
+            "slot": i + 1, "x": 0, "y": SLOT_Y[i], "team": 1, "id": f"P{i+1}", "name": u["short"],
             "cls": u["cls"], "u": u, "startCount": count, "count": count,
             "hp_per_unit": hp_per_unit, "dmg_per_unit": (u["dmg"] * atk_mult),
             "hp_pool": count * hp_per_unit,
@@ -397,10 +430,10 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
         eid = enemy_unit_ids[i]
         u = resolve_unit(eid, player_tiers)
         wt = u.get("wt", 1)
-        count = int(enemy_squad_size / wt)
+        count = max(1, int(enemy_squad_size / wt))
         hp_per_unit = u["hp"]
         e_units.append({
-            "slot": i + 1, "y": SLOT_Y[i], "team": 2, "id": f"e_{i+1}", "name": u["short"],
+            "slot": i + 1, "x": 7, "y": SLOT_Y[i], "team": 2, "id": f"E{i+1}", "name": u["short"],
             "cls": u["cls"], "u": u, "startCount": count, "count": count,
             "hp_per_unit": hp_per_unit, "dmg_per_unit": u["dmg"],
             "hp_pool": count * hp_per_unit,
@@ -418,7 +451,6 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
         return (1.0 + atk_b) * (1.0 + a_deb) * (1.0 - def_b) * (1.0 - d_deb)
 
     for round_num in range(1, 16):
-        # Tick-down debuff duration at start of round (from round 2+)
         if round_num > 1:
             for u in p_units + e_units:
                 if u["atk_debuff"]["dur"] > 0:
@@ -432,66 +464,79 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
         for u in p_units + e_units:
             u["ret_left"] = u["ret_max"]
+
         all_units = [u for u in p_units + e_units if u["count"] > 0]
-        all_units.sort(key=lambda u: (u["init"], 1 if u["team"] == 1 else 0), reverse=True)
+        all_units.sort(key=lambda u: (u["init"], 1 if u["team"] == 1 else 0, u["slot"]), reverse=True)
 
         for attacker in all_units:
             if attacker["count"] <= 0: continue
             targets = [u for u in (e_units if attacker["team"] == 1 else p_units) if u["count"] > 0]
             if not targets: break
 
-            best_target = None
-            best_score = -999999
+            start = (attacker["x"], attacker["y"])
+            blocked = {(u["x"], u["y"]) for u in p_units + e_units if u["count"] > 0 and u["id"] != attacker["id"]}
+            reach_cells = bfs_reachable(start, attacker["mv"], blocked)
+
+            cand_targets = []
             for tgt in targets:
-                dy = abs(attacker["y"] - tgt["y"])
-                atk_b = (attacker["u"].get("atk", {}).get(tgt["cls"], 0)) / 100.0
-                def_b = (tgt["u"].get("def", {}).get(attacker["cls"], 0)) / 100.0
-                reach = attacker["rng"] + attacker["mv"]
-                if round_num == 1 and reach < 6 and attacker["rng"] <= 2: continue
-                eff_dmg = attacker["count"] * attacker["dmg_per_unit"] * calc_eff_mult(attacker, tgt) * DMG_EXPECTED_MULT
-                total_tgt_hp = tgt["hp_pool"]
-                kill_ratio = min(1.0, eff_dmg / max(1.0, total_tgt_hp))
+                tpos = (tgt["x"], tgt["y"])
+                valid_cells = [c for c in reach_cells if hex_dist(c, tpos) <= attacker["rng"]]
+                if valid_cells:
+                    min_steps = min(reach_cells[c] for c in valid_cells)
+                    if attacker["rng"] > 1:
+                        home_sign = 1 if attacker["team"] == 1 else -1
+                        best_c = min(valid_cells, key=lambda c: (-hex_dist(c, tpos), home_sign * c[0], reach_cells[c]))
+                    else:
+                        best_c = min(valid_cells, key=lambda c: (reach_cells[c], abs(c[1] - start[1])))
+                    cand_targets.append((tgt, best_c, min_steps))
 
-                # Realistic hex distance & targeting:
-                backline_penalty = 0.0
-                if round_num == 1 and attacker["rng"] <= 4 and tgt.get("mv", 2) <= 2 and dy >= 1:
-                    backline_penalty = 60.0
+            if cand_targets:
+                best_t = None
+                best_pos = None
+                best_score = -999999.0
+                for tgt, best_c, min_steps in cand_targets:
+                    em = calc_eff_mult(attacker, tgt)
+                    edmg = attacker["count"] * attacker["dmg_per_unit"] * em * DMG_EXPECTED_MULT
+                    kr = min(1.0, edmg / max(1.0, tgt["hp_pool"]))
+                    d_now = hex_dist(start, (tgt["x"], tgt["y"]))
+                    fb = 0.0
+                    if attacker["team"] == 2:
+                        bhp = (tgt["hp_per_unit"] / (1.0 + active_buffs["hp"])) / tgt["wt"]
+                        if bhp < 120:
+                            fb = (120.0 - bhp) * 0.8
+                    score = ((em - 1.0) * 100.0) + (kr * 45.0) - (min_steps * 35.0) - (d_now * 12.0) + fb
+                    if score > best_score:
+                        best_score = score
+                        best_t = tgt
+                        best_pos = best_c
 
-                focus_bonus = 0.0
-                if attacker["team"] == 2:
-                    base_hp = (tgt["hp_per_unit"] / (1.0 + active_buffs["hp"])) / tgt["wt"]
-                    if base_hp < 120:
-                        focus_bonus = (120 - base_hp) * 0.4
+                attacker["x"], attacker["y"] = best_pos
+                eff_mult = calc_eff_mult(attacker, best_t)
+                dealt_dmg = attacker["count"] * attacker["dmg_per_unit"] * eff_mult * DMG_EXPECTED_MULT
+                best_t["hp_pool"] = max(0.0, best_t["hp_pool"] - dealt_dmg)
+                best_t["count"] = math.ceil(best_t["hp_pool"] / best_t["hp_per_unit"]) if best_t["hp_pool"] > 0 else 0
 
-                score = (atk_b * 100.0) + (kill_ratio * 60.0) - (dy * 12.0) - backline_penalty + focus_bonus
-                if score > best_score:
-                    best_score = score
-                    best_target = tgt
+                if best_t["count"] > 0:
+                    for ab in attacker["u"].get("ab", []):
+                        ab_type = ab.get("t")
+                        ab_val = float(ab.get("v", 0))
+                        ab_dur = int(ab.get("d", 1))
+                        if ab_type == "attack" and ab_val < 0:
+                            best_t["atk_debuff"] = {"val": ab_val, "dur": ab_dur}
+                        elif ab_type == "defense" and ab_val < 0:
+                            best_t["def_debuff"] = {"val": ab_val, "dur": ab_dur}
 
-            if not best_target: continue
-
-            eff_mult = calc_eff_mult(attacker, best_target)
-            dealt_dmg = attacker["count"] * attacker["dmg_per_unit"] * eff_mult * DMG_EXPECTED_MULT
-            best_target["hp_pool"] = max(0.0, best_target["hp_pool"] - dealt_dmg)
-            best_target["count"] = math.ceil(best_target["hp_pool"] / best_target["hp_per_unit"]) if best_target["hp_pool"] > 0 else 0
-
-            # On-Hit debuffs applied immediately to target if target survives
-            if best_target["count"] > 0:
-                for ab in attacker["u"].get("ab", []):
-                    ab_type = ab.get("t")
-                    ab_val = float(ab.get("v", 0))
-                    ab_dur = int(ab.get("d", 1))
-                    if ab_type == "attack" and ab_val < 0:
-                        best_target["atk_debuff"] = {"val": ab_val, "dur": ab_dur}
-                    elif ab_type == "defense" and ab_val < 0:
-                        best_target["def_debuff"] = {"val": ab_val, "dur": ab_dur}
-
-            if attacker["rng"] <= best_target["rng"] and best_target["count"] > 0 and best_target["ret_left"] > 0:
-                ret_eff_mult = calc_eff_mult(best_target, attacker)
-                ret_dmg = best_target["count"] * best_target["dmg_per_unit"] * ret_eff_mult * DMG_EXPECTED_MULT * RETALIATION_MULT
-                attacker["hp_pool"] = max(0.0, attacker["hp_pool"] - ret_dmg)
-                attacker["count"] = math.ceil(attacker["hp_pool"] / attacker["hp_per_unit"]) if attacker["hp_pool"] > 0 else 0
-                best_target["ret_left"] -= 1
+                if best_t["count"] > 0 and best_t["ret_left"] > 0 and hex_dist((attacker["x"], attacker["y"]), (best_t["x"], best_t["y"])) <= best_t["rng"]:
+                    ret_eff_mult = calc_eff_mult(best_t, attacker)
+                    ret_dmg = best_t["count"] * best_t["dmg_per_unit"] * ret_eff_mult * DMG_EXPECTED_MULT * RETALIATION_MULT
+                    attacker["hp_pool"] = max(0.0, attacker["hp_pool"] - ret_dmg)
+                    attacker["count"] = math.ceil(attacker["hp_pool"] / attacker["hp_per_unit"]) if attacker["hp_pool"] > 0 else 0
+                    best_t["ret_left"] -= 1
+            else:
+                want = min(targets, key=lambda tgt: (hex_dist(start, (tgt["x"], tgt["y"])), tgt["slot"]))
+                next_pos = min(reach_cells.keys(), key=lambda c: (hex_dist(c, (want["x"], want["y"])), reach_cells[c], abs(c[1] - start[1])))
+                attacker["x"], attacker["y"] = next_pos
+                continue
 
         p_alive = sum(u["count"] for u in p_units)
         e_alive = sum(u["count"] for u in e_units)
