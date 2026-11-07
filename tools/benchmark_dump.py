@@ -639,31 +639,36 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     heuristic_slots = recommend_heuristic(first_wave, active_buffs, player_tiers, p_sq, e_sq)
     slot_score_map = [{c[1]: c[0] for c in heuristic_slots[s]} for s in range(5)]
 
-    # Candidate Lineup Generation
+    # Strict Slot-Counter Eligibility: Only Top-3 candidates with score > -10.0 are valid counters for slot s
+    valid_slot_keys = []
+    for s in range(5):
+        v_keys = [c[1] for c in heuristic_slots[s][:3] if c[0] > -10.0]
+        if not v_keys:
+            v_keys = [heuristic_slots[s][0][1]]
+        valid_slot_keys.append(v_keys)
+
+    # Candidate Lineup Generation (Strictly Counter-Compliant)
     top1 = [heuristic_slots[s][0][1] for s in range(5)]
-    top2 = [heuristic_slots[s][min(1, len(heuristic_slots[s]) - 1)][1] for s in range(5)]
+    top2 = [valid_slot_keys[s][min(1, len(valid_slot_keys[s]) - 1)] for s in range(5)]
 
     cand_lineups = [tuple(top1), tuple(top2)]
 
     for s in range(5):
-        if len(heuristic_slots[s]) > 1:
-            var1 = list(top1)
-            var1[s] = heuristic_slots[s][1][1]
-            cand_lineups.append(tuple(var1))
-        if len(heuristic_slots[s]) > 2:
-            var2 = list(top1)
-            var2[s] = heuristic_slots[s][2][1]
-            cand_lineups.append(tuple(var2))
+        for v_key in valid_slot_keys[s][1:]:
+            var_L = list(top1)
+            var_L[s] = v_key
+            cand_lineups.append(tuple(var_L))
 
-    unit_avg_h = {}
+    # Cohesive Counter Lineups: group slots using the same unit ONLY where that unit is a valid Top-3 counter
     for u in PLAYER_UNIT_KEYS:
-        avg_h = sum(slot_score_map[s].get(u, -999.0) for s in range(5)) / 5.0
-        if avg_h > -200.0:
-            unit_avg_h[u] = avg_h
-
-    top_mono = sorted(unit_avg_h.keys(), key=lambda u: unit_avg_h[u], reverse=True)[:8]
-    for u in top_mono:
-        cand_lineups.append(tuple([u] * 5))
+        cohesive_L = list(top1)
+        placed = 0
+        for s in range(5):
+            if u in valid_slot_keys[s]:
+                cohesive_L[s] = u
+                placed += 1
+        if placed >= 2:
+            cand_lineups.append(tuple(cohesive_L))
 
     unique_cands = []
     seen = set()
@@ -681,8 +686,9 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
         sim = simulate_multi_wave(list(L), waves, p_sq, e_sq, active_buffs, player_tiers)
         h_avg = sum(slot_score_map[s].get(L[s], 0.0) for s in range(5)) / 5.0
         stock_pen = 5000.0 if any(slot_score_map[s].get(L[s], 0.0) < -300.0 for s in range(5)) else 0.0
+        non_counter_pen = 2000.0 if any(L[s] not in valid_slot_keys[s] for s in range(5)) else 0.0
         defeat_pen = 0.0 if sim["won"] else 1000.0
-        obj = stock_pen + defeat_pen + sim["loss_pct"] - (h_avg * 0.005)
+        obj = stock_pen + non_counter_pen + defeat_pen + sim["loss_pct"] - (h_avg * 0.15)
         res = (obj, sim, h_avg)
         eval_cache[t] = res
         return res
@@ -699,11 +705,10 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
             best_sim = sim
             best_h_avg = h_avg
 
-    # 1-Pass Coordinate Polish
+    # 1-Pass Coordinate Polish (Strictly within valid_slot_keys[s])
     for s in range(5):
         cur_unit = best_L[s]
-        for opt_idx in range(min(3, len(heuristic_slots[s]))):
-            cand_unit = heuristic_slots[s][opt_idx][1]
+        for cand_unit in valid_slot_keys[s]:
             if cand_unit != cur_unit:
                 trial_L = list(best_L)
                 trial_L[s] = cand_unit

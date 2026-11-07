@@ -2493,42 +2493,45 @@
         rawSlotCandidates.push(candidates);
       }
 
-      // Stage 1.B: Extract Heuristic Candidate Pool
+      // Stage 1.B: Extract Heuristic Candidate Pool (Strictly Counter-Compliant)
       const slotScoreMap = [{}, {}, {}, {}, {}];
+      const validSlotKeys = [];
       for (let s = 0; s < 5; s++) {
         rawSlotCandidates[s].forEach(c => {
           slotScoreMap[s][c.key] = c.score;
         });
+        let vKeys = rawSlotCandidates[s].slice(0, 3).filter(c => c.score > -10.0).map(c => c.key);
+        if (vKeys.length === 0 && rawSlotCandidates[s].length > 0) {
+          vKeys = [rawSlotCandidates[s][0].key];
+        }
+        validSlotKeys.push(vKeys);
       }
 
       const top1 = [0, 1, 2, 3, 4].map(s => rawSlotCandidates[s][0].key);
-      const top2 = [0, 1, 2, 3, 4].map(s => rawSlotCandidates[s][Math.min(1, rawSlotCandidates[s].length - 1)].key);
+      const top2 = [0, 1, 2, 3, 4].map(s => validSlotKeys[s][Math.min(1, validSlotKeys[s].length - 1)]);
       const candLineups = [top1, top2];
 
       for (let s = 0; s < 5; s++) {
-        if (rawSlotCandidates[s].length > 1) {
-          const var1 = [...top1];
-          var1[s] = rawSlotCandidates[s][1].key;
-          candLineups.push(var1);
-        }
-        if (rawSlotCandidates[s].length > 2) {
-          const var2 = [...top1];
-          var2[s] = rawSlotCandidates[s][2].key;
-          candLineups.push(var2);
+        for (let vi = 1; vi < validSlotKeys[s].length; vi++) {
+          const varL = [...top1];
+          varL[s] = validSlotKeys[s][vi];
+          candLineups.push(varL);
         }
       }
 
-      const unitAvgH = {};
+      // Cohesive Counter Lineups: group slots using the same unit ONLY where that unit is a valid Top-3 counter
       pool.forEach(uKey => {
-        let sumH = 0;
-        for (let s = 0; s < 5; s++) sumH += (slotScoreMap[s][uKey] !== undefined ? slotScoreMap[s][uKey] : -999.0);
-        const avgH = sumH / 5.0;
-        if (avgH > -200.0) unitAvgH[uKey] = avgH;
-      });
-
-      const topMono = Object.keys(unitAvgH).sort((a, b) => unitAvgH[b] - unitAvgH[a]).slice(0, 8);
-      topMono.forEach(uKey => {
-        candLineups.push([uKey, uKey, uKey, uKey, uKey]);
+        const cohesiveL = [...top1];
+        let placed = 0;
+        for (let s = 0; s < 5; s++) {
+          if (validSlotKeys[s].includes(uKey)) {
+            cohesiveL[s] = uKey;
+            placed++;
+          }
+        }
+        if (placed >= 2) {
+          candLineups.push(cohesiveL);
+        }
       });
 
       const uniqueCands = [];
@@ -2553,12 +2556,15 @@
         hAvg /= 5.0;
 
         let hasStockOut = false;
+        let hasNonCounter = false;
         for (let s = 0; s < 5; s++) {
-          if ((slotScoreMap[s][L[s]] || 0.0) < -300.0) { hasStockOut = true; break; }
+          if ((slotScoreMap[s][L[s]] || 0.0) < -300.0) hasStockOut = true;
+          if (!validSlotKeys[s].includes(L[s])) hasNonCounter = true;
         }
         const stockPen = hasStockOut ? 5000.0 : 0.0;
+        const nonCounterPen = hasNonCounter ? 2000.0 : 0.0;
         const defeatPen = sim.won ? 0.0 : 1000.0;
-        const obj = stockPen + defeatPen + sim.lossPct - (hAvg * 0.005);
+        const obj = stockPen + nonCounterPen + defeatPen + sim.lossPct - (hAvg * 0.15);
         const res = { obj, sim, hAvg };
         evalCache.set(k, res);
         return res;
@@ -2579,11 +2585,11 @@
         }
       });
 
-      // 1-Pass Coordinate Polish
+      // 1-Pass Coordinate Polish (Strictly within validSlotKeys[s])
       for (let s = 0; s < 5; s++) {
         const curUnit = bestL[s];
-        for (let optIdx = 0; optIdx < Math.min(3, rawSlotCandidates[s].length); optIdx++) {
-          const candUnit = rawSlotCandidates[s][optIdx].key;
+        for (let optIdx = 0; optIdx < validSlotKeys[s].length; optIdx++) {
+          const candUnit = validSlotKeys[s][optIdx];
           if (candUnit !== curUnit) {
             const trialL = [...bestL];
             trialL[s] = candUnit;
