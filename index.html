@@ -2096,25 +2096,44 @@
     function getActiveArmyBuffs() {
       // Returns { hp: decimal, atk: { light_melee, light_ranged, mage, heavy_melee, heavy_ranged } }
       const b = state.arm && Array.isArray(state.arm.buffs) ? state.arm.buffs : null;
+      const isSpire = Boolean((!isManualOverride && state.enc && state.enc.source === "spire") || (advisorWaves && advisorWaves.length > 1));
+      const spireB = (isSpire && state.arm && Array.isArray(state.arm.spireBuffs) && state.arm.spireBuffs.length >= 5) ? state.arm.spireBuffs : null;
+
       if (b && b.length >= 6) {
+        const hasLegacySpireInLr = (! state.arm.spireBuffs && Number(b[2]) === 104);
+        const effSpireB = spireB || (isSpire && hasLegacySpireInLr ? [0, 15, 0, 0, 0] : null);
+        const baseLr = hasLegacySpireInLr ? 89 : (Number(b[2]) || 0);
+        const hp = (Number(b[0]) || 0) / 100.0;
+        const lm = (Number(b[1]) || 0) + (effSpireB ? (Number(effSpireB[0]) || 0) : 0);
+        const lr = baseLr + (effSpireB ? (Number(effSpireB[1]) || 0) : 0);
+        const ma = (Number(b[3]) || 0) + (effSpireB ? (Number(effSpireB[2]) || 0) : 0);
+        const hm = (Number(b[4]) || 0) + (effSpireB ? (Number(effSpireB[3]) || 0) : 0);
+        const hr = (Number(b[5]) || 0) + (effSpireB ? (Number(effSpireB[4]) || 0) : 0);
+
         return {
           hasSynced: true,
-          hp: (Number(b[0]) || 0) / 100.0,
+          isSpire,
+          hp,
           atk: {
-            "light_melee":  (Number(b[1]) || 0) / 100.0,
-            "light_ranged": (Number(b[2]) || 0) / 100.0,
-            "mage":         (Number(b[3]) || 0) / 100.0,
-            "heavy_melee":  (Number(b[4]) || 0) / 100.0,
-            "heavy_ranged": (Number(b[5]) || 0) / 100.0
+            "light_melee":  lm / 100.0,
+            "light_ranged": lr / 100.0,
+            "mage":         ma / 100.0,
+            "heavy_melee":  hm / 100.0,
+            "heavy_ranged": hr / 100.0
           },
-          rawPct: b
+          rawPct: [Number(b[0]) || 0, lm, lr, ma, hm, hr],
+          cityPct: [Number(b[0]) || 0, Number(b[1]) || 0, baseLr, Number(b[3]) || 0, Number(b[4]) || 0, Number(b[5]) || 0],
+          spirePct: effSpireB
         };
       }
       return {
         hasSynced: false,
+        isSpire,
         hp: 0,
         atk: { "light_melee": 0, "light_ranged": 0, "mage": 0, "heavy_melee": 0, "heavy_ranged": 0 },
-        rawPct: [0, 0, 0, 0, 0, 0]
+        rawPct: [0, 0, 0, 0, 0, 0],
+        cityPct: [0, 0, 0, 0, 0, 0],
+        spirePct: null
       };
     }
 
@@ -3603,9 +3622,11 @@
             const ab = getActiveArmyBuffs();
             if (!ab.hasSynced) return '';
             const p = ab.rawPct;
+            const titlePrefix = ab.isSpire ? "🗼 City + Spire Buffs:" : "🔥 City Buffs:";
+            const spireTag = ab.isSpire && ab.spirePct ? ` <span style="color:#a78bfa;font-size:8.5px;" title="Spire Perk Active">(Spire +${ab.spirePct[1]}% LR)</span>` : "";
             return `
               <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:space-between;background:rgba(15,23,42,0.65);border:1px solid rgba(250,204,21,0.25);border-radius:8px;padding:5px 8px;margin-bottom:8px;font-size:9px;font-weight:800;">
-                <span style="color:#fde047;">🔥 Buffs:</span>
+                <span style="color:#fde047;">${titlePrefix}${spireTag}</span>
                 <span style="color:#34d399;">❤️HP +${p[0]}%</span>
                 <span style="color:#38bdf8;">🗡️LM +${p[1]}%</span>
                 <span style="color:#84cc16;">🏹LR +${p[2]}%</span>
@@ -4404,14 +4425,16 @@
             squadSize: compact.arm[0] || 0,
             units: Array.isArray(compact.arm[1]) ? compact.arm[1] : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             tiers: Array.isArray(compact.arm[2]) ? compact.arm[2] : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            buffs: Array.isArray(compact.arm[3]) ? compact.arm[3] : null
+            buffs: Array.isArray(compact.arm[3]) ? compact.arm[3] : null,
+            spireBuffs: Array.isArray(compact.arm[4]) ? compact.arm[4] : null
           };
         } else if (typeof compact.arm === "object") {
           arm = {
             squadSize: compact.arm.squadSize || 0,
             units: Array.isArray(compact.arm.units) ? compact.arm.units : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             tiers: Array.isArray(compact.arm.tiers) ? compact.arm.tiers : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            buffs: Array.isArray(compact.arm.buffs) ? compact.arm.buffs : null
+            buffs: Array.isArray(compact.arm.buffs) ? compact.arm.buffs : null,
+            spireBuffs: Array.isArray(compact.arm.spireBuffs) ? compact.arm.spireBuffs : null
           };
         }
       }

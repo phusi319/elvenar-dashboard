@@ -46,7 +46,7 @@ def verify_40_battles():
         print("[-] No dump battles loaded!")
         return
 
-    city_atk = {"light_melee": .73, "light_ranged": 1.04, "mage": .90, "heavy_melee": .83, "heavy_ranged": .60}
+    city_atk = {"light_melee": .73, "light_ranged": 0.89, "mage": .90, "heavy_melee": .83, "heavy_ranged": .60}
 
     l1_wins, l1_losses = 0, []
     l2_wins, l2_losses = 0, []

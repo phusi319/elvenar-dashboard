@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.7.0
+// @version      6.7.1
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -132,6 +132,11 @@
         squads: {},
         raw: {}
     };
+    if (trackedArmy && Array.isArray(trackedArmy.buffs) && !Array.isArray(trackedArmy.spireBuffs) && Number(trackedArmy.buffs[2]) === 104) {
+        trackedArmy.buffs[2] = 89;
+        trackedArmy.spireBuffs = [0, 15, 0, 0, 0];
+        try { GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy)); } catch(e) {}
+    }
 
     let savedEncounter = null;
     try { savedEncounter = JSON.parse(GM_getValue("ELVENAR_TRACKED_ENCOUNTER", "null")); } catch(e) {}
@@ -864,11 +869,25 @@
                     const awAtkScale = [0, 5, 7.5, 10, 12.5, 15, 18, 20, 21.5, 23, 25, 28, 30, 31.5, 33, 35, 37.5, 38.5, 39, 40, 40.5, 41.5, 42, 42.5, 43, 43.5, 44, 44.5, 45, 45.5, 46, 47, 47.5, 48, 48.5, 50, 60];
                     const awHpScale  = [0, 3, 5, 7, 9, 11, 13, 14, 15, 16.5, 18, 20.5, 21.5, 23, 24, 25, 27, 27.5, 28, 28.5, 29, 30, 30.3, 30.6, 30.9, 31.2, 31.8, 32.1, 32.4, 32.7, 33, 33.5, 34, 34.5, 35, 36, 40];
                     let hpPct = 0, lmPct = 0, lrPct = 0, maPct = 0, hmPct = 0, hrPct = 0;
+                    let spireLmPct = 0, spireLrPct = 0, spireMaPct = 0, spireHmPct = 0, spireHrPct = 0;
                     node.responseData.forEach(ef => {
                         if (!ef) return;
                         const cid = Number(ef.confId) || 0;
                         const lvl = Math.min(36, Math.max(0, Number(ef.level) || 0));
                         const stg = Math.max(0, Number(ef.stage) || 0);
+                        const isSpireEffect = (ef.owner === "spire" || ef.type === "spire" || (cid >= 711 && cid <= 715));
+
+                        if (isSpireEffect) {
+                            // Spire-Only Military Buffs (Guild Spire Perks)
+                            if (cid === 711) spireLmPct += 15;
+                            else if (cid === 712) spireLrPct += 15;
+                            else if (cid === 713) spireMaPct += 15;
+                            else if (cid === 714) spireHmPct += 15;
+                            else if (cid === 715) spireHrPct += 15;
+                            return;
+                        }
+
+                        // City / Global Military Buffs (Active in All Battles: Tournament, Spire, Province)
                         if (cid === 2045) hpPct += (awHpScale[lvl] || 0); // Martial Monastery / Sanctuary
                         else if (cid === 5019) hpPct += 50; // Dwarven Armorer
                         else if (cid === 5002) hpPct += 25; // Unleashed Unit Upgrade
@@ -881,11 +900,6 @@
                         else if (cid === 2103) maPct += (awAtkScale[lvl] || 0); // Dragon Abbey (MA)
                         else if (cid === 2082) hmPct += (awAtkScale[lvl] || 0); // Heroes' Forge (HM)
                         else if (cid === 2112) hrPct += (awAtkScale[lvl] || 0); // Temple of the Toads (HR)
-                        else if (cid === 711) lmPct += 15;
-                        else if (cid === 712) lrPct += 15;
-                        else if (cid === 713) maPct += 15;
-                        else if (cid === 714) hmPct += 15;
-                        else if (cid === 715) hrPct += 15;
                         else if (cid === 5001) maPct += 50; // Magnificent Mage Multiplier
                         else if (cid === 5003) lrPct += 50; // Enlightened Light Range
                         else if (cid === 5029) lmPct += 75;
@@ -901,6 +915,13 @@
                         Math.round(maPct * 10) / 10,
                         Math.round(hmPct * 10) / 10,
                         Math.round(hrPct * 10) / 10
+                    ];
+                    trackedArmy.spireBuffs = [
+                        Math.round(spireLmPct * 10) / 10,
+                        Math.round(spireLrPct * 10) / 10,
+                        Math.round(spireMaPct * 10) / 10,
+                        Math.round(spireHmPct * 10) / 10,
+                        Math.round(spireHrPct * 10) / 10
                     ];
                     GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
                 }
@@ -1412,7 +1433,8 @@
             trackedArmy.squadSize || 0,
             keys.map(k => trackedArmy.squads[k] !== undefined ? trackedArmy.squads[k] : 0),
             keys.map(k => tiers[k] || 0),
-            Array.isArray(trackedArmy.buffs) ? trackedArmy.buffs : null
+            Array.isArray(trackedArmy.buffs) ? trackedArmy.buffs : null,
+            Array.isArray(trackedArmy.spireBuffs) ? trackedArmy.spireBuffs : null
         ];
     }
 

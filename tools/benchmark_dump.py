@@ -129,16 +129,21 @@ def extract_dump_data(dump_path):
         dump = json.load(f)
 
     battles = []
+    latest_effects = None
     active_buffs = {
         "hp": 0.0,
-        "atk": {"light_melee": 0.0, "light_ranged": 0.0, "mage": 0.0, "heavy_melee": 0.0, "heavy_ranged": 0.0}
+        "atk": {"light_melee": 0.0, "light_ranged": 0.0, "mage": 0.0, "heavy_melee": 0.0, "heavy_ranged": 0.0},
+        "spire_atk": {"light_melee": 0.0, "light_ranged": 0.0, "mage": 0.0, "heavy_melee": 0.0, "heavy_ranged": 0.0}
     }
     player_tiers = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 2, 2]
 
     def walk(d):
+        nonlocal latest_effects
         if isinstance(d, dict):
             if d.get("__class__") == "InstantBattleResultVO":
                 battles.append(d)
+            if d.get("requestClass") == "EffectsService" and d.get("requestMethod") == "update" and isinstance(d.get("responseData"), list):
+                latest_effects = d.get("responseData")
             for v in d.values():
                 walk(v)
         elif isinstance(d, list):
@@ -155,24 +160,80 @@ def extract_dump_data(dump_path):
             continue
         walk(parsed)
 
-    # Extract military buffs from battle packets if present
-    if battles:
+    # Parse EffectsService.update if detected
+    if latest_effects:
+        aw_atk_scale = [0, 5, 7.5, 10, 12.5, 15, 18, 20, 21.5, 23, 25, 28, 30, 31.5, 33, 35, 37.5, 38.5, 39, 40, 40.5, 41.5, 42, 42.5, 43, 43.5, 44, 44.5, 45, 45.5, 46, 47, 47.5, 48, 48.5, 50, 60]
+        aw_hp_scale  = [0, 3, 5, 7, 9, 11, 13, 14, 15, 16.5, 18, 20.5, 21.5, 23, 24, 25, 27, 27.5, 28, 28.5, 29, 30, 30.3, 30.6, 30.9, 31.2, 31.8, 32.1, 32.4, 32.7, 33, 33.5, 34, 34.5, 35, 36, 40]
+        hp_pct = 0.0
+        lm_pct, lr_pct, ma_pct, hm_pct, hr_pct = 0.0, 0.0, 0.0, 0.0, 0.0
+        spire_lm, spire_lr, spire_ma, spire_hm, spire_hr = 0.0, 0.0, 0.0, 0.0, 0.0
+        for ef in latest_effects:
+            if not ef:
+                continue
+            cid = int(ef.get("confId") or 0)
+            lvl = min(36, max(0, int(ef.get("level") or 0)))
+            stg = max(0, int(ef.get("stage") or 0))
+            is_spire = (ef.get("owner") == "spire" or ef.get("type") == "spire" or (711 <= cid <= 715))
+            if is_spire:
+                if cid == 711: spire_lm += 15.0
+                elif cid == 712: spire_lr += 15.0
+                elif cid == 713: spire_ma += 15.0
+                elif cid == 714: spire_hm += 15.0
+                elif cid == 715: spire_hr += 15.0
+                continue
+            if cid == 2045: hp_pct += (aw_hp_scale[lvl] if lvl < len(aw_hp_scale) else 0)
+            elif cid == 5019: hp_pct += 50.0
+            elif cid == 5002: hp_pct += 25.0
+            elif cid == 5016:
+                phx = (stg * 5.0) if stg > 0 else 50.0
+                lm_pct += phx; lr_pct += phx; ma_pct += phx; hm_pct += phx; hr_pct += phx
+            elif cid == 2123: lm_pct += (aw_atk_scale[lvl] if lvl < len(aw_atk_scale) else 0)
+            elif cid == 2043: lr_pct += (aw_atk_scale[lvl] if lvl < len(aw_atk_scale) else 0)
+            elif cid == 2103: ma_pct += (aw_atk_scale[lvl] if lvl < len(aw_atk_scale) else 0)
+            elif cid == 2082: hm_pct += (aw_atk_scale[lvl] if lvl < len(aw_atk_scale) else 0)
+            elif cid == 2112: hr_pct += (aw_atk_scale[lvl] if lvl < len(aw_atk_scale) else 0)
+            elif cid == 5001: ma_pct += 50.0
+            elif cid == 5003: lr_pct += 50.0
+            elif cid == 5029: lm_pct += 75.0
+            elif cid == 5030: hm_pct += 75.0
+            elif cid == 5031: hr_pct += 50.0
+            elif cid == 5079: hm_pct += 50.0
+
+        active_buffs["hp"] = hp_pct / 100.0
+        active_buffs["atk"] = {
+            "light_melee": lm_pct / 100.0,
+            "light_ranged": lr_pct / 100.0,
+            "mage": ma_pct / 100.0,
+            "heavy_melee": hm_pct / 100.0,
+            "heavy_ranged": hr_pct / 100.0
+        }
+        active_buffs["spire_atk"] = {
+            "light_melee": spire_lm / 100.0,
+            "light_ranged": spire_lr / 100.0,
+            "mage": spire_ma / 100.0,
+            "heavy_melee": spire_hm / 100.0,
+            "heavy_ranged": spire_hr / 100.0
+        }
+
+    # Extract military buffs from battle packets if present and hp not already found
+    if battles and active_buffs["hp"] == 0:
         st = battles[0].get("state", {})
         for u in st.get("unitsOrder", []):
             if u.get("teamFlag") == 1:
                 ut = u.get("unitType", {})
                 start_hp = u.get("startHitpoints", 0)
                 base_hp = ut.get("hitpoints", 0)
-                if base_hp > 0 and start_hp > base_hp and active_buffs["hp"] == 0:
+                if base_hp > 0 and start_hp > base_hp:
                     active_buffs["hp"] = round((start_hp - base_hp) / base_hp, 3)
+                    break
 
-    # Defaults if not specifically detected
+    # Defaults if not specifically detected (Pure City / Tournament Buffs)
     if active_buffs["hp"] == 0:
         active_buffs["hp"] = 0.775
     if sum(active_buffs["atk"].values()) == 0:
         active_buffs["atk"] = {
             "light_melee": 0.73,
-            "light_ranged": 1.04,
+            "light_ranged": 0.89,
             "mage": 0.90,
             "heavy_melee": 0.83,
             "heavy_ranged": 0.60,
@@ -942,7 +1003,7 @@ def run_all_benchmark():
         print("[-] Error: No dump battles found!")
         return
 
-    city_atk = {"light_melee": .73, "light_ranged": 1.04, "mage": .90, "heavy_melee": .83, "heavy_ranged": .60}
+    city_atk = {"light_melee": .73, "light_ranged": 0.89, "mage": .90, "heavy_melee": .83, "heavy_ranged": .60}
 
     results = []
     print(f"{'#':3} | {'Split':7} | {'Enemy Lineup (S1..S5)':28} | {'Actual Real':12} | {'Actual Sim':12} | {'Advisor Sim':12} | {'Fair Outcome':16}")
