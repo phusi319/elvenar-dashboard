@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.6.3
+// @version      6.7.0
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -762,6 +762,7 @@
                                 pSq: Number(node.playerSquadSize) || (trackedArmy && trackedArmy.squadSize) || 0,
                                 eSq: Number(activeEnc.enemyWaves[0].squadSize) || 0,
                                 waves: waves,
+                                obstacles: null,
                                 lastResult: trackedEncounter ? trackedEncounter.lastResult : null
                             };
                             activeEnc._processedByParent = true;
@@ -780,11 +781,82 @@
                             pSq: Number(node.playerSquadSize) || (trackedEncounter && trackedEncounter.pSq) || (trackedArmy && trackedArmy.squadSize) || 0,
                             eSq: Number(node.enemyWaves[0].squadSize) || 0,
                             waves: waves,
+                            obstacles: null,
                             lastResult: trackedEncounter ? trackedEncounter.lastResult : null
                         };
                         GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
                         triggerLiveStreamPush();
                     }
+                }
+
+                // G.2 Bắt Tọa Độ Chướng Ngại Vật (Obstacles) & Bàn Cờ Lục Giác khi mở trận Đánh Tay (BattlefieldService / BattleService / SpireBattleService)
+                const directObsKeys = ["obstacles", "blockedFields", "blockedPositions", "barriers", "mapObstacles", "unwalkableFields"];
+                const gridBoardKeys = ["board", "fields", "cells", "tiles", "terrain", "hexes"];
+                let extractedObs = [];
+                for (let ok of directObsKeys) {
+                    if (Array.isArray(node[ok]) && node[ok].length > 0) {
+                        node[ok].forEach(item => {
+                            if (item && typeof item === "object") {
+                                const pos = item.pos || item.position || item;
+                                const ox = Number(pos.x !== undefined ? pos.x : 0);
+                                const oy = Number(pos.y !== undefined ? pos.y : 0);
+                                if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9 && (pos.x !== undefined || pos.y !== undefined)) {
+                                    extractedObs.push([ox, oy]);
+                                }
+                            }
+                        });
+                    }
+                }
+                for (let gk of gridBoardKeys) {
+                    if (Array.isArray(node[gk]) && node[gk].length > 0) {
+                        node[gk].forEach(item => {
+                            if (item && typeof item === "object") {
+                                const isBlocked = Boolean(item.isObstacle || item.obstacle || item.blocked || item.isBlocked || item.walkable === false || item.passable === false || String(item.type || "").toLowerCase().includes("obstacle") || String(item.type || "").toLowerCase().includes("blocked"));
+                                if (isBlocked) {
+                                    const pos = item.pos || item.position || item;
+                                    const ox = Number(pos.x !== undefined ? pos.x : 0);
+                                    const oy = Number(pos.y !== undefined ? pos.y : 0);
+                                    if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9) {
+                                        extractedObs.push([ox, oy]);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+                if (node.__class__ === "BattleRealmStateVO" && Array.isArray(node.unitsOrder)) {
+                    node.unitsOrder.forEach(u => {
+                        if (!u) return;
+                        const utId = String((u.unitType && u.unitType.unitTypeId) || "").toLowerCase();
+                        if (u.teamFlag === 0 || u.teamFlag === -1 || utId.includes("obstacle") || utId.includes("barrier") || utId.includes("rock")) {
+                            const sp = u.startpos || u.pos;
+                            if (sp) {
+                                const ox = Number(sp.x !== undefined ? sp.x : 0);
+                                const oy = Number(sp.y !== undefined ? sp.y : 0);
+                                if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9) {
+                                    extractedObs.push([ox, oy]);
+                                }
+                            }
+                        }
+                    });
+                }
+                if (extractedObs.length > 0) {
+                    const seenObs = new Set();
+                    const uniqueObs = [];
+                    extractedObs.forEach(pair => {
+                        const k = pair[0] + "," + pair[1];
+                        if (!seenObs.has(k)) {
+                            seenObs.add(k);
+                            uniqueObs.push(pair);
+                        }
+                    });
+                    if (!trackedEncounter) trackedEncounter = { ts: now, src: "tournament", good: "", pSq: 0, eSq: 0, waves: [], obstacles: uniqueObs };
+                    else {
+                        trackedEncounter.obstacles = uniqueObs;
+                        trackedEncounter.ts = now;
+                    }
+                    GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
+                    triggerLiveStreamPush();
                 }
 
                 // H. Bắt danh sách Buff Quân Sự đang kích hoạt trong Thành Phố (EffectsService.update)
@@ -833,8 +905,8 @@
                     GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
                 }
 
-                // I. Bắt kết quả trận đánh vừa diễn ra (InstantBattleResultVO)
-                if (node.__class__ === "InstantBattleResultVO" && node.state) {
+                // I. Bắt kết quả trận đánh vừa diễn ra (InstantBattleResultVO & InstantSpireBattleResultVO)
+                if ((node.__class__ === "InstantBattleResultVO" || node.__class__ === "InstantSpireBattleResultVO") && node.state) {
                     if (!trackedEncounter) trackedEncounter = { ts: now, src: "tournament", good: "", pSq: 0, eSq: 0, waves: [] };
                     let startTotal = 0;
                     let lostTotal = 0;
@@ -884,9 +956,122 @@
         } catch (e) {}
     }
 
-    // --- 2.B BỘ ĐỆM GHI NHẬN GÓI TIN DEBUG (HỖ TRỢ XUẤT FILE DUMP PHÂN TÍCH CHUẨN XÁC) ---
+    // --- 2.B BỘ ĐỆM GHI NHẬN GÓI TIN DEBUG (HỖ TRỢ XUẤT FILE DUMP PHÂN TÍCH CHUẨN XÁC 100% CẢ ĐÁNH TAY LẪN AUTO) ---
     const livePacketBuffer = [];
     win.__elvenar_live_dump = livePacketBuffer;
+
+    function sanitizeRequestPayload(body) {
+        if (!body || typeof body !== "string") return null;
+        try {
+            const parsedReq = JSON.parse(body);
+            if (Array.isArray(parsedReq)) {
+                return parsedReq.map(item => ({
+                    requestClass: item.requestClass || item.service || "",
+                    requestMethod: item.requestMethod || item.method || "",
+                    requestData: item.requestData || item.params || null,
+                    requestId: item.requestId || item.id || 0
+                }));
+            }
+            if (parsedReq && typeof parsedReq === "object") {
+                return {
+                    requestClass: parsedReq.requestClass || parsedReq.service || "",
+                    requestMethod: parsedReq.requestMethod || parsedReq.method || "",
+                    requestData: parsedReq.requestData || parsedReq.params || null
+                };
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function checkCriticalBattlePacket(text, reqText = "", url = "") {
+        const combined = text + " " + reqText + " " + url;
+        return combined.includes("InstantBattleResultVO") ||
+               combined.includes("InstantSpireBattleResultVO") ||
+               combined.includes("BattleRealmStateVO") ||
+               combined.includes("BattleStepVO") ||
+               combined.includes("BattleUnitVO") ||
+               combined.includes("BattleUnitTypeVO") ||
+               combined.includes("AIPositionVO") ||
+               combined.includes("AbilityVO") ||
+               combined.includes("UnitBuffVO") ||
+               combined.includes("BattlefieldService") ||
+               combined.includes("BattleService") ||
+               combined.includes("SpireBattleService") ||
+               combined.includes("FightService") ||
+               combined.includes("TournamentService") ||
+               combined.includes("SpireService") ||
+               combined.includes("EncounterVO") ||
+               combined.includes("EncounterConfigVO") ||
+               combined.includes("TournamentProvinceEncountersVO") ||
+               combined.includes("SpireEncounter") ||
+               combined.includes("enemyWaves") ||
+               combined.includes("obstacle") ||
+               combined.includes("Obstacle") ||
+               combined.includes("terrain") ||
+               combined.includes("Terrain") ||
+               combined.includes("blockedField") ||
+               combined.includes("BattleBoard") ||
+               combined.includes("BattleGrid") ||
+               combined.includes("StartupService");
+    }
+
+    function shouldProcessPacket(text, reqText = "") {
+        const combined = text + " " + reqText;
+        return combined.includes("CityProductionService") ||
+               combined.includes("CityMapService") ||
+               combined.includes("StartupService") ||
+               combined.includes("CityResourcesService") ||
+               combined.includes("CityResourceVO") ||
+               combined.includes("ArmyService") ||
+               combined.includes("ArmyDetails") ||
+               combined.includes("BattlefieldService") ||
+               combined.includes("WorldMapService") ||
+               combined.includes("enemyWaves") ||
+               combined.includes("Encounter") ||
+               combined.includes("UnitSquad") ||
+               combined.includes("unitSquad") ||
+               combined.includes("unitTypeId") ||
+               combined.includes("army_details") ||
+               combined.includes("battleClusterSize") ||
+               combined.includes("BattleService") ||
+               combined.includes("SpireBattleService") ||
+               combined.includes("FightService") ||
+               combined.includes("TournamentService") ||
+               combined.includes("Spire") ||
+               combined.includes("Battle") ||
+               combined.includes("obstacle") ||
+               combined.includes("Obstacle") ||
+               combined.includes("terrain") ||
+               combined.includes("Terrain") ||
+               combined.includes("blocked") ||
+               combined.includes("barrack") ||
+               combined.includes("workshop") ||
+               combined.includes("ProductionQueue") ||
+               combined.includes("AncientWonder") ||
+               combined.includes("BuildingService") ||
+               combined.includes("SpellService") ||
+               combined.includes("Effect");
+    }
+
+    function recordPacketToBuffer(url, reqBodyStr, resText, parsedPayload) {
+        try {
+            const isCritical = checkCriticalBattlePacket(resText, reqBodyStr || "", url || "");
+            const reqSummary = sanitizeRequestPayload(reqBodyStr);
+            if (livePacketBuffer.length >= 8000) {
+                const dropIdx = livePacketBuffer.findIndex(p => !p._critical);
+                if (dropIdx !== -1) livePacketBuffer.splice(dropIdx, 1);
+                else livePacketBuffer.shift();
+            }
+            const entry = {
+                timestamp: new Date().toISOString(),
+                url: url || "",
+                _critical: isCritical,
+                payload: parsedPayload
+            };
+            if (reqSummary) entry.request = reqSummary;
+            livePacketBuffer.push(entry);
+        } catch (e) {}
+    }
 
     function downloadLiveDump() {
         if (!livePacketBuffer.length) {
@@ -917,67 +1102,48 @@
         return origOpen.apply(this, [method, url, ...args]);
     };
     win.XMLHttpRequest.prototype.send = function(body) {
+        const reqBodyStr = (typeof body === "string") ? body : "";
         this.addEventListener('load', function() {
             try {
                 const text = this.responseText;
                 if (!text || (text[0] !== '{' && text[0] !== '[')) return;
 
-                // Lưu vào bộ đệm gói tin debug (tối đa 5000 gói tin, ưu tiên giữ 100% các gói Startup, Balancing và toàn bộ các trận đánh Tournament/Spire)
-                try {
-                    const parsed = JSON.parse(text);
-                    const isCriticalPacket = text.includes("InstantBattleResultVO") ||
-                                             text.includes("BattleRealmStateVO") ||
-                                             text.includes("enemyWaves") ||
-                                             text.includes("BattleUnitTypeVO") ||
-                                             text.includes("AbilityVO") ||
-                                             text.includes("StartupService");
-                    if (livePacketBuffer.length >= 5000) {
-                        const dropIdx = livePacketBuffer.findIndex(p => !p._critical);
-                        if (dropIdx !== -1) livePacketBuffer.splice(dropIdx, 1);
-                        else livePacketBuffer.shift();
-                    }
-                    livePacketBuffer.push({
-                        timestamp: new Date().toISOString(),
-                        url: this._url,
-                        _critical: isCriticalPacket,
-                        payload: parsed
-                    });
-                } catch(e) {}
+                const parsed = JSON.parse(text);
+                recordPacketToBuffer(this._url, reqBodyStr, text, parsed);
 
-                if (!text.includes("CityProductionService") &&
-                    !text.includes("CityMapService") &&
-                    !text.includes("StartupService") &&
-                    !text.includes("CityResourcesService") &&
-                    !text.includes("CityResourceVO") &&
-                    !text.includes("ArmyService") &&
-                    !text.includes("ArmyDetails") &&
-                    !text.includes("BattlefieldService") &&
-                    !text.includes("WorldMapService") &&
-                    !text.includes("enemyWaves") &&
-                    !text.includes("Encounter") &&
-                    !text.includes("UnitSquad") &&
-                    !text.includes("unitSquad") &&
-                    !text.includes("unitTypeId") &&
-                    !text.includes("army_details") &&
-                    !text.includes("battleClusterSize") &&
-                    !text.includes("BattleService") &&
-                    !text.includes("FightService") &&
-                    !text.includes("TournamentService") &&
-                    !text.includes("Spire") &&
-                    !text.includes("barrack") &&
-                    !text.includes("workshop") &&
-                    !text.includes("ProductionQueue") &&
-                    !text.includes("AncientWonder") &&
-                    !text.includes("BuildingService") &&
-                    !text.includes("SpellService") &&
-                    !text.includes("Effect")) return;
-
-                const data = JSON.parse(text);
-                handleData(data);
+                if (!shouldProcessPacket(text, reqBodyStr)) return;
+                handleData(parsed);
             } catch (e) {}
         });
         return origSend.apply(this, [body]);
     };
+
+    // Hook thêm window.fetch để bắt trọn 100% nếu game tải bản đồ tĩnh (.json) hoặc gọi API qua Fetch
+    if (typeof win.fetch === "function") {
+        const origFetch = win.fetch;
+        win.fetch = function(input, init) {
+            const url = (typeof input === "string") ? input : (input && input.url ? input.url : "");
+            const reqBodyStr = (init && typeof init.body === "string") ? init.body : "";
+            return origFetch.apply(this, arguments).then(response => {
+                try {
+                    if (url && !url.includes("firebase") && !url.includes("workers.dev") && !url.includes("telegram.org")) {
+                        const clone = response.clone();
+                        clone.text().then(text => {
+                            try {
+                                if (!text || (text[0] !== '{' && text[0] !== '[')) return;
+                                const parsed = JSON.parse(text);
+                                recordPacketToBuffer(url, reqBodyStr, text, parsed);
+                                if (shouldProcessPacket(text, reqBodyStr)) {
+                                    handleData(parsed);
+                                }
+                            } catch (e) {}
+                        }).catch(() => {});
+                    }
+                } catch (e) {}
+                return response;
+            });
+        };
+    }
 
     // --- 3. FORMAT THỜI GIAN HIỂN THỊ (HH:MM:SS HOẶC NGÀY GIỜ) ---
     function formatTime(seconds) {
@@ -1253,6 +1419,7 @@
     function buildCompactEncounterData() {
         if (!trackedEncounter || !Array.isArray(trackedEncounter.waves) || !trackedEncounter.waves.length) return null;
         const lr = trackedEncounter.lastResult;
+        const obs = (Array.isArray(trackedEncounter.obstacles) && trackedEncounter.obstacles.length > 0) ? trackedEncounter.obstacles : null;
         return [
             trackedEncounter.ts || 0,
             trackedEncounter.src || "tournament",
@@ -1260,7 +1427,8 @@
             trackedEncounter.pSq || 0,
             trackedEncounter.eSq || 0,
             trackedEncounter.waves,
-            lr ? [lr.win ? 1 : 0, lr.lossPct || 0, lr.wave || 1, lr.totalWaves || 1] : null
+            lr ? [lr.win ? 1 : 0, lr.lossPct || 0, lr.wave || 1, lr.totalWaves || 1] : null,
+            obs
         ];
     }
 
