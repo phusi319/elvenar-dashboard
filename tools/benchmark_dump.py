@@ -387,7 +387,9 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
             "hp_per_unit": hp_per_unit, "dmg_per_unit": (u["dmg"] * atk_mult),
             "hp_pool": count * hp_per_unit,
             "wt": wt, "init": u.get("init", 10), "rng": u.get("rng", 1), "mv": u.get("mv", 2),
-            "ret_max": u.get("ret", 0), "ret_left": u.get("ret", 0)
+            "ret_max": u.get("ret", 0), "ret_left": u.get("ret", 0),
+            "atk_debuff": {"val": 0.0, "dur": 0},
+            "def_debuff": {"val": 0.0, "dur": 0}
         })
 
     e_units = []
@@ -403,10 +405,31 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
             "hp_per_unit": hp_per_unit, "dmg_per_unit": u["dmg"],
             "hp_pool": count * hp_per_unit,
             "wt": wt, "init": u.get("init", 10), "rng": u.get("rng", 1), "mv": u.get("mv", 2),
-            "ret_max": u.get("ret", 0), "ret_left": u.get("ret", 0)
+            "ret_max": u.get("ret", 0), "ret_left": u.get("ret", 0),
+            "atk_debuff": {"val": 0.0, "dur": 0},
+            "def_debuff": {"val": 0.0, "dur": 0}
         })
 
+    def calc_eff_mult(attacker, target):
+        atk_b = (attacker["u"].get("atk", {}).get(target["cls"], 0)) / 100.0
+        def_b = (target["u"].get("def", {}).get(attacker["cls"], 0)) / 100.0
+        a_deb = attacker["atk_debuff"]["val"] / 100.0
+        d_deb = target["def_debuff"]["val"] / 100.0
+        return (1.0 + atk_b) * (1.0 + a_deb) * (1.0 - def_b) * (1.0 - d_deb)
+
     for round_num in range(1, 16):
+        # Tick-down debuff duration at start of round (from round 2+)
+        if round_num > 1:
+            for u in p_units + e_units:
+                if u["atk_debuff"]["dur"] > 0:
+                    u["atk_debuff"]["dur"] -= 1
+                    if u["atk_debuff"]["dur"] <= 0:
+                        u["atk_debuff"]["val"] = 0.0
+                if u["def_debuff"]["dur"] > 0:
+                    u["def_debuff"]["dur"] -= 1
+                    if u["def_debuff"]["dur"] <= 0:
+                        u["def_debuff"]["val"] = 0.0
+
         for u in p_units + e_units:
             u["ret_left"] = u["ret_max"]
         all_units = [u for u in p_units + e_units if u["count"] > 0]
@@ -425,7 +448,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                 def_b = (tgt["u"].get("def", {}).get(attacker["cls"], 0)) / 100.0
                 reach = attacker["rng"] + attacker["mv"]
                 if round_num == 1 and reach < 6 and attacker["rng"] <= 2: continue
-                eff_dmg = attacker["count"] * attacker["dmg_per_unit"] * (1.0 + atk_b) * (1.0 - def_b) * DMG_EXPECTED_MULT
+                eff_dmg = attacker["count"] * attacker["dmg_per_unit"] * calc_eff_mult(attacker, tgt) * DMG_EXPECTED_MULT
                 total_tgt_hp = tgt["hp_pool"]
                 kill_ratio = min(1.0, eff_dmg / max(1.0, total_tgt_hp))
 
@@ -447,16 +470,25 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
             if not best_target: continue
 
-            atk_b = (attacker["u"].get("atk", {}).get(best_target["cls"], 0)) / 100.0
-            def_b = (best_target["u"].get("def", {}).get(attacker["cls"], 0)) / 100.0
-            dealt_dmg = attacker["count"] * attacker["dmg_per_unit"] * (1.0 + atk_b) * (1.0 - def_b) * DMG_EXPECTED_MULT
+            eff_mult = calc_eff_mult(attacker, best_target)
+            dealt_dmg = attacker["count"] * attacker["dmg_per_unit"] * eff_mult * DMG_EXPECTED_MULT
             best_target["hp_pool"] = max(0.0, best_target["hp_pool"] - dealt_dmg)
             best_target["count"] = math.ceil(best_target["hp_pool"] / best_target["hp_per_unit"]) if best_target["hp_pool"] > 0 else 0
 
+            # On-Hit debuffs applied immediately to target if target survives
+            if best_target["count"] > 0:
+                for ab in attacker["u"].get("ab", []):
+                    ab_type = ab.get("t")
+                    ab_val = float(ab.get("v", 0))
+                    ab_dur = int(ab.get("d", 1))
+                    if ab_type == "attack" and ab_val < 0:
+                        best_target["atk_debuff"] = {"val": ab_val, "dur": ab_dur}
+                    elif ab_type == "defense" and ab_val < 0:
+                        best_target["def_debuff"] = {"val": ab_val, "dur": ab_dur}
+
             if attacker["rng"] <= best_target["rng"] and best_target["count"] > 0 and best_target["ret_left"] > 0:
-                ret_atk_b = (best_target["u"].get("atk", {}).get(attacker["cls"], 0)) / 100.0
-                ret_def_b = (attacker["u"].get("def", {}).get(best_target["cls"], 0)) / 100.0
-                ret_dmg = best_target["count"] * best_target["dmg_per_unit"] * (1.0 + ret_atk_b) * (1.0 - ret_def_b) * DMG_EXPECTED_MULT * RETALIATION_MULT
+                ret_eff_mult = calc_eff_mult(best_target, attacker)
+                ret_dmg = best_target["count"] * best_target["dmg_per_unit"] * ret_eff_mult * DMG_EXPECTED_MULT * RETALIATION_MULT
                 attacker["hp_pool"] = max(0.0, attacker["hp_pool"] - ret_dmg)
                 attacker["count"] = math.ceil(attacker["hp_pool"] / attacker["hp_per_unit"]) if attacker["hp_pool"] > 0 else 0
                 best_target["ret_left"] -= 1

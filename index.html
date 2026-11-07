@@ -2534,7 +2534,9 @@
           rng: u.rng || 1,
           mv: u.mv || 2,
           retMax: u.ret || 0,
-          retLeft: u.ret || 0
+          retLeft: u.ret || 0,
+          atkDebuff: { val: 0.0, dur: 0 },
+          defDebuff: { val: 0.0, dur: 0 }
         });
       }
 
@@ -2563,12 +2565,36 @@
           rng: u.rng || 1,
           mv: u.mv || 2,
           retMax: u.ret || 0,
-          retLeft: u.ret || 0
+          retLeft: u.ret || 0,
+          atkDebuff: { val: 0.0, dur: 0 },
+          defDebuff: { val: 0.0, dur: 0 }
         });
+      }
+
+      function calcEffMult(attacker, target) {
+        const atkB = ((attacker.u.atk && attacker.u.atk[target.cls]) || 0) / 100.0;
+        const defB = ((target.u.def && target.u.def[attacker.cls]) || 0) / 100.0;
+        const aDeb = attacker.atkDebuff.val / 100.0;
+        const dDeb = target.defDebuff.val / 100.0;
+        return (1.0 + atkB) * (1.0 + aDeb) * (1.0 - defB) * (1.0 - dDeb);
       }
 
       let roundNum = 0;
       for (roundNum = 1; roundNum <= 15; roundNum++) {
+        // Tick-down debuff duration at start of round (from round 2+)
+        if (roundNum > 1) {
+          pUnits.concat(eUnits).forEach(u => {
+            if (u.atkDebuff.dur > 0) {
+              u.atkDebuff.dur -= 1;
+              if (u.atkDebuff.dur <= 0) u.atkDebuff.val = 0.0;
+            }
+            if (u.defDebuff.dur > 0) {
+              u.defDebuff.dur -= 1;
+              if (u.defDebuff.dur <= 0) u.defDebuff.val = 0.0;
+            }
+          });
+        }
+
         pUnits.concat(eUnits).forEach(u => { u.retLeft = u.retMax; });
         const allUnits = pUnits.concat(eUnits).filter(u => u.count > 0);
         allUnits.sort((a, b) => {
@@ -2607,7 +2633,7 @@
               if (baseHp < 120) focusBonus = (120 - baseHp) * 0.4;
             }
 
-            const effDmg = attacker.count * attacker.dmgPerUnit * (1.0 + atkB) * (1.0 - defB) * DMG_EXPECTED_MULT;
+            const effDmg = attacker.count * attacker.dmgPerUnit * calcEffMult(attacker, tgt) * DMG_EXPECTED_MULT;
             const totalTgtHp = tgt.hpPool;
             const killRatio = Math.min(1.0, effDmg / Math.max(1.0, totalTgtHp));
             const score = (atkB * 100.0) + (killRatio * 60.0) - (dy * 12.0) - backlinePenalty + focusBonus;
@@ -2619,16 +2645,29 @@
 
           if (!bestTarget) continue;
 
-          const atkB = ((attacker.u.atk && attacker.u.atk[bestTarget.cls]) || 0) / 100.0;
-          const defB = ((bestTarget.u.def && bestTarget.u.def[attacker.cls]) || 0) / 100.0;
-          const dealtDmg = attacker.count * attacker.dmgPerUnit * (1.0 + atkB) * (1.0 - defB) * DMG_EXPECTED_MULT;
+          const effMult = calcEffMult(attacker, bestTarget);
+          const dealtDmg = attacker.count * attacker.dmgPerUnit * effMult * DMG_EXPECTED_MULT;
           bestTarget.hpPool = Math.max(0.0, bestTarget.hpPool - dealtDmg);
           bestTarget.count = bestTarget.hpPool > 0 ? Math.ceil(bestTarget.hpPool / bestTarget.hpPerUnit) : 0;
 
+          // On-Hit debuffs applied immediately to target if target survives
+          if (bestTarget.count > 0 && Array.isArray(attacker.u.ab)) {
+            for (let aIdx = 0; aIdx < attacker.u.ab.length; aIdx++) {
+              const ab = attacker.u.ab[aIdx];
+              const abType = ab.t;
+              const abVal = Number(ab.v) || 0;
+              const abDur = Number(ab.d) || 1;
+              if (abType === "attack" && abVal < 0) {
+                bestTarget.atkDebuff = { val: abVal, dur: abDur };
+              } else if (abType === "defense" && abVal < 0) {
+                bestTarget.defDebuff = { val: abVal, dur: abDur };
+              }
+            }
+          }
+
           if (attacker.rng <= bestTarget.rng && bestTarget.count > 0 && bestTarget.retLeft > 0) {
-            const retAtkB = ((bestTarget.u.atk && bestTarget.u.atk[attacker.cls]) || 0) / 100.0;
-            const retDefB = ((attacker.u.def && attacker.u.def[bestTarget.cls]) || 0) / 100.0;
-            const retDmg = bestTarget.count * bestTarget.dmgPerUnit * (1.0 + retAtkB) * (1.0 - retDefB) * DMG_EXPECTED_MULT * RETALIATION_MULT;
+            const retEffMult = calcEffMult(bestTarget, attacker);
+            const retDmg = bestTarget.count * bestTarget.dmgPerUnit * retEffMult * DMG_EXPECTED_MULT * RETALIATION_MULT;
             attacker.hpPool = Math.max(0.0, attacker.hpPool - retDmg);
             attacker.count = attacker.hpPool > 0 ? Math.ceil(attacker.hpPool / attacker.hpPerUnit) : 0;
             bestTarget.retLeft -= 1;
