@@ -2504,6 +2504,8 @@
       const pSq = playerSquadSize || (state.enc && state.enc.playerSquadSize) || (state.arm && state.arm.squadSize) || 1000;
       const eSq = enemySquadSize || (state.enc && state.enc.enemySquadSize) || Math.round(pSq * 1.5);
       const buffs = activeBuffs || getActiveArmyBuffs();
+      const DMG_EXPECTED_MULT = 1.07;
+      const RETALIATION_MULT = 0.50;
 
       const pUnits = [];
       for (let i = 0; i < 5; i++) {
@@ -2513,6 +2515,7 @@
         const atkMult = 1.0 + ((buffs.atk && buffs.atk[u.cls]) || 0);
         const wt = u.wt || 1;
         const count = Math.max(1, Math.floor(pSq / wt));
+        const hpPerUnit = (u.hp || 100) * hpMult;
         pUnits.push({
           slot: i + 1,
           y: SLOT_Y[i],
@@ -2523,7 +2526,8 @@
           u: u,
           startCount: count,
           count: count,
-          hpPerUnit: (u.hp || 100) * hpMult,
+          hpPerUnit: hpPerUnit,
+          hpPool: count * hpPerUnit,
           dmgPerUnit: (u.dmg || 20) * atkMult,
           wt: wt,
           init: u.init || 10,
@@ -2540,6 +2544,7 @@
         const u = resolveUnit(eId);
         const wt = u.wt || 1;
         const count = Math.max(1, Math.floor(eSq / wt));
+        const hpPerUnit = u.hp || 100;
         eUnits.push({
           slot: i + 1,
           y: SLOT_Y[i],
@@ -2550,7 +2555,8 @@
           u: u,
           startCount: count,
           count: count,
-          hpPerUnit: u.hp || 100,
+          hpPerUnit: hpPerUnit,
+          hpPool: count * hpPerUnit,
           dmgPerUnit: u.dmg || 20,
           wt: wt,
           init: u.init || 10,
@@ -2567,7 +2573,7 @@
         const allUnits = pUnits.concat(eUnits).filter(u => u.count > 0);
         allUnits.sort((a, b) => {
           if (b.init !== a.init) return b.init - a.init;
-          return (a.team === 1 ? 1 : 0) - (b.team === 1 ? 1 : 0);
+          return (b.team === 1 ? 1 : 0) - (a.team === 1 ? 1 : 0);
         });
 
         for (let idx = 0; idx < allUnits.length; idx++) {
@@ -2597,12 +2603,12 @@
             // 2. Enemy AI focus-fires squishy / low-HP targets:
             let focusBonus = 0;
             if (attacker.team === 2) {
-              const baseHp = (tgt.hpPerUnit || 100) / (tgt.wt || 1);
+              const baseHp = ((tgt.hpPerUnit || 100) / (1.0 + (buffs.hp || 0))) / (tgt.wt || 1);
               if (baseHp < 120) focusBonus = (120 - baseHp) * 0.4;
             }
 
-            const effDmg = attacker.count * attacker.dmgPerUnit * (1.0 + atkB) * (1.0 - defB);
-            const totalTgtHp = tgt.count * tgt.hpPerUnit;
+            const effDmg = attacker.count * attacker.dmgPerUnit * (1.0 + atkB) * (1.0 - defB) * DMG_EXPECTED_MULT;
+            const totalTgtHp = tgt.hpPool;
             const killRatio = Math.min(1.0, effDmg / Math.max(1.0, totalTgtHp));
             const score = (atkB * 100.0) + (killRatio * 60.0) - (dy * 12.0) - backlinePenalty + focusBonus;
             if (score > bestScore) {
@@ -2615,16 +2621,16 @@
 
           const atkB = ((attacker.u.atk && attacker.u.atk[bestTarget.cls]) || 0) / 100.0;
           const defB = ((bestTarget.u.def && bestTarget.u.def[attacker.cls]) || 0) / 100.0;
-          const dealtDmg = attacker.count * attacker.dmgPerUnit * (1.0 + atkB) * (1.0 - defB);
-          const killed = Math.min(bestTarget.count, Math.floor(dealtDmg / bestTarget.hpPerUnit));
-          bestTarget.count -= killed;
+          const dealtDmg = attacker.count * attacker.dmgPerUnit * (1.0 + atkB) * (1.0 - defB) * DMG_EXPECTED_MULT;
+          bestTarget.hpPool = Math.max(0.0, bestTarget.hpPool - dealtDmg);
+          bestTarget.count = bestTarget.hpPool > 0 ? Math.ceil(bestTarget.hpPool / bestTarget.hpPerUnit) : 0;
 
-          if (attacker.rng === 1 && bestTarget.count > 0 && bestTarget.retLeft > 0) {
+          if (attacker.rng <= bestTarget.rng && bestTarget.count > 0 && bestTarget.retLeft > 0) {
             const retAtkB = ((bestTarget.u.atk && bestTarget.u.atk[attacker.cls]) || 0) / 100.0;
             const retDefB = ((attacker.u.def && attacker.u.def[bestTarget.cls]) || 0) / 100.0;
-            const retDmg = bestTarget.count * bestTarget.dmgPerUnit * (1.0 + retAtkB) * (1.0 - retDefB);
-            const retKilled = Math.min(attacker.count, Math.floor(retDmg / attacker.hpPerUnit));
-            attacker.count -= retKilled;
+            const retDmg = bestTarget.count * bestTarget.dmgPerUnit * (1.0 + retAtkB) * (1.0 - retDefB) * DMG_EXPECTED_MULT * RETALIATION_MULT;
+            attacker.hpPool = Math.max(0.0, attacker.hpPool - retDmg);
+            attacker.count = attacker.hpPool > 0 ? Math.ceil(attacker.hpPool / attacker.hpPerUnit) : 0;
             bestTarget.retLeft -= 1;
           }
         }

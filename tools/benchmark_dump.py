@@ -21,6 +21,7 @@ import sys
 import glob
 import json
 import re
+import math
 from collections import defaultdict
 
 if sys.stdout.encoding.lower() != 'utf-8':
@@ -368,6 +369,9 @@ recommend_v652 = recommend_v661
 
 
 def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers):
+    DMG_EXPECTED_MULT = 1.07  # Median empirical damage multiplier from stepHistory
+    RETALIATION_MULT = 0.50   # 50% retaliation damage coefficient
+
     p_units = []
     for i in range(5):
         pkey = player_unit_keys[i]
@@ -376,10 +380,12 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
         atk_mult = 1.0 + active_buffs["atk"].get(u["cls"], 0)
         wt = u.get("wt", 1)
         count = int(player_squad_size / wt)
+        hp_per_unit = u["hp"] * hp_mult
         p_units.append({
             "slot": i + 1, "y": SLOT_Y[i], "team": 1, "id": f"p_{i+1}", "name": u["short"],
             "cls": u["cls"], "u": u, "startCount": count, "count": count,
-            "hp_per_unit": (u["hp"] * hp_mult), "dmg_per_unit": (u["dmg"] * atk_mult),
+            "hp_per_unit": hp_per_unit, "dmg_per_unit": (u["dmg"] * atk_mult),
+            "hp_pool": count * hp_per_unit,
             "wt": wt, "init": u.get("init", 10), "rng": u.get("rng", 1), "mv": u.get("mv", 2),
             "ret_max": u.get("ret", 0), "ret_left": u.get("ret", 0)
         })
@@ -390,10 +396,12 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
         u = resolve_unit(eid, player_tiers)
         wt = u.get("wt", 1)
         count = int(enemy_squad_size / wt)
+        hp_per_unit = u["hp"]
         e_units.append({
             "slot": i + 1, "y": SLOT_Y[i], "team": 2, "id": f"e_{i+1}", "name": u["short"],
             "cls": u["cls"], "u": u, "startCount": count, "count": count,
-            "hp_per_unit": u["hp"], "dmg_per_unit": u["dmg"],
+            "hp_per_unit": hp_per_unit, "dmg_per_unit": u["dmg"],
+            "hp_pool": count * hp_per_unit,
             "wt": wt, "init": u.get("init", 10), "rng": u.get("rng", 1), "mv": u.get("mv", 2),
             "ret_max": u.get("ret", 0), "ret_left": u.get("ret", 0)
         })
@@ -417,8 +425,8 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                 def_b = (tgt["u"].get("def", {}).get(attacker["cls"], 0)) / 100.0
                 reach = attacker["rng"] + attacker["mv"]
                 if round_num == 1 and reach < 6 and attacker["rng"] <= 2: continue
-                eff_dmg = attacker["count"] * attacker["dmg_per_unit"] * (1.0 + atk_b) * (1.0 - def_b)
-                total_tgt_hp = tgt["count"] * tgt["hp_per_unit"]
+                eff_dmg = attacker["count"] * attacker["dmg_per_unit"] * (1.0 + atk_b) * (1.0 - def_b) * DMG_EXPECTED_MULT
+                total_tgt_hp = tgt["hp_pool"]
                 kill_ratio = min(1.0, eff_dmg / max(1.0, total_tgt_hp))
 
                 # Realistic hex distance & targeting:
@@ -441,16 +449,16 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
             atk_b = (attacker["u"].get("atk", {}).get(best_target["cls"], 0)) / 100.0
             def_b = (best_target["u"].get("def", {}).get(attacker["cls"], 0)) / 100.0
-            dealt_dmg = attacker["count"] * attacker["dmg_per_unit"] * (1.0 + atk_b) * (1.0 - def_b)
-            killed = min(best_target["count"], int(dealt_dmg / best_target["hp_per_unit"]))
-            best_target["count"] -= killed
+            dealt_dmg = attacker["count"] * attacker["dmg_per_unit"] * (1.0 + atk_b) * (1.0 - def_b) * DMG_EXPECTED_MULT
+            best_target["hp_pool"] = max(0.0, best_target["hp_pool"] - dealt_dmg)
+            best_target["count"] = math.ceil(best_target["hp_pool"] / best_target["hp_per_unit"]) if best_target["hp_pool"] > 0 else 0
 
-            if attacker["rng"] == 1 and best_target["count"] > 0 and best_target["ret_left"] > 0:
+            if attacker["rng"] <= best_target["rng"] and best_target["count"] > 0 and best_target["ret_left"] > 0:
                 ret_atk_b = (best_target["u"].get("atk", {}).get(attacker["cls"], 0)) / 100.0
                 ret_def_b = (attacker["u"].get("def", {}).get(best_target["cls"], 0)) / 100.0
-                ret_dmg = best_target["count"] * best_target["dmg_per_unit"] * (1.0 + ret_atk_b) * (1.0 - ret_def_b)
-                ret_killed = min(attacker["count"], int(ret_dmg / attacker["hp_per_unit"]))
-                attacker["count"] -= ret_killed
+                ret_dmg = best_target["count"] * best_target["dmg_per_unit"] * (1.0 + ret_atk_b) * (1.0 - ret_def_b) * DMG_EXPECTED_MULT * RETALIATION_MULT
+                attacker["hp_pool"] = max(0.0, attacker["hp_pool"] - ret_dmg)
+                attacker["count"] = math.ceil(attacker["hp_pool"] / attacker["hp_per_unit"]) if attacker["hp_pool"] > 0 else 0
                 best_target["ret_left"] -= 1
 
         p_alive = sum(u["count"] for u in p_units)
