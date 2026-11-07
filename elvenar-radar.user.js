@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.7.1
+// @version      6.7.2
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -147,6 +147,10 @@
     }
     let trackedEncounter = savedEncounter || null;
 
+    let savedBattleBoard = null;
+    try { savedBattleBoard = JSON.parse(GM_getValue("ELVENAR_BATTLE_BOARD", "null")); } catch(e) {}
+    let battleBoard = savedBattleBoard || { width: 8, height: 9, obstacles: [] };
+
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
     let isUpdatingTime = 0; // Thời điểm bắt đầu lock
@@ -164,6 +168,7 @@
             GM_setValue("ELVENAR_TRACKED_PETS", JSON.stringify(trackedPets));
             GM_setValue("ELVENAR_TRACKED_ARMY", JSON.stringify(trackedArmy));
             GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
+            GM_setValue("ELVENAR_BATTLE_BOARD", JSON.stringify(battleBoard));
         } catch(e) {}
     }
 
@@ -522,6 +527,99 @@
         }
     } catch(e) {}
 
+    // --- 1.F HỖ TRỢ TRÍCH XUẤT BẢN ĐỒ & VẬT CẢN (BATTLEFIELD MAP & OBSTACLES PIPELINE) ---
+    function extractObstaclesFromMap(bMap) {
+        if (!bMap) return [];
+        if (bMap.map && (bMap.map.tiles || bMap.map.width)) {
+            bMap = bMap.map;
+        }
+        const tiles = bMap.tiles || (Array.isArray(bMap) ? bMap : null);
+        if (!tiles || !Array.isArray(tiles) || tiles.length === 0) return [];
+
+        const obstacles = [];
+        const seen = new Set();
+
+        function addObs(x, y) {
+            const ox = Number(x);
+            const oy = Number(y);
+            if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9) {
+                const key = ox + "," + oy;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    obstacles.push([ox, oy]);
+                }
+            }
+        }
+
+        function isObstacleCell(cell) {
+            if (!cell) return false;
+            if (typeof cell === "string") {
+                const s = cell.toLowerCase();
+                return s.includes("obstacle") || s.includes("blocked") || s.includes("barrier");
+            }
+            if (typeof cell === "object") {
+                const typeId = String(cell.typeId || cell.type || "").toLowerCase();
+                const cost = Number(cell.movementCosts !== undefined ? cell.movementCosts : (cell.cost !== undefined ? cell.cost : 0));
+                return typeId === "obstacle" || 
+                       typeId.includes("obstacle") || 
+                       typeId.includes("blocked") || 
+                       cost > 1000 || 
+                       cell.isObstacle === true || 
+                       cell.blocked === true || 
+                       cell.passable === false || 
+                       cell.walkable === false;
+            }
+            return false;
+        }
+
+        if (Array.isArray(tiles[0])) {
+            for (let x = 0; x < tiles.length; x++) {
+                const col = tiles[x];
+                if (!Array.isArray(col)) continue;
+                for (let y = 0; y < col.length; y++) {
+                    const cell = col[y];
+                    if (isObstacleCell(cell)) {
+                        const pos = cell && typeof cell === "object" ? (cell.pos || cell.position || cell) : null;
+                        const ox = (pos && pos.x !== undefined && !isNaN(pos.x)) ? Number(pos.x) : x;
+                        const oy = (pos && pos.y !== undefined && !isNaN(pos.y)) ? Number(pos.y) : y;
+                        addObs(ox, oy);
+                    }
+                }
+            }
+        } else {
+            for (let i = 0; i < tiles.length; i++) {
+                const cell = tiles[i];
+                if (isObstacleCell(cell)) {
+                    if (cell && typeof cell === "object") {
+                        const pos = cell.pos || cell.position || cell;
+                        if (pos.x !== undefined && pos.y !== undefined) {
+                            addObs(pos.x, pos.y);
+                            continue;
+                        }
+                    }
+                    const h = Number(bMap.height) || 9;
+                    const ox = Math.floor(i / h);
+                    const oy = i % h;
+                    addObs(ox, oy);
+                }
+            }
+        }
+
+        obstacles.sort((a, b) => (a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]));
+        return obstacles;
+    }
+
+    function areWavesCompatible(prevWaves, newWaves) {
+        if (!Array.isArray(prevWaves) || !Array.isArray(newWaves) || prevWaves.length === 0 || newWaves.length === 0) return false;
+        if (JSON.stringify(prevWaves) === JSON.stringify(newWaves)) return true;
+        if (prevWaves.length === newWaves.length) {
+            const w0Prev = [...(prevWaves[0] || [])].sort().join(",");
+            const w0New = [...(newWaves[0] || [])].sort().join(",");
+            if (w0Prev && w0Prev === w0New) return true;
+        }
+        return false;
+    }
+
     // --- 2. BẮT GÓI TIN GAME ---
     function handleData(data) {
         try {
@@ -760,6 +858,12 @@
                     if (activeEnc && Array.isArray(activeEnc.enemyWaves) && activeEnc.enemyWaves.length > 0) {
                         const waves = activeEnc.enemyWaves.map(w => (w.army || []).map(u => u.unitTypeId || "")).filter(w => w.length > 0);
                         if (waves.length > 0) {
+                            let preservedObstacles = null;
+                            if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && trackedEncounter.obstacles.length > 0) {
+                                if (areWavesCompatible(trackedEncounter.waves, waves)) {
+                                    preservedObstacles = trackedEncounter.obstacles;
+                                }
+                            }
                             trackedEncounter = {
                                 ts: now,
                                 src: node.good_id ? "tournament" : (waves.length > 1 ? "spire" : "province"),
@@ -767,7 +871,7 @@
                                 pSq: Number(node.playerSquadSize) || (trackedArmy && trackedArmy.squadSize) || 0,
                                 eSq: Number(activeEnc.enemyWaves[0].squadSize) || 0,
                                 waves: waves,
-                                obstacles: null,
+                                obstacles: preservedObstacles,
                                 lastResult: trackedEncounter ? trackedEncounter.lastResult : null
                             };
                             activeEnc._processedByParent = true;
@@ -779,6 +883,12 @@
                     const waves = node.enemyWaves.map(w => (w.army || []).map(u => u.unitTypeId || "")).filter(w => w.length > 0);
                     if (waves.length > 0) {
                         const clsName = String(node.__class__ || "").toLowerCase();
+                        let preservedObstacles = null;
+                        if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && trackedEncounter.obstacles.length > 0) {
+                            if (areWavesCompatible(trackedEncounter.waves, waves)) {
+                                preservedObstacles = trackedEncounter.obstacles;
+                            }
+                        }
                         trackedEncounter = {
                             ts: now,
                             src: (clsName.includes("spire") || waves.length > 1) ? "spire" : ((trackedEncounter && trackedEncounter.src) || "encounter"),
@@ -786,7 +896,7 @@
                             pSq: Number(node.playerSquadSize) || (trackedEncounter && trackedEncounter.pSq) || (trackedArmy && trackedArmy.squadSize) || 0,
                             eSq: Number(node.enemyWaves[0].squadSize) || 0,
                             waves: waves,
-                            obstacles: null,
+                            obstacles: preservedObstacles,
                             lastResult: trackedEncounter ? trackedEncounter.lastResult : null
                         };
                         GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
@@ -795,56 +905,62 @@
                 }
 
                 // G.2 Bắt Tọa Độ Chướng Ngại Vật (Obstacles) & Bàn Cờ Lục Giác khi mở trận Đánh Tay (BattlefieldService / BattleService / SpireBattleService)
-                const directObsKeys = ["obstacles", "blockedFields", "blockedPositions", "barriers", "mapObstacles", "unwalkableFields"];
-                const gridBoardKeys = ["board", "fields", "cells", "tiles", "terrain", "hexes"];
-                let extractedObs = [];
-                for (let ok of directObsKeys) {
-                    if (Array.isArray(node[ok]) && node[ok].length > 0) {
-                        node[ok].forEach(item => {
-                            if (item && typeof item === "object") {
-                                const pos = item.pos || item.position || item;
-                                const ox = Number(pos.x !== undefined ? pos.x : 0);
-                                const oy = Number(pos.y !== undefined ? pos.y : 0);
-                                if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9 && (pos.x !== undefined || pos.y !== undefined)) {
-                                    extractedObs.push([ox, oy]);
-                                }
-                            }
-                        });
-                    }
+                let mapCandidate = null;
+                if (node.__class__ === "BattleRealmVO" && node.map) {
+                    mapCandidate = node.map;
+                } else if (node.__class__ === "BattleMapVO" && (node.tiles || node.width)) {
+                    mapCandidate = node;
+                } else if ((node.requestClass === "BattlefieldService" || node.requestClass === "BattleService" || node.requestClass === "SpireBattleService") &&
+                           (node.requestMethod === "start" || node.requestMethod === "getBattle") && node.responseData && node.responseData.map) {
+                    mapCandidate = node.responseData.map;
+                } else if (node.map && Array.isArray(node.map.tiles)) {
+                    mapCandidate = node.map;
+                } else if (Array.isArray(node.tiles) && Array.isArray(node.tiles[0])) {
+                    mapCandidate = node;
                 }
-                for (let gk of gridBoardKeys) {
-                    if (Array.isArray(node[gk]) && node[gk].length > 0) {
-                        node[gk].forEach(item => {
-                            if (item && typeof item === "object") {
-                                const isBlocked = Boolean(item.isObstacle || item.obstacle || item.blocked || item.isBlocked || item.walkable === false || item.passable === false || String(item.type || "").toLowerCase().includes("obstacle") || String(item.type || "").toLowerCase().includes("blocked"));
-                                if (isBlocked) {
+
+                let extractedObs = [];
+                if (mapCandidate) {
+                    extractedObs = extractObstaclesFromMap(mapCandidate);
+                }
+
+                // Fallback dự phòng cho các gói tin phi chuẩn (loại bỏ hoàn toàn u.teamFlag === -1 để không ghi nhận nhầm quân địch)
+                if (extractedObs.length === 0) {
+                    const directObsKeys = ["obstacles", "blockedFields", "blockedPositions", "barriers", "unwalkableFields"];
+                    const gridBoardKeys = ["board", "fields", "cells", "terrain", "hexes"];
+                    for (let ok of directObsKeys) {
+                        if (Array.isArray(node[ok]) && node[ok].length > 0) {
+                            node[ok].forEach(item => {
+                                if (item && typeof item === "object") {
                                     const pos = item.pos || item.position || item;
                                     const ox = Number(pos.x !== undefined ? pos.x : 0);
                                     const oy = Number(pos.y !== undefined ? pos.y : 0);
-                                    if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9) {
+                                    if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9 && (pos.x !== undefined || pos.y !== undefined)) {
                                         extractedObs.push([ox, oy]);
                                     }
                                 }
-                            }
-                        });
+                            });
+                        }
+                    }
+                    for (let gk of gridBoardKeys) {
+                        if (Array.isArray(node[gk]) && node[gk].length > 0) {
+                            node[gk].forEach(item => {
+                                if (item && typeof item === "object") {
+                                    const isBlocked = Boolean(item.isObstacle || item.obstacle || item.blocked || item.isBlocked || item.walkable === false || item.passable === false || String(item.type || "").toLowerCase().includes("obstacle") || String(item.type || "").toLowerCase().includes("blocked"));
+                                    if (isBlocked) {
+                                        const pos = item.pos || item.position || item;
+                                        const ox = Number(pos.x !== undefined ? pos.x : 0);
+                                        const oy = Number(pos.y !== undefined ? pos.y : 0);
+                                        if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9) {
+                                            extractedObs.push([ox, oy]);
+                                        }
+                                    }
+                                }
+                            });
+                        }
                     }
                 }
-                if (node.__class__ === "BattleRealmStateVO" && Array.isArray(node.unitsOrder)) {
-                    node.unitsOrder.forEach(u => {
-                        if (!u) return;
-                        const utId = String((u.unitType && u.unitType.unitTypeId) || "").toLowerCase();
-                        if (u.teamFlag === 0 || u.teamFlag === -1 || utId.includes("obstacle") || utId.includes("barrier") || utId.includes("rock")) {
-                            const sp = u.startpos || u.pos;
-                            if (sp) {
-                                const ox = Number(sp.x !== undefined ? sp.x : 0);
-                                const oy = Number(sp.y !== undefined ? sp.y : 0);
-                                if (!isNaN(ox) && !isNaN(oy) && ox >= 0 && ox < 8 && oy >= 0 && oy < 9) {
-                                    extractedObs.push([ox, oy]);
-                                }
-                            }
-                        }
-                    });
-                }
+
                 if (extractedObs.length > 0) {
                     const seenObs = new Set();
                     const uniqueObs = [];
@@ -852,11 +968,20 @@
                         const k = pair[0] + "," + pair[1];
                         if (!seenObs.has(k)) {
                             seenObs.add(k);
-                            uniqueObs.push(pair);
+                            uniqueObs.push([pair[0], pair[1]]);
                         }
                     });
-                    if (!trackedEncounter) trackedEncounter = { ts: now, src: "tournament", good: "", pSq: 0, eSq: 0, waves: [], obstacles: uniqueObs };
-                    else {
+                    uniqueObs.sort((a, b) => (a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]));
+
+                    battleBoard.width = (mapCandidate && Number(mapCandidate.width)) || 8;
+                    battleBoard.height = (mapCandidate && Number(mapCandidate.height)) || 9;
+                    battleBoard.obstacles = uniqueObs;
+                    battleBoard.ts = now;
+                    GM_setValue("ELVENAR_BATTLE_BOARD", JSON.stringify(battleBoard));
+
+                    if (!trackedEncounter) {
+                        trackedEncounter = { ts: now, src: "tournament", good: "", pSq: 0, eSq: 0, waves: [], obstacles: uniqueObs, lastResult: null };
+                    } else {
                         trackedEncounter.obstacles = uniqueObs;
                         trackedEncounter.ts = now;
                     }

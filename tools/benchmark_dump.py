@@ -38,6 +38,78 @@ Y_TO_SLOT = {4: 1, 3: 2, 5: 3, 2: 4, 6: 5}
 
 GRID_W, GRID_H = 8, 9
 
+def extract_obstacles_from_map(b_map):
+    if not b_map:
+        return []
+    if isinstance(b_map, dict) and "map" in b_map and isinstance(b_map["map"], dict):
+        b_map = b_map["map"]
+    tiles = b_map.get("tiles") if isinstance(b_map, dict) else (b_map if isinstance(b_map, list) else None)
+    if not tiles or not isinstance(tiles, list):
+        return []
+
+    obstacles = []
+    seen = set()
+
+    def add_obs(x, y):
+        try:
+            ox, oy = int(x), int(y)
+            if 0 <= ox < 8 and 0 <= oy < 9:
+                k = (ox, oy)
+                if k not in seen:
+                    seen.add(k)
+                    obstacles.append((ox, oy))
+        except (ValueError, TypeError):
+            pass
+
+    def is_obstacle_cell(cell):
+        if not cell:
+            return False
+        if isinstance(cell, str):
+            s = cell.lower()
+            return "obstacle" in s or "blocked" in s or "barrier" in s
+        if isinstance(cell, dict):
+            type_id = str(cell.get("typeId") or cell.get("type") or "").lower()
+            cost = cell.get("movementCosts", cell.get("cost", 0))
+            try:
+                cost = float(cost)
+            except (ValueError, TypeError):
+                cost = 0
+            return (
+                type_id == "obstacle"
+                or "obstacle" in type_id
+                or "blocked" in type_id
+                or cost > 1000
+                or cell.get("isObstacle") is True
+                or cell.get("blocked") is True
+                or cell.get("passable") is False
+                or cell.get("walkable") is False
+            )
+        return False
+
+    if isinstance(tiles[0], list):
+        for x, col in enumerate(tiles):
+            if not isinstance(col, list):
+                continue
+            for y, cell in enumerate(col):
+                if is_obstacle_cell(cell):
+                    pos = cell.get("pos") or cell.get("position") if isinstance(cell, dict) else None
+                    ox = pos.get("x") if pos and "x" in pos else x
+                    oy = pos.get("y") if pos and "y" in pos else y
+                    add_obs(ox, oy)
+    else:
+        h = int(b_map.get("height", 9)) if isinstance(b_map, dict) else 9
+        for i, cell in enumerate(tiles):
+            if is_obstacle_cell(cell):
+                pos = cell.get("pos") or cell.get("position") if isinstance(cell, dict) else None
+                if pos and "x" in pos and "y" in pos:
+                    add_obs(pos["x"], pos["y"])
+                else:
+                    add_obs(i // h, i % h)
+
+    obstacles.sort(key=lambda p: (p[0], p[1]))
+    return obstacles
+
+
 def to_cube(x, y):
     q = x - ((y - (y & 1)) // 2)
     r = y
@@ -130,6 +202,8 @@ def extract_dump_data(dump_path):
 
     battles = []
     latest_effects = None
+    battle_obstacles = {}
+    latest_peek_obs = None
     active_buffs = {
         "hp": 0.0,
         "atk": {"light_melee": 0.0, "light_ranged": 0.0, "mage": 0.0, "heavy_melee": 0.0, "heavy_ranged": 0.0},
@@ -138,9 +212,21 @@ def extract_dump_data(dump_path):
     player_tiers = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 2, 2]
 
     def walk(d):
-        nonlocal latest_effects
+        nonlocal latest_effects, latest_peek_obs
         if isinstance(d, dict):
+            # Check manual start or getBattle map
+            if d.get("requestMethod") in ["start", "getBattle"] and isinstance(d.get("responseData"), dict):
+                bmap = d["responseData"].get("map")
+                bid = d["responseData"].get("battleId")
+                obs = extract_obstacles_from_map(bmap)
+                if obs:
+                    battle_obstacles[bid] = obs
+                    latest_peek_obs = obs
             if d.get("__class__") == "InstantBattleResultVO":
+                bid = d.get("battleId")
+                obs = battle_obstacles.get(bid) or latest_peek_obs
+                if obs:
+                    d["obstacles"] = obs
                 battles.append(d)
             if d.get("requestClass") == "EffectsService" and d.get("requestMethod") == "update" and isinstance(d.get("responseData"), list):
                 latest_effects = d.get("responseData")
@@ -323,7 +409,22 @@ def score_unit_pair(p_unit, e_unit, dy, w_ctx, active_buffs):
     if e_unit.get("rng", 1) >= 3 and def_bonus == 0 and e_atk_bonus == 0 and p_unit.get("rng", 1) == 1:
         focus_fire_penalty = 22.0
 
-    return (kill_rate * first_strike_mult * 95.0) + spec_bonus + mitigation_bonus + ability_bonus - (loss_rate * incoming_mult * 125.0) - hard_counter_penalty - focus_fire_penalty - ret_penalty
+    # 9. High-Stage Fragility Calibration (squadRatio >= 1.75)
+    high_stage_penalty = 0.0
+    squad_ratio = w_ctx.get("squadRatio", 1.5)
+    has_fast_ranged = w_ctx.get("hasFastRanged", False) or w_ctx.get("hasMistWalker", False) or e_unit.get("cls") == "light_ranged"
+    if squad_ratio >= 1.75 and has_fast_ranged:
+        p_ret = p_unit.get("retal", p_unit.get("ret", 1 if p_unit.get("rng") == 1 else 0))
+        if p_unit.get("cls") == "light_ranged" and p_ret == 0:
+            base_hp = (p_unit.get("hp", 100)) / (p_unit.get("wt", 1))
+            fragility = max(1.0, 75.0 / base_hp)
+            high_stage_penalty = (squad_ratio - 1.5) * 45.0 * fragility
+        elif p_unit.get("cls") == "heavy_ranged" and p_unit.get("def", {}).get("light_ranged", 0) >= 50:
+            high_stage_penalty = -((squad_ratio - 1.5) * 25.0)
+        elif p_unit.get("base") == "mc_lr" and p_ret >= 1 and p_unit.get("init", 10) >= 20:
+            high_stage_penalty = -((squad_ratio - 1.5) * 15.0)
+
+    return (kill_rate * first_strike_mult * 95.0) + spec_bonus + mitigation_bonus + ability_bonus - (loss_rate * incoming_mult * 125.0) - hard_counter_penalty - focus_fire_penalty - ret_penalty - high_stage_penalty
 
 
 def recommend_heuristic(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000):
@@ -337,9 +438,12 @@ def recommend_heuristic(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000
         if "tglr" in s:
             has_mist_walker = True
 
+    has_fast_ranged = has_mist_walker or any("tglr" in s or "eblr" in s or "hblr" in s for s in wave)
     w_ctx = {
         "clsCounts": cls_counts,
         "hasMistWalker": has_mist_walker,
+        "hasFastRanged": has_fast_ranged,
+        "squadRatio": squad_ratio,
         "hmCount": cls_counts.get("heavy_melee", 0),
         "lrCount": cls_counts.get("light_ranged", 0),
         "maCount": cls_counts.get("mage", 0),
@@ -500,7 +604,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
             "hp_per_unit": hp_per_unit, "dmg_per_unit": (u["dmg"] * atk_mult),
             "hp_pool": count * hp_per_unit,
             "wt": wt, "init": u.get("init", 10), "rng": u.get("rng", 1), "mv": u.get("mv", 2),
-            "ret_max": u.get("ret", 0), "ret_left": u.get("ret", 0),
+            "retal_max": u.get("retal", u.get("ret", 1 if u.get("rng") == 1 else 0)), "retal_left": u.get("retal", u.get("ret", 1 if u.get("rng") == 1 else 0)),
             "atk_debuff": {"val": 0.0, "dur": 0},
             "def_debuff": {"val": 0.0, "dur": 0}
         })
@@ -518,7 +622,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
             "hp_per_unit": hp_per_unit, "dmg_per_unit": u["dmg"],
             "hp_pool": count * hp_per_unit,
             "wt": wt, "init": u.get("init", 10), "rng": u.get("rng", 1), "mv": u.get("mv", 2),
-            "ret_max": u.get("ret", 0), "ret_left": u.get("ret", 0),
+            "retal_max": u.get("retal", u.get("ret", 1 if u.get("rng") == 1 else 0)), "retal_left": u.get("retal", u.get("ret", 1 if u.get("rng") == 1 else 0)),
             "atk_debuff": {"val": 0.0, "dur": 0},
             "def_debuff": {"val": 0.0, "dur": 0}
         })
@@ -543,10 +647,10 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                         u["def_debuff"]["val"] = 0.0
 
         for u in p_units + e_units:
-            u["ret_left"] = u["ret_max"]
+            u["retal_left"] = u["retal_max"]
 
         all_units = [u for u in p_units + e_units if u["count"] > 0]
-        all_units.sort(key=lambda u: (u["init"], 1 if u["team"] == 1 else 0, u["slot"]), reverse=True)
+        all_units.sort(key=lambda u: (u["init"], u["slot"], 1 if u["team"] == 1 else 0), reverse=True)
 
         for attacker in all_units:
             if attacker["count"] <= 0: continue
@@ -587,7 +691,8 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                         bhp = (tgt["hp_per_unit"] / (1.0 + active_buffs["hp"])) / tgt["wt"]
                         if bhp < 120:
                             fb = (120.0 - bhp) * 0.8
-                    score = ((em - 1.0) * 180.0) + (kr * 80.0) - (min_steps * 12.0) - (d_now * 6.0) + fb
+                    threat_bonus = tgt["slot"] * 1.5
+                    score = ((em - 1.0) * 180.0) + (kr * 80.0) - (min_steps * 12.0) - (d_now * 6.0) + fb + threat_bonus
                     if score > best_score:
                         best_score = score
                         best_t = tgt
@@ -609,12 +714,12 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                         elif ab_type == "defense" and ab_val < 0:
                             best_t["def_debuff"] = {"val": ab_val, "dur": ab_dur}
 
-                if best_t["count"] > 0 and best_t["ret_left"] > 0 and hex_dist((attacker["x"], attacker["y"]), (best_t["x"], best_t["y"])) <= best_t["rng"]:
+                if best_t["count"] > 0 and best_t["retal_left"] > 0 and hex_dist((attacker["x"], attacker["y"]), (best_t["x"], best_t["y"])) <= best_t["rng"]:
                     ret_eff_mult = calc_eff_mult(best_t, attacker)
                     ret_dmg = best_t["count"] * best_t["dmg_per_unit"] * ret_eff_mult * DMG_EXPECTED_MULT * RETALIATION_MULT
                     attacker["hp_pool"] = max(0.0, attacker["hp_pool"] - ret_dmg)
                     attacker["count"] = math.ceil(attacker["hp_pool"] / attacker["hp_per_unit"]) if attacker["hp_pool"] > 0 else 0
-                    best_t["ret_left"] -= 1
+                    best_t["retal_left"] -= 1
             else:
                 want = min(targets, key=lambda tgt: (hex_dist(start, (tgt["x"], tgt["y"])), tgt["slot"]))
                 next_pos = min(reach_cells.keys(), key=lambda c: (hex_dist(c, (want["x"], want["y"])), reach_cells[c], abs(c[1] - start[1])))
@@ -683,7 +788,7 @@ def simulate_battle_monte_carlo(player_unit_keys, enemy_unit_ids, player_squad_s
     }
 
 
-def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_size=25000, enemy_squad_size=25000):
+def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_size=25000, enemy_squad_size=25000, obstacle_set=None):
     if not waves_or_wave:
         return []
     if isinstance(waves_or_wave[0], list):
@@ -740,16 +845,28 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
 
     # Stage 2: Full-Team Simulation Re-Ranking
     eval_cache = {}
+    squad_ratio = (e_sq / p_sq) if (p_sq and p_sq > 0) else 1.5
+    has_fr = any(any("tglr" in s or "eblr" in s or "hblr" in s for s in w) for w in waves)
+
     def eval_lineup(L):
         t = tuple(L)
         if t in eval_cache:
             return eval_cache[t]
-        sim = simulate_multi_wave(list(L), waves, p_sq, e_sq, active_buffs, player_tiers)
+        sim = simulate_multi_wave(list(L), waves, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obstacle_set)
         h_avg = sum(slot_score_map[s].get(L[s], 0.0) for s in range(5)) / 5.0
+
+        high_stage_pen = 0.0
+        if squad_ratio >= 1.75 and has_fr:
+            for k in L:
+                u = resolve_unit(k, player_tiers)
+                u_ret = u.get("retal", u.get("ret", 1 if u.get("rng") == 1 else 0))
+                if u.get("cls") == "light_ranged" and u_ret == 0:
+                    high_stage_pen += (squad_ratio - 1.5) * 25.0
+
         stock_pen = 5000.0 if any(slot_score_map[s].get(L[s], 0.0) < -300.0 for s in range(5)) else 0.0
         non_counter_pen = 2000.0 if any(L[s] not in valid_slot_keys[s] for s in range(5)) else 0.0
         defeat_pen = 0.0 if sim["won"] else 1000.0
-        obj = stock_pen + non_counter_pen + defeat_pen + sim["loss_pct"] - (h_avg * 0.15)
+        obj = stock_pen + non_counter_pen + defeat_pen + high_stage_pen + sim["loss_pct"] - (h_avg * 0.15)
         res = (obj, sim, h_avg)
         eval_cache[t] = res
         return res
@@ -873,11 +990,12 @@ def run_benchmark(dump_file):
 
         wave = [x["id"] for x in e_units]
         actual_p_keys = [x["id"] for x in p_units]
-        actual_sim = simulate_battle(actual_p_keys, wave, p_sq, e_sq, active_buffs, player_tiers)
+        obs = bvo.get("obstacles")
+        actual_sim = simulate_battle(actual_p_keys, wave, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obs)
         actual_sim_results.append(actual_sim)
 
-        r661 = [c[0][1] for c in recommend_v661(wave, active_buffs, player_tiers, p_sq, e_sq)]
-        advisor_sim = simulate_battle(r661, wave, p_sq, e_sq, active_buffs, player_tiers)
+        r661 = [c[0][1] for c in recommend_v661(wave, active_buffs, player_tiers, p_sq, e_sq, obstacle_set=obs)]
+        advisor_sim = simulate_battle(r661, wave, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obs)
         v661_sim_results.append(advisor_sim)
 
         e_str = "/".join(resolve_unit(w)["short"][:4] for w in wave)
@@ -897,7 +1015,8 @@ def run_benchmark(dump_file):
             diff_str = f"WORSE ({delta:.1f}%)"
         else:
             diff_str = "SAME"
-        print(f"B{b_idx:02d}     | {e_str:28} | {act_status:13} | {act_sim_status:13} | {adv_sim_status:13} | {diff_str:18}")
+        obs_badge = f" [🗺️ Map: {len(obs)}]" if obs else ""
+        print(f"B{b_idx:02d}{obs_badge:12} | {e_str:28} | {act_status:13} | {act_sim_status:13} | {adv_sim_status:13} | {diff_str:18}")
 
     print("\n" + "=" * 80)
     print("EMPIRICAL UNIT SURVIVAL RANKING (RECORDED FROM USER PLAY)")
