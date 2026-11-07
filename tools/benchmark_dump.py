@@ -700,10 +700,10 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     heuristic_slots = recommend_heuristic(first_wave, active_buffs, player_tiers, p_sq, e_sq)
     slot_score_map = [{c[1]: c[0] for c in heuristic_slots[s]} for s in range(5)]
 
-    # Strict Slot-Counter Eligibility: Top candidates with score > -10.0 (up to 6 valid counters per enemy class)
+    # Strict Slot-Counter Eligibility: Top candidates with score > 0.0 (strictly positive heuristic counter score)
     valid_slot_keys = []
     for s in range(5):
-        v_keys = [c[1] for c in heuristic_slots[s][:6] if c[0] > -10.0]
+        v_keys = [c[1] for c in heuristic_slots[s][:6] if c[0] > 0.0]
         if not v_keys:
             v_keys = [heuristic_slots[s][0][1]]
         valid_slot_keys.append(v_keys)

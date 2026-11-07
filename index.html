@@ -2519,7 +2519,7 @@
         rawSlotCandidates[s].forEach(c => {
           slotScoreMap[s][c.key] = c.score;
         });
-        let vKeys = rawSlotCandidates[s].slice(0, 6).filter(c => c.score > -10.0).map(c => c.key);
+        let vKeys = rawSlotCandidates[s].slice(0, 6).filter(c => c.score > 0.0).map(c => c.key);
         if (vKeys.length === 0 && rawSlotCandidates[s].length > 0) {
           vKeys = [rawSlotCandidates[s][0].key];
         }
