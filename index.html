@@ -4131,10 +4131,15 @@
       switchTab(currentTabId);
     }
 
+    let lastReceiptMs = 0;
+
     // Apply Realtime Fresh State from Live Stream (Silent & Seamless)
     function applyFreshState(freshState) {
       if (!freshState || !freshState.t) return;
       freshState.isDemo = false;
+      lastReceiptMs = Date.now();
+      // Auto-compensate clock skew between Game PC and Dashboard device
+      freshState.timeOffset = Math.floor(lastReceiptMs / 1000) - freshState.t;
       state = freshState;
       initUI();
       tick();
@@ -4159,25 +4164,39 @@
         onWakeUp("detected sleep gap " + Math.round(elapsedSinceLastTick / 1000) + "s");
       }
 
-      const now = Math.floor(nowMs / 1000);
+      const clientNow = Math.floor(nowMs / 1000);
+      // Auto-compensate for clock skew / timezone mismatch between Game PC and Dashboard device
+      const now = clientNow - (state.timeOffset || 0);
 
-      // Header Sync Time
+      // Header Sync Time: Evaluate freshness based on actual receipt on this client
       const syncEl = document.getElementById("syncTime");
       const badgeText = document.getElementById("liveBadgeText");
       if (syncEl) {
         if (state.isDemo) {
           syncEl.innerText = "Connecting to game data...";
         } else {
-          const age = Math.max(0, now - (state.t || now));
+          const age = lastReceiptMs > 0 ? Math.max(0, Math.floor((nowMs - lastReceiptMs) / 1000)) : Math.max(0, clientNow - (state.t || clientNow));
           if (age < 5) {
             syncEl.innerText = "Just updated (<5s)";
             syncEl.style.color = "";
+            if (badgeText && isFirebaseListening) {
+              badgeText.innerText = "STREAMING (LIVE)";
+              badgeText.style.color = "#34d399";
+            }
           } else if (age < 60) {
             syncEl.innerText = `Synced ${age}s ago`;
             syncEl.style.color = "";
+            if (badgeText && isFirebaseListening) {
+              badgeText.innerText = "STREAMING (LIVE)";
+              badgeText.style.color = "#34d399";
+            }
           } else if (age < 300) {
             syncEl.innerText = `Synced ${Math.floor(age/60)}m ago`;
             syncEl.style.color = "";
+            if (badgeText && isFirebaseListening) {
+              badgeText.innerText = "STREAMING (LIVE)";
+              badgeText.style.color = "#34d399";
+            }
           } else {
             // Mất kết nối quá 5 phút
             syncEl.innerText = `Synced ${Math.floor(age/60)}m ago (No Signal)`;
@@ -4569,6 +4588,7 @@
           liveRef.on("value", snapshot => {
             const data = snapshot.val();
             if (data && data.t) {
+              lastReceiptMs = Date.now();
               const decoded = decodeCompactPayload(data);
               const encChanged = Boolean(decoded && decoded.enc && decoded.enc.ts !== (state.enc?.ts || 0));
               if (decoded && (state.isDemo || decoded.t !== (state.t || 0) || encChanged)) {
@@ -4704,6 +4724,9 @@
           return fetchChatPayload(FALLBACK_CHAT_ID, controller.signal);
         })
         .then(decoded => {
+          if (decoded && decoded.t) {
+            lastReceiptMs = Date.now();
+          }
           const encChanged = Boolean(decoded && decoded.enc && decoded.enc.ts !== (state.enc?.ts || 0));
           if (decoded && decoded.t && (state.isDemo || decoded.t !== (state.t || 0) || encChanged)) {
             applyFreshState(decoded);
