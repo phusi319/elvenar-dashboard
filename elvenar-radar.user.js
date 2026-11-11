@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.7.3
+// @version      6.7.4
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -151,9 +151,46 @@
     try { savedBattleBoard = JSON.parse(GM_getValue("ELVENAR_BATTLE_BOARD", "null")); } catch(e) {}
     let battleBoard = savedBattleBoard || { width: 8, height: 9, obstacles: [] };
 
+    const SEEDED_TOURNEY_MAPS = {
+        "planks_P31": [[2,1],[2,5],[3,1],[3,2],[4,3],[6,7]],
+        "planks_P32": [[1,2],[1,3],[1,5],[1,6],[2,2],[2,6],[5,1],[5,4]],
+        "planks_P33": [[1,7],[4,1],[4,2],[5,2],[5,4]],
+        "planks_P34": [[1,7],[2,1],[3,0],[3,1],[4,6],[4,7],[5,1],[5,6]],
+        "planks_P35": [[1,5],[2,1],[3,1],[3,2],[4,6],[4,7],[5,1],[5,6]],
+        "planks_P36": [[1,1],[1,2],[2,2],[5,1],[5,5],[6,1],[6,2]],
+        "crystal_P1": [[1,5],[1,6],[2,6],[5,5],[6,5],[6,6]],
+        "crystal_P2": [[1,2],[1,5],[2,2],[2,6],[2,7],[3,1],[3,2],[3,7],[4,6],[5,6],[6,5],[6,6]],
+        "crystal_P3": [[1,6],[1,7],[2,6],[4,6],[5,1],[5,2],[5,3],[5,6],[6,0],[6,5],[6,6]],
+        "crystal_P4": [[2,5],[3,4],[3,5],[4,1],[4,2],[4,5],[4,6],[5,2],[5,6]],
+        "crystal_P5": [[1,5],[1,6],[2,1],[2,6],[3,0],[3,1],[4,5],[5,1],[5,6],[5,7],[6,0],[6,1],[6,7]],
+        "crystal_P6": [[1,0],[2,0],[2,1],[3,2],[4,2],[5,2],[6,1],[6,2]],
+        "crystal_P7": [[1,3],[2,0],[2,1],[2,2],[2,5],[2,6],[2,7],[3,4]],
+        "crystal_P8": [[1,1],[1,2],[2,2],[2,5],[3,5],[3,6],[4,2],[4,3],[5,2],[5,5],[6,5],[6,6]],
+        "crystal_P9": [[1,5],[1,6],[2,1],[2,6],[3,0],[3,1],[4,2],[4,3],[5,2]],
+        "crystal_P10": [[2,1],[2,2],[2,3],[3,0]],
+        "crystal_P11": [[1,0],[2,0],[2,1],[3,2],[4,0],[4,5],[5,0],[5,1],[5,6],[5,7],[6,2],[6,7]],
+        "crystal_P12": [[1,1],[1,6],[1,7],[2,2],[2,3],[2,6],[3,3],[5,1],[6,1],[6,2]],
+        "crystal_P13": [[1,0],[1,5],[1,6],[2,0],[2,1],[2,5],[3,2],[3,5]],
+        "crystal_P14": [[1,1],[2,2],[2,3],[3,3],[4,1],[5,2],[5,3],[6,3]],
+        "crystal_P15": [[1,4],[2,4],[2,5],[3,6],[4,1],[4,2],[5,1],[6,1]],
+        "crystal_P16": [[1,1],[1,2],[1,5],[1,6],[2,1],[2,5],[3,1],[3,5],[4,0],[4,7],[5,0],[5,1],[5,4],[5,5],[5,6],[6,2]],
+        "crystal_P17": [[1,2],[1,4],[2,2],[2,4],[2,5],[3,1],[3,2],[3,6],[4,3],[5,0],[5,1],[5,2]],
+        "crystal_P19": [[1,1],[1,6],[2,2],[2,3],[2,6],[3,3],[3,5],[3,6],[4,2],[5,2],[5,5],[6,1],[6,2],[6,5],[6,6]],
+        "crystal_P20": [[2,1],[2,5],[3,1],[3,2],[3,5],[3,6],[4,0],[5,0],[5,1],[6,2]],
+        "crystal_P24": [[1,2],[1,7],[2,2],[2,4],[2,5],[2,6],[3,1],[3,2],[4,7],[5,4],[5,5],[5,6]],
+        "crystal_P25": [[1,4],[2,4],[2,5],[3,6],[4,1],[4,7],[5,2],[5,3],[5,4],[5,5],[5,6],[6,3]],
+        "crystal_P26": [[1,1],[2,2],[2,3],[3,3],[4,4],[5,4],[5,5],[6,6]]
+    };
+
     let savedTourneyMapCache = null;
     try { savedTourneyMapCache = JSON.parse(GM_getValue("ELVENAR_TOURNAMENT_MAP_CACHE", "{}")); } catch(e) {}
     let tournamentMapCache = (savedTourneyMapCache && typeof savedTourneyMapCache === "object") ? savedTourneyMapCache : {};
+    const seedTs = Math.floor(Date.now() / 1000);
+    for (let sk in SEEDED_TOURNEY_MAPS) {
+        if (!tournamentMapCache[sk] || !Array.isArray(tournamentMapCache[sk].obstacles) || tournamentMapCache[sk].obstacles.length === 0) {
+            tournamentMapCache[sk] = { obstacles: SEEDED_TOURNEY_MAPS[sk], ts: seedTs };
+        }
+    }
 
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
@@ -891,7 +928,7 @@
                                 }
                             }
                             if (!preservedObstacles && provKey && tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles) && tournamentMapCache[provKey].obstacles.length > 0) {
-                                if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 6 * 86400) {
+                                if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) {
                                     preservedObstacles = tournamentMapCache[provKey].obstacles;
                                 }
                             }
@@ -926,7 +963,7 @@
                             }
                         }
                         if (!preservedObstacles && provKey && tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles) && tournamentMapCache[provKey].obstacles.length > 0) {
-                            if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 6 * 86400) {
+                            if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) {
                                 preservedObstacles = tournamentMapCache[provKey].obstacles;
                             }
                         }
@@ -1029,7 +1066,7 @@
                         if (trackedEncounter.provKey) {
                             tournamentMapCache[trackedEncounter.provKey] = { obstacles: uniqueObs, ts: now };
                             for (let mk in tournamentMapCache) {
-                                if (!tournamentMapCache[mk] || (now - (Number(tournamentMapCache[mk].ts) || 0)) > 6 * 86400) {
+                                if (!tournamentMapCache[mk] || (now - (Number(tournamentMapCache[mk].ts) || 0)) > 90 * 86400) {
                                     delete tournamentMapCache[mk];
                                 }
                             }
