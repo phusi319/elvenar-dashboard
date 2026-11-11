@@ -210,7 +210,7 @@ def resolve_unit(raw_id, player_tiers=None):
     return base_entry
 
 
-def extract_dump_data(dump_path):
+def extract_dump_data(dump_path, allow_sibling_search=True):
     with open(dump_path, "r", encoding="utf-8") as f:
         dump = json.load(f)
 
@@ -318,7 +318,7 @@ def extract_dump_data(dump_path):
         walk(parsed)
 
     # Cross-Round Tournament Province Map Persistence (Star 1 -> Stars 2..6)
-    if tournament_good and any(b.get("tournament_star", 1) > 1 and not b.get("obstacles") for b in battles):
+    if allow_sibling_search and tournament_good and any(b.get("tournament_star", 1) > 1 and not b.get("obstacles") for b in battles):
         dump_dir = os.path.dirname(os.path.abspath(dump_path))
         prov_map_cache = {}
         for sib_name in sorted(os.listdir(dump_dir)):
@@ -329,7 +329,7 @@ def extract_dump_data(dump_path):
                 continue
             if "1 STAR" in sib_name.upper() or tournament_good.upper() in sib_name.upper():
                 try:
-                    sib_battles, _, _ = extract_dump_data(sib_path)
+                    sib_battles, _, _ = extract_dump_data(sib_path, allow_sibling_search=False)
                     for sb in sib_battles:
                         if sb.get("obstacles"):
                             p_num = get_battle_prov_num(sb, sb.get("tournament_star", 1))
