@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.7.2
+// @version      6.7.3
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -150,6 +150,10 @@
     let savedBattleBoard = null;
     try { savedBattleBoard = JSON.parse(GM_getValue("ELVENAR_BATTLE_BOARD", "null")); } catch(e) {}
     let battleBoard = savedBattleBoard || { width: 8, height: 9, obstacles: [] };
+
+    let savedTourneyMapCache = null;
+    try { savedTourneyMapCache = JSON.parse(GM_getValue("ELVENAR_TOURNAMENT_MAP_CACHE", "{}")); } catch(e) {}
+    let tournamentMapCache = (savedTourneyMapCache && typeof savedTourneyMapCache === "object") ? savedTourneyMapCache : {};
 
     let lastSentText = "";
     let isUpdating = false; // Cờ khóa chống gửi chồng chéo
@@ -620,6 +624,25 @@
         return false;
     }
 
+    // Nhận diện chính xác 100% số Tỉnh Tournament P (bất biến qua 6 Sao: Star 1..6 có cùng 1 bản đồ địa hình)
+    function getTournamentProvinceKey(goodId, pSq, eSq, basePts, explicitNumber) {
+        const good = String(goodId || "tourney").toLowerCase();
+        if (explicitNumber && Number(explicitNumber) > 0) {
+            return `${good}_P${Number(explicitNumber)}`;
+        }
+        const p = Number(pSq) || 0;
+        const e = Number(eSq) || 0;
+        if (p <= 0 || e <= 0) return "";
+        const r = e / p;
+        const kIdx = (r <= 1.595)
+            ? (Math.round((r - 0.85) / 0.05) + 1)
+            : (Math.round((r - 1.60) / 0.036) + 16);
+        const pts = Number(basePts) || 30;
+        const star = (pts >= 30 && pts <= 60) ? Math.max(1, Math.min(6, Math.round((pts - 24) / 6))) : 1;
+        const provNum = Math.max(1, kIdx - (star - 1));
+        return `${good}_P${provNum}`;
+    }
+
     // --- 2. BẮT GÓI TIN GAME ---
     function handleData(data) {
         try {
@@ -858,18 +881,27 @@
                     if (activeEnc && Array.isArray(activeEnc.enemyWaves) && activeEnc.enemyWaves.length > 0) {
                         const waves = activeEnc.enemyWaves.map(w => (w.army || []).map(u => u.unitTypeId || "")).filter(w => w.length > 0);
                         if (waves.length > 0) {
+                            const pSqVal = Number(node.playerSquadSize) || (trackedArmy && trackedArmy.squadSize) || 0;
+                            const eSqVal = Number(activeEnc.enemyWaves[0].squadSize) || 0;
+                            const provKey = node.good_id ? getTournamentProvinceKey(node.good_id, pSqVal, eSqVal, node.baseTournamentPointsAmount, node.provinceNumber || node.number) : "";
                             let preservedObstacles = null;
                             if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && trackedEncounter.obstacles.length > 0) {
-                                if (areWavesCompatible(trackedEncounter.waves, waves)) {
+                                if (areWavesCompatible(trackedEncounter.waves, waves) || (provKey && trackedEncounter.provKey === provKey)) {
                                     preservedObstacles = trackedEncounter.obstacles;
+                                }
+                            }
+                            if (!preservedObstacles && provKey && tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles) && tournamentMapCache[provKey].obstacles.length > 0) {
+                                if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 6 * 86400) {
+                                    preservedObstacles = tournamentMapCache[provKey].obstacles;
                                 }
                             }
                             trackedEncounter = {
                                 ts: now,
                                 src: node.good_id ? "tournament" : (waves.length > 1 ? "spire" : "province"),
                                 good: node.good_id || "",
-                                pSq: Number(node.playerSquadSize) || (trackedArmy && trackedArmy.squadSize) || 0,
-                                eSq: Number(activeEnc.enemyWaves[0].squadSize) || 0,
+                                provKey: provKey,
+                                pSq: pSqVal,
+                                eSq: eSqVal,
                                 waves: waves,
                                 obstacles: preservedObstacles,
                                 lastResult: trackedEncounter ? trackedEncounter.lastResult : null
@@ -883,18 +915,28 @@
                     const waves = node.enemyWaves.map(w => (w.army || []).map(u => u.unitTypeId || "")).filter(w => w.length > 0);
                     if (waves.length > 0) {
                         const clsName = String(node.__class__ || "").toLowerCase();
+                        const goodVal = node.good_id || (trackedEncounter && trackedEncounter.good) || "";
+                        const pSqVal = Number(node.playerSquadSize) || (trackedEncounter && trackedEncounter.pSq) || (trackedArmy && trackedArmy.squadSize) || 0;
+                        const eSqVal = Number(node.enemyWaves[0].squadSize) || 0;
+                        const provKey = goodVal ? getTournamentProvinceKey(goodVal, pSqVal, eSqVal, node.baseTournamentPointsAmount, node.provinceNumber || node.number) : ((trackedEncounter && trackedEncounter.provKey) || "");
                         let preservedObstacles = null;
                         if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && trackedEncounter.obstacles.length > 0) {
-                            if (areWavesCompatible(trackedEncounter.waves, waves)) {
+                            if (areWavesCompatible(trackedEncounter.waves, waves) || (provKey && trackedEncounter.provKey === provKey)) {
                                 preservedObstacles = trackedEncounter.obstacles;
+                            }
+                        }
+                        if (!preservedObstacles && provKey && tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles) && tournamentMapCache[provKey].obstacles.length > 0) {
+                            if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 6 * 86400) {
+                                preservedObstacles = tournamentMapCache[provKey].obstacles;
                             }
                         }
                         trackedEncounter = {
                             ts: now,
                             src: (clsName.includes("spire") || waves.length > 1) ? "spire" : ((trackedEncounter && trackedEncounter.src) || "encounter"),
-                            good: node.good_id || (trackedEncounter && trackedEncounter.good) || "",
-                            pSq: Number(node.playerSquadSize) || (trackedEncounter && trackedEncounter.pSq) || (trackedArmy && trackedArmy.squadSize) || 0,
-                            eSq: Number(node.enemyWaves[0].squadSize) || 0,
+                            good: goodVal,
+                            provKey: provKey,
+                            pSq: pSqVal,
+                            eSq: eSqVal,
                             waves: waves,
                             obstacles: preservedObstacles,
                             lastResult: trackedEncounter ? trackedEncounter.lastResult : null
@@ -980,10 +1022,19 @@
                     GM_setValue("ELVENAR_BATTLE_BOARD", JSON.stringify(battleBoard));
 
                     if (!trackedEncounter) {
-                        trackedEncounter = { ts: now, src: "tournament", good: "", pSq: 0, eSq: 0, waves: [], obstacles: uniqueObs, lastResult: null };
+                        trackedEncounter = { ts: now, src: "tournament", good: "", provKey: "", pSq: 0, eSq: 0, waves: [], obstacles: uniqueObs, lastResult: null };
                     } else {
                         trackedEncounter.obstacles = uniqueObs;
                         trackedEncounter.ts = now;
+                        if (trackedEncounter.provKey) {
+                            tournamentMapCache[trackedEncounter.provKey] = { obstacles: uniqueObs, ts: now };
+                            for (let mk in tournamentMapCache) {
+                                if (!tournamentMapCache[mk] || (now - (Number(tournamentMapCache[mk].ts) || 0)) > 6 * 86400) {
+                                    delete tournamentMapCache[mk];
+                                }
+                            }
+                            GM_setValue("ELVENAR_TOURNAMENT_MAP_CACHE", JSON.stringify(tournamentMapCache));
+                        }
                     }
                     GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
                     triggerLiveStreamPush();
