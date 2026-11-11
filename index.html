@@ -2394,7 +2394,8 @@
                   const backlineSafe = ((pUnit.rng || 1) >= 5 && reach <= 4) ? 0.35 : (((pUnit.rng || 1) >= 3 && reach <= 3) ? 0.65 : 1.0);
                   if (dy === 1) {
                     const exposure = (rng >= 3 || mv >= 4 || (pUnit.rng || 1) === 1) ? 1.30 : 1.0;
-                    neighborHazard += unmitigated * 32.0 * exposure * fragMult * backlineSafe;
+                    const lmVsLrMult = (eUnit.cls === "light_melee" && pUnit.cls === "light_ranged") ? 2.4 : 1.0;
+                    neighborHazard += unmitigated * 32.0 * exposure * fragMult * backlineSafe * lmVsLrMult;
                   } else if (dy === 2 && (rng >= 3 || reach >= 7)) {
                     neighborHazard += unmitigated * 18.0 * fragMult * backlineSafe;
                   } else if (rng >= 8) {
@@ -2523,7 +2524,7 @@
               }
             }
 
-            // Risk Guard v7.2: Choke-point & High-Stage Heavy-Ranged + Cannoneer + Range-5 Mage Protection
+            // Engine v7.3 (Risk Guard v7.2 + Rules 3S-1, 3S-2, 3S-3):
             if (isChokeRisk) {
               if (pUnit.base === "eb_lr") {
                 sWave -= 80.0 * Math.max(0.20, squadRatio - 1.1) + (hasCannoneer ? 45.0 : 0.0);
@@ -2535,6 +2536,33 @@
                 sWave += 20.0;
               } else if (pUnit.base === "mc_lr") {
                 sWave += 15.0;
+              }
+            }
+
+            // Rule 3S-1: Chống Bẫy Cô Lập Quân Cận Chiến Nhanh (Fast-Mover Suicide Trap - 3S-B21, 3S-B22, 3S-B26)
+            const obsCnt = (liveObstacles && Array.isArray(liveObstacles)) ? liveObstacles.length : 0;
+            if (squadRatio >= 1.35 && ((wCtx.lrCount + wCtx.maCount + wCtx.hrCount >= 3) || obsCnt >= 10)) {
+              if (pUnit.cls === "light_melee") {
+                sWave -= 55.0 * (squadRatio - 1.1) + 20.0;
+              }
+            }
+
+            // Rule 3S-2: Cảnh Báo Mưa Tên & Pháo Kích Ở Tỉnh Cực Cao (Artillery & Mass-Archer Sniping - 3S-B34, 3S-B35, 3S-B36)
+            if (squadRatio >= 1.80 && (wCtx.lrCount >= 2 || (wCtx.lrCount >= 1 && wCtx.hrCount >= 2))) {
+              if (pUnit.cls === "light_ranged") {
+                const baseHp = (pUnit.hp || 100) / (pUnit.wt || 1);
+                if (baseHp < 110) {
+                  sWave -= 65.0 * (squadRatio - 1.4);
+                }
+              }
+              if (pUnit.base === "eb_hr") {
+                sWave += 30.0;
+              } else if (pUnit.base === "mc_hr" && wCtx.lmCount === 0 && wCtx.maCount <= 1) {
+                sWave += 25.0;
+              } else if (pUnit.base === "eb_ma") {
+                sWave += 28.0;
+              } else if (pUnit.base === "tg_ma") {
+                sWave += 25.0;
               }
             }
 
@@ -2849,6 +2877,7 @@
 
       const pUnits = [];
       for (let i = 0; i < 5; i++) {
+        if (i >= playerUnitKeys.length || !playerUnitKeys[i]) continue;
         const pKey = playerUnitKeys[i];
         const u = resolveUnit(pKey);
         const hpMult = 1.0 + (buffs.hp || 0);
@@ -2884,6 +2913,7 @@
 
       const eUnits = [];
       for (let i = 0; i < 5; i++) {
+        if (i >= enemyUnitIds.length || !enemyUnitIds[i]) continue;
         const eId = enemyUnitIds[i];
         const u = resolveUnit(eId);
         const wt = u.wt || 1;
@@ -3032,9 +3062,14 @@
               const tgtBaseHp = ((tgt.hpPerUnit || 100) / (1.0 + hpBuff)) / (tgt.wt || 1);
 
               let fb = 0.0;
+              let forwardExposure = 0.0;
               if (attacker.team === 2) {
                 if (tgtBaseHp < 120) {
-                  fb = (120.0 - tgtBaseHp) * 1.2;
+                  fb = (120.0 - tgtBaseHp) * ((attacker.rng || 1) >= 4 ? 1.8 : 1.2);
+                }
+                if (tgt.x >= 3) {
+                  const exposureMult = tgtBaseHp <= 150 ? 1.5 : 1.0;
+                  forwardExposure = Math.max(0, tgt.x - 2) * 18.0 * exposureMult;
                 }
               }
 
@@ -3051,7 +3086,7 @@
               const canRetal = (tgt.retalLeft > 0 && hexDist(item.bestC, [tgt.x, tgt.y]) <= tgt.rng);
               const retalBonus = !canRetal ? 20.0 : 0.0;
 
-              const score = emTerm + (kr * 140.0) - stepPen - (dNow * 6.0) + fb + threatBonus + retalBonus;
+              const score = emTerm + (kr * 140.0) - stepPen - (dNow * 6.0) + fb + forwardExposure + threatBonus + retalBonus;
               if (score > bestScore) {
                 bestScore = score;
                 bestT = tgt;

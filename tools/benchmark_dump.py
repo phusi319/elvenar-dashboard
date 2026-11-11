@@ -237,8 +237,10 @@ def extract_dump_data(dump_path, allow_sibling_search=True):
     def get_battle_prov_num(b, star):
         st = b.get("state") or {}
         uo = st.get("unitsOrder") or []
-        p_sq = sum((u.get("startAmountOfUnits") or 0) * (u.get("unitType", {}).get("unitWeight") or 1) for u in uo if u.get("teamFlag") == 1) / 5.0
-        e_sq = sum((u.get("startAmountOfUnits") or 0) * (u.get("unitType", {}).get("unitWeight") or 1) for u in uo if u.get("teamFlag") == 2) / 5.0
+        p_list = [u for u in uo if u.get("teamFlag") == 1]
+        e_list = [u for u in uo if u.get("teamFlag") == 2]
+        p_sq = sum((u.get("startAmountOfUnits") or 0) * (u.get("unitType", {}).get("unitWeight") or 1) for u in p_list) / max(1, len(p_list))
+        e_sq = sum((u.get("startAmountOfUnits") or 0) * (u.get("unitType", {}).get("unitWeight") or 1) for u in e_list) / max(1, len(e_list))
         if p_sq <= 0:
             return None
         k = get_tournament_k(e_sq / p_sq)
@@ -317,10 +319,15 @@ def extract_dump_data(dump_path, allow_sibling_search=True):
             continue
         walk(parsed)
 
-    # Cross-Round Tournament Province Map Persistence (Star 1 -> Stars 2..6)
-    if allow_sibling_search and tournament_good and any(b.get("tournament_star", 1) > 1 and not b.get("obstacles") for b in battles):
+    # Cross-Round Tournament Province Map Persistence (Star 1 <-> Stars 2..6)
+    if allow_sibling_search and tournament_good and any(not b.get("obstacles") for b in battles):
         dump_dir = os.path.dirname(os.path.abspath(dump_path))
         prov_map_cache = {}
+        for sb in battles:
+            if sb.get("obstacles"):
+                p_num = get_battle_prov_num(sb, sb.get("tournament_star", 1))
+                if p_num:
+                    prov_map_cache[p_num] = sb["obstacles"]
         for sib_name in sorted(os.listdir(dump_dir)):
             if not sib_name.endswith(".json"):
                 continue
@@ -340,7 +347,7 @@ def extract_dump_data(dump_path, allow_sibling_search=True):
         if prov_map_cache:
             for b in battles:
                 b_star = b.get("tournament_star", 1)
-                if b_star > 1 and not b.get("obstacles"):
+                if not b.get("obstacles"):
                     p_num = get_battle_prov_num(b, b_star)
                     if p_num and p_num in prov_map_cache:
                         cand_obs = prov_map_cache[p_num]
@@ -409,17 +416,22 @@ def extract_dump_data(dump_path, allow_sibling_search=True):
             "heavy_ranged": spire_hr / 100.0
         }
 
-    # Extract military buffs from battle packets if present and hp not already found
-    if battles and active_buffs["hp"] == 0:
-        st = battles[0].get("state", {})
-        for u in st.get("unitsOrder", []):
-            if u.get("teamFlag") == 1:
-                ut = u.get("unitType", {})
-                start_hp = u.get("startHitpoints", 0)
-                base_hp = ut.get("hitpoints", 0)
-                if base_hp > 0 and start_hp > base_hp:
-                    active_buffs["hp"] = round((start_hp - base_hp) / base_hp, 3)
-                    break
+    # Always prioritize actual % HP Buff from startHitpoints / hitpoints of battle packets if present (mirrors elvenar-radar.user.js)
+    if battles:
+        found_hp = False
+        for b in battles:
+            st = b.get("state", {})
+            for u in st.get("unitsOrder", []):
+                if u.get("teamFlag") == 1:
+                    ut = u.get("unitType", {})
+                    start_hp = u.get("startHitpoints", 0)
+                    base_hp = ut.get("hitpoints", 0)
+                    if base_hp > 0 and start_hp > base_hp:
+                        active_buffs["hp"] = round((start_hp - base_hp) / base_hp, 3)
+                        found_hp = True
+                        break
+            if found_hp:
+                break
 
     # Defaults if not specifically detected (Pure City / Tournament Buffs)
     if active_buffs["hp"] == 0:
@@ -611,7 +623,8 @@ def recommend_heuristic(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000
                         backline_safe = 0.35 if (p_unit.get("rng", 1) >= 5 and reach <= 4) else (0.65 if (p_unit.get("rng", 1) >= 3 and reach <= 3) else 1.0)
                         if dy == 1:
                             exposure = 1.30 if (rng >= 3 or mv >= 4 or p_unit.get("rng", 1) == 1) else 1.0
-                            neighbor_hazard += unmitigated * 32.0 * exposure * frag_mult * backline_safe
+                            lm_vs_lr_mult = 2.4 if (e_unit["cls"] == "light_melee" and p_unit["cls"] == "light_ranged") else 1.0
+                            neighbor_hazard += unmitigated * 32.0 * exposure * frag_mult * backline_safe * lm_vs_lr_mult
                         elif dy == 2 and (rng >= 3 or reach >= 7):
                             neighbor_hazard += unmitigated * 18.0 * frag_mult * backline_safe
                         elif rng >= 8:
@@ -698,6 +711,27 @@ def recommend_heuristic(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000
                 elif p_unit["base"] == "mc_lr":
                     s_wave += 15.0
 
+            # Rule 3S-1: Chống Bẫy Cô Lập Quân Cận Chiến Nhanh (Fast-Mover Suicide Trap - 3S-B21, 3S-B22, 3S-B26)
+            obs_cnt = len(obstacle_set) if obstacle_set is not None else 0
+            if squad_ratio >= 1.35 and ((w_ctx["lrCount"] + w_ctx["maCount"] + w_ctx["hrCount"] >= 3) or obs_cnt >= 10):
+                if p_unit["cls"] == "light_melee":
+                    s_wave -= 55.0 * (squad_ratio - 1.1) + 20.0
+
+            # Rule 3S-2: Cảnh Báo Mưa Tên & Pháo Kích Ở Tỉnh Cực Cao (Artillery & Mass-Archer Sniping - 3S-B34, 3S-B35, 3S-B36)
+            if squad_ratio >= 1.80 and (w_ctx["lrCount"] >= 2 or (w_ctx["lrCount"] >= 1 and w_ctx["hrCount"] >= 2)):
+                if p_unit["cls"] == "light_ranged":
+                    base_hp = (p_unit.get("hp", 100)) / (p_unit.get("wt", 1))
+                    if base_hp < 110:
+                        s_wave -= 65.0 * (squad_ratio - 1.4)
+                if p_unit["base"] == "eb_hr":
+                    s_wave += 30.0
+                elif p_unit["base"] == "mc_hr" and w_ctx["lmCount"] == 0 and w_ctx["maCount"] <= 1:
+                    s_wave += 25.0
+                elif p_unit["base"] == "eb_ma":
+                    s_wave += 28.0
+                elif p_unit["base"] == "tg_ma":
+                    s_wave += 25.0
+
             cands.append((s_wave, p_key, p_unit["short"]))
         cands.sort(reverse=True)
         slots.append(cands)
@@ -738,6 +772,8 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
     p_units = []
     for i in range(5):
+        if i >= len(player_unit_keys) or not player_unit_keys[i]:
+            continue
         pkey = player_unit_keys[i]
         u = resolve_unit(pkey, player_tiers)
         hp_mult = 1.0 + active_buffs.get("hp", 0.0)
@@ -759,6 +795,8 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
     e_units = []
     for i in range(5):
+        if i >= len(enemy_unit_ids) or not enemy_unit_ids[i]:
+            continue
         eid = enemy_unit_ids[i]
         u = resolve_unit(eid, player_tiers)
         wt = u.get("wt", 1)
@@ -842,9 +880,13 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                     tgt_base_hp = (tgt["hp_per_unit"] / (1.0 + (active_buffs.get("hp", 0.0) if tgt["team"] == 1 else 0.0))) / tgt["wt"]
 
                     fb = 0.0
+                    forward_exposure = 0.0
                     if attacker["team"] == 2:
                         if tgt_base_hp < 120:
-                            fb = (120.0 - tgt_base_hp) * 1.2
+                            fb = (120.0 - tgt_base_hp) * (1.8 if attacker["rng"] >= 4 else 1.2)
+                        if tgt["x"] >= 3:
+                            exposure_mult = 1.5 if tgt_base_hp <= 150 else 1.0
+                            forward_exposure = max(0, tgt["x"] - 2) * 18.0 * exposure_mult
 
                     em_term = (em - 1.0) * 60.0 * min(1.3, 75.0 / tgt_base_hp)
                     threat_bonus = tgt["slot"] * 1.5
@@ -857,7 +899,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                     can_retal = (tgt["retal_left"] > 0 and hex_dist(best_c, (tgt["x"], tgt["y"])) <= tgt["rng"])
                     retal_bonus = 20.0 if not can_retal else 0.0
 
-                    score = em_term + (kr * 140.0) - step_pen - (d_now * 6.0) + fb + threat_bonus + retal_bonus
+                    score = em_term + (kr * 140.0) - step_pen - (d_now * 6.0) + fb + forward_exposure + threat_bonus + retal_bonus
                     if score > best_score:
                         best_score = score
                         best_t = tgt
@@ -1092,6 +1134,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     return final_slots
 
 
+recommend_v73 = recommend_v70
 recommend_v72 = recommend_v70
 recommend_v661 = recommend_v70
 recommend_v652 = recommend_v70
@@ -1148,12 +1191,13 @@ def run_benchmark(dump_file):
 
         p_units.sort(key=lambda x: x["slot"])
         e_units.sort(key=lambda x: x["slot"])
-        p_sq = int(sum(x["start"] * x["wt"] for x in p_units) / 5)
-        e_sq = int(sum(x["start"] * x["wt"] for x in e_units) / 5)
+        tot_p_weight = sum(x["start"] * x["wt"] for x in p_units)
+        p_sq = int(tot_p_weight / max(1, len(p_units)))
+        e_sq = int(sum(x["start"] * x["wt"] for x in e_units) / max(1, len(e_units)))
 
         actual_won = (st.get("winnerBit") == 1)
         tot_lost = sum((x["start"] - (x["end"] or 0)) * x["wt"] for x in p_units)
-        actual_loss_pct = tot_lost / (p_sq * 5) * 100.0 if p_sq > 0 else 0.0
+        actual_loss_pct = tot_lost / tot_p_weight * 100.0 if tot_p_weight > 0 else 0.0
         actual_records.append((actual_won, actual_loss_pct))
 
         wave = [x["id"] for x in e_units]
@@ -1199,7 +1243,7 @@ def run_benchmark(dump_file):
         print(f"{u_name:24} | {s['picks']:6d} | {avg_l:9.1f}% | {s['wiped']:3d} ({w_pct:4.0f}%)   | {s['under20']:3d} ({s_pct:4.0f}%)")
 
     print("\n" + "=" * 90)
-    print("OVERALL PERFORMANCE SUMMARY: ACTUAL PLAYED vs ACTUAL SIMULATED vs ADVISOR v7.2")
+    print("OVERALL PERFORMANCE SUMMARY: ACTUAL PLAYED vs ACTUAL SIMULATED vs ADVISOR v7.3")
     print("=" * 90)
     act_wins = sum(1 for w, _ in actual_records if w)
     act_avg = sum(l for _, l in actual_records) / len(actual_records)
@@ -1213,7 +1257,7 @@ def run_benchmark(dump_file):
     sim_fidelity_mae = sum(abs(actual_records[i][1] - actual_sim_results[i]["loss_pct"]) for i in range(len(actual_records))) / len(actual_records)
     fair_delta = act_sim_avg - sim_avg
 
-    print(f"{'Metric':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v7.2 (Sim)':22}")
+    print(f"{'Metric':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v7.3 (Sim)':22}")
     print("-" * 90)
     print(f"{'Win Rate':26} | {act_wins}/{len(actual_records)} ({act_wins/len(actual_records)*100:5.1f}%)          | {act_sim_wins}/{len(actual_sim_results)} ({act_sim_wins/len(actual_sim_results)*100:5.1f}%)          | {sim_wins}/{len(v72_sim_results)} ({sim_wins/len(v72_sim_results)*100:5.1f}%)")
     print(f"{'Average Casualties':26} | {act_avg:5.1f}%                 | {act_sim_avg:5.1f}%                 | {sim_avg:5.1f}%")
@@ -1222,7 +1266,7 @@ def run_benchmark(dump_file):
     print(f"[*] Fair Sim-vs-Sim Delta (Actual Sim Avg - Advisor Sim Avg): {fair_delta:+.2f} pts {'(Advisor Better)' if fair_delta > 0 else '(Advisor Worse)'}")
 
     print("\nCASUALTY DISTRIBUTION BRACKETS:")
-    print(f"{'Bracket':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v7.2 (Sim)':22}")
+    print(f"{'Bracket':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v7.3 (Sim)':22}")
     print("-" * 90)
     brackets = [
         ("< 15% (Flawless)", 0, 15),
@@ -1303,13 +1347,14 @@ def run_all_benchmark():
         p_units = sorted([u for u in units_order if u.get("teamFlag") == 1], key=lambda u: Y_TO_SLOT.get(u.get("startpos", {}).get("y", 0), 99))
         e_units = sorted([u for u in units_order if u.get("teamFlag") == 2], key=lambda u: Y_TO_SLOT.get(u.get("startpos", {}).get("y", 0), 99))
 
-        p_sq = int(sum(u["startAmountOfUnits"] * u["unitType"]["unitWeight"] for u in p_units) / 5)
-        e_sq = int(sum(u["startAmountOfUnits"] * u["unitType"]["unitWeight"] for u in e_units) / 5)
+        tot_p_weight = sum(u["startAmountOfUnits"] * u["unitType"]["unitWeight"] for u in p_units)
+        p_sq = int(tot_p_weight / max(1, len(p_units)))
+        e_sq = int(sum(u["startAmountOfUnits"] * u["unitType"]["unitWeight"] for u in e_units) / max(1, len(e_units)))
         buffs = {"hp": p_units[0]["startHitpoints"] / p_units[0]["unitType"]["hitpoints"] - 1, "atk": city_atk}
 
         actual_won = (st.get("winnerBit") == 1)
         tot_lost = sum((u["startAmountOfUnits"] - (u.get("amountOfUnits", 0) or 0)) * u["unitType"]["unitWeight"] for u in p_units)
-        actual_loss_pct = tot_lost / (p_sq * 5) * 100.0 if p_sq > 0 else 0.0
+        actual_loss_pct = tot_lost / tot_p_weight * 100.0 if tot_p_weight > 0 else 0.0
 
         wave = [u["unitType"]["unitTypeId"] for u in e_units]
         actual_p_keys = [u["unitType"]["unitTypeId"] for u in p_units]
