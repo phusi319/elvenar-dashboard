@@ -2298,7 +2298,7 @@
       const pSqVal = (state.enc && Number(state.enc.playerSquadSize)) || (state.arm && Number(state.arm.squadSize)) || 1000;
       const eSqVal = (state.enc && Number(state.enc.enemySquadSize)) || Math.round(pSqVal * 1.5);
       const squadRatio = pSqVal > 0 ? (eSqVal / pSqVal) : 1.5;
-      const liveObstacles = obstacleSet || ((!isManualOverride && state.enc && Array.isArray(state.enc.obstacles) && state.enc.obstacles.length > 0) ? state.enc.obstacles : null);
+      const liveObstacles = Array.isArray(obstacleSet) ? obstacleSet : ((!isManualOverride && state.enc && Array.isArray(state.enc.obstacles)) ? state.enc.obstacles : null);
 
       // Precompute wave class composition & long-reach hazards for each wave
       const waveContexts = waves.map(wave => {
@@ -2841,6 +2841,77 @@
         }
       }
       return dists;
+    }
+
+    const SEEDED_TOURNEY_MAPS = {
+      "planks_P31": [[2,1],[2,5],[3,1],[3,2],[4,3],[6,7]],
+      "planks_P32": [[1,2],[1,3],[1,5],[1,6],[2,2],[2,6],[5,1],[5,4]],
+      "planks_P33": [[1,7],[4,1],[4,2],[5,2],[5,4]],
+      "planks_P34": [[1,7],[2,1],[3,0],[3,1],[4,6],[4,7],[5,1],[5,6]],
+      "planks_P35": [[1,5],[2,1],[3,1],[3,2],[4,6],[4,7],[5,1],[5,6]],
+      "planks_P36": [[1,1],[1,2],[2,2],[5,1],[5,5],[6,1],[6,2]],
+      "crystal_P1": [[1,5],[1,6],[2,6],[5,5],[6,5],[6,6]],
+      "crystal_P2": [[1,2],[1,5],[2,2],[2,6],[2,7],[3,1],[3,2],[3,7],[4,6],[5,6],[6,5],[6,6]],
+      "crystal_P3": [[1,6],[1,7],[2,6],[4,6],[5,1],[5,2],[5,3],[5,6],[6,0],[6,5],[6,6]],
+      "crystal_P4": [[2,5],[3,4],[3,5],[4,1],[4,2],[4,5],[4,6],[5,2],[5,6]],
+      "crystal_P5": [[1,5],[1,6],[2,1],[2,6],[3,0],[3,1],[4,5],[5,1],[5,6],[5,7],[6,0],[6,1],[6,7]],
+      "crystal_P6": [[1,0],[2,0],[2,1],[3,2],[4,2],[5,2],[6,1],[6,2]],
+      "crystal_P7": [[1,3],[2,0],[2,1],[2,2],[2,5],[2,6],[2,7],[3,4]],
+      "crystal_P8": [[1,1],[1,2],[2,2],[2,5],[3,5],[3,6],[4,2],[4,3],[5,2],[5,5],[6,5],[6,6]],
+      "crystal_P9": [[1,5],[1,6],[2,1],[2,6],[3,0],[3,1],[4,2],[4,3],[5,2]],
+      "crystal_P10": [[2,1],[2,2],[2,3],[3,0]],
+      "crystal_P11": [[1,0],[2,0],[2,1],[3,2],[4,0],[4,5],[5,0],[5,1],[5,6],[5,7],[6,2],[6,7]],
+      "crystal_P12": [[1,1],[1,6],[1,7],[2,2],[2,3],[2,6],[3,3],[5,1],[6,1],[6,2]],
+      "crystal_P13": [[1,0],[1,5],[1,6],[2,0],[2,1],[2,5],[3,2],[3,5]],
+      "crystal_P14": [[1,1],[2,2],[2,3],[3,3],[4,1],[5,2],[5,3],[6,3]],
+      "crystal_P15": [[1,4],[2,4],[2,5],[3,6],[4,1],[4,2],[5,1],[6,1]],
+      "crystal_P16": [[1,1],[1,2],[1,5],[1,6],[2,1],[2,5],[3,1],[3,5],[4,0],[4,7],[5,0],[5,1],[5,4],[5,5],[5,6],[6,2]],
+      "crystal_P17": [[1,2],[1,4],[2,2],[2,4],[2,5],[3,1],[3,2],[3,6],[4,3],[5,0],[5,1],[5,2]],
+      "crystal_P18": [[1,1],[1,2],[1,6],[2,2],[2,6],[3,5],[3,6],[4,6],[4,7],[5,1],[5,6],[6,1],[6,2]],
+      "crystal_P19": [[1,1],[1,6],[2,2],[2,3],[2,6],[3,3],[3,5],[3,6],[4,2],[5,2],[5,5],[6,1],[6,2],[6,5],[6,6]],
+      "crystal_P20": [[2,1],[2,5],[3,1],[3,2],[3,5],[3,6],[4,0],[5,0],[5,1],[6,2]],
+      "crystal_P21": [[1,2],[1,5],[1,6],[2,2],[2,5],[3,1],[3,2],[3,5],[4,2],[5,2],[5,5],[5,6],[5,7],[6,1],[6,2],[6,4]],
+      "crystal_P22": [[1,5],[1,6],[2,1],[2,6],[3,1],[3,2],[4,2],[4,3],[4,5],[4,6],[5,2],[5,6]],
+      "crystal_P23": [[1,3],[1,6],[2,0],[2,1],[2,2],[2,6],[3,5],[3,6],[4,2],[5,2],[6,1],[6,2]],
+      "crystal_P24": [[1,2],[1,7],[2,2],[2,4],[2,5],[2,6],[3,1],[3,2],[4,7],[5,4],[5,5],[5,6]],
+      "crystal_P25": [[1,4],[2,4],[2,5],[3,6],[4,1],[4,7],[5,2],[5,3],[5,4],[5,5],[5,6],[6,3]],
+      "crystal_P26": [[1,1],[2,2],[2,3],[3,3],[4,4],[5,4],[5,5],[6,6]],
+      "crystal_P27": [[1,5],[1,6],[2,1],[2,6],[3,0],[3,1],[4,2],[4,3],[4,6],[4,7],[5,2],[5,6]],
+      "crystal_P28": [[1,3],[1,4],[2,0],[2,1],[2,2],[2,4],[2,5],[3,6],[4,3],[5,0],[5,1],[5,2]],
+      "crystal_P29": [],
+      "crystal_P30": [[2,1],[2,5],[3,1],[3,2],[3,4],[3,5],[4,0],[5,0],[5,1],[5,5],[6,2],[6,5],[6,6]],
+      "crystal_P31": [[1,5],[2,1],[2,2],[2,3],[2,6],[2,7],[3,0],[3,7],[4,5],[4,6],[5,5],[6,5]],
+      "crystal_P32": [[1,1],[1,2],[2,1],[3,1],[4,5],[5,1],[5,2],[5,3],[5,6],[5,7],[6,0],[6,7]],
+      "crystal_P33": [[1,7],[2,1],[2,4],[2,5],[2,6],[3,0],[3,1],[5,1],[5,5],[6,0],[6,1],[6,5],[6,6]],
+      "crystal_P34": [[1,6],[1,7],[2,1],[2,6],[3,1],[3,2],[5,1],[5,5],[5,6],[5,7],[6,0],[6,1],[6,4]],
+      "crystal_P35": [[1,1],[1,2],[1,5],[1,6],[2,1],[2,5],[3,1],[3,5],[4,1],[4,6],[5,2],[5,3],[5,6],[6,3],[6,5],[6,6]],
+      "crystal_P37": [[1,2],[2,2],[3,1],[3,2],[4,2],[4,5],[5,2],[5,6],[5,7],[6,1],[6,2],[6,7]]
+    };
+
+    window.cloudTourneyMaps = {};
+
+    function getTournamentK(r) {
+      if (r < 0.92) return Math.max(1, Math.round(r / 0.12595));
+      if (r < 1.08) return 7 + Math.round((r - 0.8816) / 0.0882);
+      if (r < 1.39) return 9 + Math.round((r - 1.0580) / 0.0454);
+      if (r < 2.03) return 16 + Math.round((r - 1.3757) / 0.0360);
+      return 35 + Math.max(0, Math.round((r - 2.0338) / 0.010));
+    }
+
+    function getTournamentProvinceKey(goodId, pSq, eSq, basePts, explicitNumber) {
+      const good = String(goodId || "tourney").toLowerCase();
+      if (explicitNumber && Number(explicitNumber) > 0) {
+        return `${good}_P${Number(explicitNumber)}`;
+      }
+      const p = Number(pSq) || 0;
+      const e = Number(eSq) || 0;
+      if (p <= 0 || e <= 0) return "";
+      const r = e / p;
+      const k = getTournamentK(r);
+      const pts = Number(basePts) || 30;
+      const star = (pts >= 30 && pts <= 60) ? Math.max(1, Math.min(6, Math.round((pts - 24) / 6))) : 1;
+      const provNum = Math.max(1, k - (star - 1));
+      return `${good}_P${provNum}`;
     }
 
     const OBSTACLE_PRESETS = [
@@ -3965,7 +4036,7 @@
             const pSqSize = Number(enc.playerSquadSize) || (state.arm && Number(state.arm.squadSize)) || 1000;
             const eSqSize = Number(enc.enemySquadSize) || Math.round(pSqSize * 1.5);
             const simBuffs = getActiveArmyBuffs();
-            const liveObstacles = (!isManualOverride && enc && Array.isArray(enc.obstacles) && enc.obstacles.length > 0) ? enc.obstacles : null;
+            const liveObstacles = (!isManualOverride && enc && Array.isArray(enc.obstacles)) ? enc.obstacles : null;
             const simRes = (advisorWaves && advisorWaves.length > 1)
               ? simulateMultiWave(recPKeys, advisorWaves, pSqSize, eSqSize, simBuffs, liveObstacles)
               : simulateBattle(recPKeys, curWave, pSqSize, eSqSize, simBuffs, liveObstacles);
@@ -4010,15 +4081,23 @@
                     <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
                       (Mất ~${simRes.lossPct}% • -${simRes.squadsLost} squads)
                     </span>
-                    ${(liveObstacles && liveObstacles.length > 0) ? `
-                      <span style="color:#38bdf8;font-weight:800;background:rgba(56, 189, 248, 0.15);padding:2px 7px;border-radius:4px;border:1px solid rgba(56, 189, 248, 0.4);margin-left:6px;" title="Bản đồ vật cản thật được trích xuất từ lúc Soi Map!">
-                        🗺️ ĐÃ KHÓA MAP THẬT (${liveObstacles.length} vật cản) • Loss thực tế: ~${Math.round(simRes.lossPct)}%
-                      </span>
-                    ` : `
-                      <span style="color:${mcRes.p90Loss >= 40 ? '#f87171' : (mcRes.p90Loss >= 25 ? '#facc15' : '#94a3b8')};font-weight:600;margin-left:6px;" title="Tổn thất tối đa trong kịch bản địa hình bất lợi nhất (p90)">
-                        ⛰️ Địa hình xấu (p90): ~${Math.round(mcRes.p90Loss)}%
-                      </span>
-                    `}
+                    ${(() => {
+                      const provMatch = (enc && enc.provKey) ? enc.provKey.match(/_P(\d+)/i) : null;
+                      const provLabel = provMatch ? ` Tỉnh P${provMatch[1]}` : ((enc && enc.provKey) ? ` ${enc.provKey}` : "");
+                      if (Array.isArray(liveObstacles)) {
+                        return `
+                          <span style="color:#38bdf8;font-weight:800;background:rgba(56, 189, 248, 0.15);padding:2px 7px;border-radius:4px;border:1px solid rgba(56, 189, 248, 0.4);margin-left:6px;" title="Bản đồ vật cản thật được đồng bộ từ Cloud / Seed!">
+                            🗺️ ĐÃ KHÓA MAP THẬT${provLabel} (${liveObstacles.length} vật cản • Cloud) • Dự báo: ~${Math.round(simRes.lossPct)}%
+                          </span>
+                        `;
+                      } else {
+                        return `
+                          <span style="color:#f59e0b;font-weight:800;background:rgba(245, 158, 11, 0.15);padding:2px 7px;border-radius:4px;border:1px solid rgba(245, 158, 11, 0.4);margin-left:6px;" title="Chưa có dữ liệu bản đồ địa hình của tỉnh này trên Cloud lẫn máy!">
+                            ⚠️ CHƯA CÓ MAP${provLabel} (Giả lập 21 mẫu: ~${Math.round(simRes.lossPct)}% | p90: ${Math.round(mcRes.p90Loss)}%) — Hãy vào Soi Map!
+                          </span>
+                        `;
+                      }
+                    })()}
                   </div>
                   <div class="adv-sim-slots">
                     ${simRes.slotLosses.map(sl => `
@@ -4040,7 +4119,7 @@
             const pSqSize = Number(enc.playerSquadSize) || (state.arm && Number(state.arm.squadSize)) || 1000;
             const eSqSize = Number(enc.enemySquadSize) || Math.round(pSqSize * 1.5);
             const simBuffs = getActiveArmyBuffs();
-            const liveObstacles = (!isManualOverride && enc && Array.isArray(enc.obstacles) && enc.obstacles.length > 0) ? enc.obstacles : null;
+            const liveObstacles = (!isManualOverride && enc && Array.isArray(enc.obstacles)) ? enc.obstacles : null;
             const backupLineup = slotRecs.map(cands => (cands[1] ? cands[1].key : (cands[0] ? cands[0].key : 'eb_lr_3')));
             const backupSim = (advisorWaves && advisorWaves.length > 1)
               ? simulateMultiWave(backupLineup, advisorWaves, pSqSize, eSqSize, simBuffs, liveObstacles)
@@ -4640,10 +4719,22 @@
         }
       }
 
-      // 7. Live Encounter Data: [ts, src, good, pSq, eSq, waves, lastResult, obstacles]
+      // 7. Live Encounter Data: [ts, src, good, pSq, eSq, waves, lastResult, obstacles, provKey]
       let enc = null;
       if (compact.enc && Array.isArray(compact.enc) && Array.isArray(compact.enc[5]) && compact.enc[5].length > 0) {
         const lr = compact.enc[6];
+        const rawProvKey = compact.enc[8] || (compact.enc[1] === "tournament" ? getTournamentProvinceKey(compact.enc[2], compact.enc[3], compact.enc[4]) : "");
+        let encObs = null;
+        if (Array.isArray(compact.enc[7])) {
+          encObs = compact.enc[7];
+        } else if (rawProvKey) {
+          const cloudEntry = window.cloudTourneyMaps ? window.cloudTourneyMaps[rawProvKey] : null;
+          if (cloudEntry) {
+            encObs = Array.isArray(cloudEntry.obstacles) ? cloudEntry.obstacles : (Array.isArray(cloudEntry) ? cloudEntry : (cloudEntry.ts ? [] : null));
+          } else if (SEEDED_TOURNEY_MAPS && Array.isArray(SEEDED_TOURNEY_MAPS[rawProvKey])) {
+            encObs = SEEDED_TOURNEY_MAPS[rawProvKey];
+          }
+        }
         enc = {
           ts: compact.enc[0] || 0,
           source: compact.enc[1] || "tournament",
@@ -4657,7 +4748,8 @@
             used: lr[2] || [],
             lost: lr[3] || []
           } : null,
-          obstacles: Array.isArray(compact.enc[7]) ? compact.enc[7] : null
+          obstacles: encObs,
+          provKey: rawProvKey
         };
       }
 
@@ -4742,6 +4834,30 @@
         .catch(err => {
           if (err.name !== 'AbortError') console.warn("[Firebase REST] Fetch error:", err);
           return null;
+        });
+    }
+
+    function fetchCloudTourneyMaps() {
+      if (!FIREBASE_DATABASE_URL) return;
+      fetch(`${FIREBASE_DATABASE_URL}/maps.json?t=${Date.now()}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data && typeof data === "object") {
+            window.cloudTourneyMaps = Object.assign({}, window.cloudTourneyMaps, data);
+            console.log(`[CloudMap] Loaded ${Object.keys(data).length} maps from Firebase maps.json`);
+            if (state && state.enc && state.enc.provKey && !state.enc.obstacles) {
+              const pk = state.enc.provKey;
+              const cloudEntry = window.cloudTourneyMaps[pk];
+              const obs = cloudEntry ? (Array.isArray(cloudEntry.obstacles) ? cloudEntry.obstacles : (Array.isArray(cloudEntry) ? cloudEntry : (cloudEntry.ts ? [] : null))) : null;
+              if (Array.isArray(obs)) {
+                state.enc.obstacles = obs;
+                renderAdvisorUI();
+              }
+            }
+          }
+        })
+        .catch(err => {
+          console.warn("[CloudMap] Error fetching maps.json:", err);
         });
     }
 
@@ -4867,6 +4983,7 @@
       console.log(`[Lifecycle] Wake up (${reason}) -> Resyncing immediately`);
       isFetchingTelegram = false;
       syncFromTelegramCloud(true);
+      fetchCloudTourneyMaps();
       tick();
     }
 
@@ -4899,6 +5016,8 @@
     setInterval(tick, 1000);
     initFirebaseWebSocket();
     syncFromTelegramCloud();
+    fetchCloudTourneyMaps();
+    setInterval(fetchCloudTourneyMaps, 60000);
     // True Realtime: 0 Polling needed when Firebase WebSocket is active!
     // Fallback check ONLY if WebSocket connection drops (every 30s)
     setInterval(() => {

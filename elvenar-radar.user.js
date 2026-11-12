@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.7.5
+// @version      6.7.6
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -200,10 +200,18 @@
     try { savedTourneyMapCache = JSON.parse(GM_getValue("ELVENAR_TOURNAMENT_MAP_CACHE", "{}")); } catch(e) {}
     let tournamentMapCache = (savedTourneyMapCache && typeof savedTourneyMapCache === "object") ? savedTourneyMapCache : {};
     const seedTs = Math.floor(Date.now() / 1000);
+    let cacheSanitized = false;
     for (let sk in SEEDED_TOURNEY_MAPS) {
-        if (!tournamentMapCache[sk] || !Array.isArray(tournamentMapCache[sk].obstacles) || tournamentMapCache[sk].obstacles.length === 0) {
-            tournamentMapCache[sk] = { obstacles: SEEDED_TOURNEY_MAPS[sk], ts: seedTs };
+        const seededObs = SEEDED_TOURNEY_MAPS[sk];
+        const entry = tournamentMapCache[sk];
+        // Làm sạch Cache: nếu chưa có, hoặc không phải mảng, hoặc số lượng vật cản lệch so với chuẩn hạt giống (đặc biệt sửa crystal_P1 bị nhiễm độc 12 vật cản)
+        if (!entry || !Array.isArray(entry.obstacles) || entry.obstacles.length !== seededObs.length) {
+            tournamentMapCache[sk] = { obstacles: seededObs, ts: seedTs };
+            cacheSanitized = true;
         }
+    }
+    if (cacheSanitized) {
+        try { GM_setValue("ELVENAR_TOURNAMENT_MAP_CACHE", JSON.stringify(tournamentMapCache)); } catch(e) {}
     }
 
     let lastSentText = "";
@@ -325,6 +333,94 @@
                 } catch(e) {}
             }
         });
+    }
+
+    function syncMapToCloud(provKey, obstacles, ts) {
+        if (!FIREBASE_DATABASE_URL || !provKey) return;
+        try {
+            const mapsUrl = FIREBASE_DATABASE_URL.replace('live.json', 'maps.json');
+            GM_xmlhttpRequest({
+                method: "PATCH",
+                url: mapsUrl,
+                headers: { "Content-Type": "application/json" },
+                data: JSON.stringify({
+                    [provKey]: {
+                        obstacles: Array.isArray(obstacles) ? obstacles : [],
+                        ts: Number(ts) || Math.floor(Date.now() / 1000)
+                    }
+                }),
+                onload: function(res) {
+                    console.log(`[CloudMap] Synced ${provKey} to Firebase maps.json (status: ${res.status})`);
+                },
+                onerror: function(err) {
+                    console.warn(`[CloudMap] Error syncing ${provKey} to Cloud:`, err);
+                }
+            });
+        } catch(e) {
+            console.warn("[CloudMap] syncMapToCloud exception:", e);
+        }
+    }
+
+    function initCloudMapsSync() {
+        if (!FIREBASE_DATABASE_URL) return;
+        try {
+            const mapsUrl = FIREBASE_DATABASE_URL.replace('live.json', 'maps.json');
+            GM_xmlhttpRequest({
+                method: "GET",
+                url: `${mapsUrl}?t=${Date.now()}`,
+                onload: function(res) {
+                    try {
+                        let cloudData = null;
+                        if (res.status >= 200 && res.status < 300 && res.responseText && res.responseText !== "null") {
+                            cloudData = JSON.parse(res.responseText);
+                        }
+                        let missingKeys = [];
+                        for (let sk in SEEDED_TOURNEY_MAPS) {
+                            if (!cloudData || !cloudData[sk] || (cloudData[sk].obstacles === undefined && SEEDED_TOURNEY_MAPS[sk].length > 0)) {
+                                missingKeys.push(sk);
+                            }
+                        }
+                        if (missingKeys.length > 0 || !cloudData) {
+                            console.log(`[CloudMap] Cloud maps missing ${missingKeys.length} seeds. Syncing tournamentMapCache to maps.json...`);
+                            GM_xmlhttpRequest({
+                                method: "PATCH",
+                                url: mapsUrl,
+                                headers: { "Content-Type": "application/json" },
+                                data: JSON.stringify(tournamentMapCache),
+                                onload: function(patchRes) {
+                                    console.log(`[CloudMap] Successfully synced seed maps to Firebase (status: ${patchRes.status})`);
+                                }
+                            });
+                        }
+                        if (cloudData && typeof cloudData === "object") {
+                            let updated = false;
+                            for (let ck in cloudData) {
+                                if (cloudData[ck]) {
+                                    const obs = Array.isArray(cloudData[ck].obstacles) ? cloudData[ck].obstacles : (cloudData[ck].ts ? [] : null);
+                                    if (Array.isArray(obs)) {
+                                        if (!tournamentMapCache[ck] || !Array.isArray(tournamentMapCache[ck].obstacles) || (cloudData[ck].ts && cloudData[ck].ts > (tournamentMapCache[ck].ts || 0))) {
+                                            tournamentMapCache[ck] = { obstacles: obs, ts: cloudData[ck].ts || Math.floor(Date.now() / 1000) };
+                                            updated = true;
+                                        }
+                                    }
+                                }
+                            }
+                            if (updated) {
+                                GM_setValue("ELVENAR_TOURNAMENT_MAP_CACHE", JSON.stringify(tournamentMapCache));
+                                console.log("[CloudMap] Merged latest cloud maps into local tournamentMapCache");
+                            }
+                        }
+                    } catch(e) {
+                        console.warn("[CloudMap] Failed to parse maps.json:", e);
+                    }
+                },
+                onerror: function(err) {
+                    console.warn("[CloudMap] Failed to fetch maps.json from Cloud:", err);
+                }
+            });
+        } catch(e) {
+            console.warn("[CloudMap] initCloudMapsSync exception:", e);
+        }
     }
 
     function saveResourceLedger() {
@@ -675,7 +771,15 @@
         return false;
     }
 
-    // Nhận diện chính xác 100% số Tỉnh Tournament P (bất biến qua 6 Sao: Star 1..6 có cùng 1 bản đồ địa hình)
+    // Nhận diện chính xác 100% số Tỉnh Tournament P (Piecewise formula - bất biến qua 6 Sao: Star 1..6 có cùng 1 bản đồ địa hình)
+    function getTournamentK(r) {
+        if (r < 0.92) return Math.max(1, Math.round(r / 0.12595));
+        if (r < 1.08) return 7 + Math.round((r - 0.8816) / 0.0882);
+        if (r < 1.39) return 9 + Math.round((r - 1.0580) / 0.0454);
+        if (r < 2.03) return 16 + Math.round((r - 1.3757) / 0.0360);
+        return 35 + Math.max(0, Math.round((r - 2.0338) / 0.010));
+    }
+
     function getTournamentProvinceKey(goodId, pSq, eSq, basePts, explicitNumber) {
         const good = String(goodId || "tourney").toLowerCase();
         if (explicitNumber && Number(explicitNumber) > 0) {
@@ -685,12 +789,10 @@
         const e = Number(eSq) || 0;
         if (p <= 0 || e <= 0) return "";
         const r = e / p;
-        const kIdx = (r <= 1.595)
-            ? (Math.round((r - 0.85) / 0.05) + 1)
-            : (Math.round((r - 1.60) / 0.036) + 16);
+        const k = getTournamentK(r);
         const pts = Number(basePts) || 30;
         const star = (pts >= 30 && pts <= 60) ? Math.max(1, Math.min(6, Math.round((pts - 24) / 6))) : 1;
-        const provNum = Math.max(1, kIdx - (star - 1));
+        const provNum = Math.max(1, k - (star - 1));
         return `${good}_P${provNum}`;
     }
 
@@ -936,14 +1038,17 @@
                             const eSqVal = Number(activeEnc.enemyWaves[0].squadSize) || 0;
                             const provKey = node.good_id ? getTournamentProvinceKey(node.good_id, pSqVal, eSqVal, node.baseTournamentPointsAmount, node.provinceNumber || node.number) : "";
                             let preservedObstacles = null;
-                            if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && trackedEncounter.obstacles.length > 0) {
-                                if (areWavesCompatible(trackedEncounter.waves, waves) || (provKey && trackedEncounter.provKey === provKey)) {
+                            if (provKey) {
+                                if (trackedEncounter && trackedEncounter.provKey === provKey && Array.isArray(trackedEncounter.obstacles)) {
                                     preservedObstacles = trackedEncounter.obstacles;
+                                } else if (tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles)) {
+                                    if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) {
+                                        preservedObstacles = tournamentMapCache[provKey].obstacles;
+                                    }
                                 }
-                            }
-                            if (!preservedObstacles && provKey && tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles) && tournamentMapCache[provKey].obstacles.length > 0) {
-                                if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) {
-                                    preservedObstacles = tournamentMapCache[provKey].obstacles;
+                            } else {
+                                if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && areWavesCompatible(trackedEncounter.waves, waves)) {
+                                    preservedObstacles = trackedEncounter.obstacles;
                                 }
                             }
                             trackedEncounter = {
@@ -971,14 +1076,17 @@
                         const eSqVal = Number(node.enemyWaves[0].squadSize) || 0;
                         const provKey = goodVal ? getTournamentProvinceKey(goodVal, pSqVal, eSqVal, node.baseTournamentPointsAmount, node.provinceNumber || node.number) : ((trackedEncounter && trackedEncounter.provKey) || "");
                         let preservedObstacles = null;
-                        if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && trackedEncounter.obstacles.length > 0) {
-                            if (areWavesCompatible(trackedEncounter.waves, waves) || (provKey && trackedEncounter.provKey === provKey)) {
+                        if (provKey) {
+                            if (trackedEncounter && trackedEncounter.provKey === provKey && Array.isArray(trackedEncounter.obstacles)) {
                                 preservedObstacles = trackedEncounter.obstacles;
+                            } else if (tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles)) {
+                                if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) {
+                                    preservedObstacles = tournamentMapCache[provKey].obstacles;
+                                }
                             }
-                        }
-                        if (!preservedObstacles && provKey && tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles) && tournamentMapCache[provKey].obstacles.length > 0) {
-                            if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) {
-                                preservedObstacles = tournamentMapCache[provKey].obstacles;
+                        } else {
+                            if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && areWavesCompatible(trackedEncounter.waves, waves)) {
+                                preservedObstacles = trackedEncounter.obstacles;
                             }
                         }
                         trackedEncounter = {
@@ -1054,7 +1162,7 @@
                     }
                 }
 
-                if (extractedObs.length > 0) {
+                if (mapCandidate || extractedObs.length > 0) {
                     const seenObs = new Set();
                     const uniqueObs = [];
                     extractedObs.forEach(pair => {
@@ -1079,6 +1187,7 @@
                         trackedEncounter.ts = now;
                         if (trackedEncounter.provKey) {
                             tournamentMapCache[trackedEncounter.provKey] = { obstacles: uniqueObs, ts: now };
+                            syncMapToCloud(trackedEncounter.provKey, uniqueObs, now);
                             for (let mk in tournamentMapCache) {
                                 if (!tournamentMapCache[mk] || (now - (Number(tournamentMapCache[mk].ts) || 0)) > 90 * 86400) {
                                     delete tournamentMapCache[mk];
@@ -1668,7 +1777,7 @@
     function buildCompactEncounterData() {
         if (!trackedEncounter || !Array.isArray(trackedEncounter.waves) || !trackedEncounter.waves.length) return null;
         const lr = trackedEncounter.lastResult;
-        const obs = (Array.isArray(trackedEncounter.obstacles) && trackedEncounter.obstacles.length > 0) ? trackedEncounter.obstacles : null;
+        const obs = Array.isArray(trackedEncounter.obstacles) ? trackedEncounter.obstacles : null;
         return [
             trackedEncounter.ts || 0,
             trackedEncounter.src || "tournament",
@@ -1677,7 +1786,8 @@
             trackedEncounter.eSq || 0,
             trackedEncounter.waves,
             lr ? [lr.win ? 1 : 0, lr.lossPct || 0, lr.wave || 1, lr.totalWaves || 1] : null,
-            obs
+            obs,
+            trackedEncounter.provKey || ""
         ];
     }
 
@@ -1988,6 +2098,7 @@
     setTimeout(createOrUpdateGameBadge, 1500);
     setTimeout(createOrUpdateGameBadge, 4000);
     setTimeout(syncLiveTelegramDashboard, 2500);
+    setTimeout(initCloudMapsSync, 2000);
     setTimeout(initCloudLedgerSync, 3500);
     setInterval(syncLiveTelegramDashboard, TELEGRAM_SYNC_INTERVAL_SEC * 1000);
 
