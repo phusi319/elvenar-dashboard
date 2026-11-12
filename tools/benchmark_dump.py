@@ -644,7 +644,16 @@ def recommend_heuristic(wave, active_buffs, player_tiers, p_sq=25000, e_sq=25000
             direct_atk = p_unit.get("atk", {}).get(target_eu["cls"], 0)
             direct_def = p_unit.get("def", {}).get(target_eu["cls"], 0)
             if direct_star == 0 and direct_atk == 0 and direct_def == 0:
-                s_wave -= 150.0
+                s_wave -= 2000.0  # Engine v7.4: Cấm tuyệt đối 0⭐ non-counter
+
+            # Engine v7.4: Kiểm soát chặt 1⭐ Secondary Counter (4S-B10 S1, 4S-B22 S2)
+            if direct_star == 1:
+                primary_3star_cls = next((c for c, st in p_unit.get("str", {}).items() if st == 3), None)
+                if primary_3star_cls and w_ctx["clsCounts"].get(primary_3star_cls, 0) == 0:
+                    # Ngoại lệ duy nhất: mc_hr (Faineant Frog II) tầm bắn 8 đối đầu light_ranged trên bản đồ dày đặc vật cản obs_cnt >= 12 (4S-B15 S5)
+                    is_frog_choke_exception = (p_key == "mc_hr" and target_eu["cls"] == "light_ranged" and (len(obstacle_set) if obstacle_set is not None else 0) >= 12)
+                    if not is_frog_choke_exception:
+                        s_wave -= 40.0
 
             if is_barracks_dual and any(w_ctx["clsCounts"].get(c, 0) > 0 for c in other_countered_cls) and not (p_unit["cls"] == "mage" and w_ctx["hasMistWalker"]):
                 s_wave += 6.0
@@ -874,7 +883,11 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                 for tgt, best_c, min_steps in cand_targets:
                     em = calc_eff_mult(attacker, tgt)
                     edmg = attacker["count"] * attacker["dmg_per_unit"] * em * DMG_EXPECTED_MULT
-                    kr = min(1.5, edmg / max(1.0, tgt["hp_pool"]))
+                    eff_dmg = min(edmg, tgt["hp_pool"])
+                    start_hp_pool = max(1.0, tgt.get("startCount", tgt["count"]) * tgt["hp_per_unit"])
+                    val_kr = eff_dmg / start_hp_pool
+                    finish_bonus = 28.0 if edmg >= tgt["hp_pool"] * 0.95 else 0.0
+                    kr_term = (val_kr * 135.0) + finish_bonus
                     d_now = hex_dist(start, (tgt["x"], tgt["y"]))
 
                     tgt_base_hp = (tgt["hp_per_unit"] / (1.0 + (active_buffs.get("hp", 0.0) if tgt["team"] == 1 else 0.0))) / tgt["wt"]
@@ -899,7 +912,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                     can_retal = (tgt["retal_left"] > 0 and hex_dist(best_c, (tgt["x"], tgt["y"])) <= tgt["rng"])
                     retal_bonus = 20.0 if not can_retal else 0.0
 
-                    score = em_term + (kr * 140.0) - step_pen - (d_now * 6.0) + fb + forward_exposure + threat_bonus + retal_bonus
+                    score = em_term + kr_term - step_pen - (d_now * 6.0) + fb + forward_exposure + threat_bonus + retal_bonus
                     if score > best_score:
                         best_score = score
                         best_t = tgt
@@ -1019,14 +1032,43 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     for s in range(5):
         v_keys = [c[1] for c in heuristic_slots[s][:6] if c[0] > 0.0]
         if not v_keys:
-            v_keys = [heuristic_slots[s][0][1]]
+            # Fallback Engine v7.4: Lọc top ứng viên có tương khắc thực sự (direct_star >= 2, sau đó >= 1), tuyệt đối không lấy 0⭐
+            target_eu = resolve_unit(waves_or_wave[0][s] if isinstance(waves_or_wave[0], (list, tuple)) else waves_or_wave[s], player_tiers)
+            t_cls = target_eu["cls"]
+            cands_counter = []
+            for item in heuristic_slots[s]:
+                score, k = item[0], item[1]
+                u_c = resolve_unit(k, player_tiers)
+                st = u_c.get("str", {}).get(t_cls, 0)
+                if st > 0:
+                    cands_counter.append((st, score, k))
+            cands_2star = [k for st, sc, k in cands_counter if st >= 2]
+            if cands_2star:
+                v_keys = cands_2star[:3]
+            else:
+                cands_1star = [k for st, sc, k in cands_counter if st >= 1]
+                v_keys = cands_1star[:3] if cands_1star else [heuristic_slots[s][0][1]]
         valid_slot_keys.append(v_keys)
 
     # Candidate Lineup Generation (Strictly Counter-Compliant)
     top1 = [heuristic_slots[s][0][1] for s in range(5)]
     top2 = [valid_slot_keys[s][min(1, len(valid_slot_keys[s]) - 1)] for s in range(5)]
 
-    cand_lineups = [tuple(top1), tuple(top2)]
+    # Pure 3⭐ Direct Lineup (Engine v7.4)
+    top_3star_direct = []
+    for s in range(5):
+        target_eu = resolve_unit(waves_or_wave[0][s] if isinstance(waves_or_wave[0], (list, tuple)) else waves_or_wave[s], player_tiers)
+        t_cls = target_eu["cls"]
+        best_3s_cand = None
+        for item in heuristic_slots[s]:
+            score, k = item[0], item[1]
+            u_c = resolve_unit(k, player_tiers)
+            if u_c.get("str", {}).get(t_cls, 0) == 3 and k in valid_slot_keys[s]:
+                best_3s_cand = k
+                break
+        top_3star_direct.append(best_3s_cand if best_3s_cand else top1[s])
+
+    cand_lineups = [tuple(top1), tuple(top2), tuple(top_3star_direct)]
 
     for s in range(5):
         for v_key in valid_slot_keys[s][1:]:
@@ -1106,6 +1148,34 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                     best_sim = trial_sim
                     best_h_avg = trial_h_avg
 
+    # 2-Opt Pairwise Slot Swap & Joint Polish (Engine v7.4)
+    for s1 in range(4):
+        for s2 in range(s1 + 1, 5):
+            # 1) Pairwise Swap: hoán vị hai ô s1 và s2 nếu cả hai đơn vị hợp lệ ở ô mới
+            u1, u2 = best_L[s1], best_L[s2]
+            if u1 != u2 and u2 in valid_slot_keys[s1] and u1 in valid_slot_keys[s2]:
+                swap_L = list(best_L)
+                swap_L[s1], swap_L[s2] = u2, u1
+                swap_obj, swap_sim, swap_h_avg = eval_lineup(swap_L)
+                if swap_obj < best_obj:
+                    best_obj = swap_obj
+                    best_L = swap_L
+                    best_sim = swap_sim
+                    best_h_avg = swap_h_avg
+
+            # 2) Joint Polish: thử thay đồng thời s1 và s2 bằng ứng viên top-2 của mỗi ô
+            cand1 = next((k for k in valid_slot_keys[s1] if k != best_L[s1]), None)
+            cand2 = next((k for k in valid_slot_keys[s2] if k != best_L[s2]), None)
+            if cand1 and cand2:
+                joint_L = list(best_L)
+                joint_L[s1], joint_L[s2] = cand1, cand2
+                joint_obj, joint_sim, joint_h_avg = eval_lineup(joint_L)
+                if joint_obj < best_obj:
+                    best_obj = joint_obj
+                    best_L = joint_L
+                    best_sim = joint_sim
+                    best_h_avg = joint_h_avg
+
     # Stage 3: Simulation-Ranked 1-Slot Swap Alternatives (Backup #2 and #3)
     final_slots = []
     for s in range(5):
@@ -1134,6 +1204,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     return final_slots
 
 
+recommend_v74 = recommend_v70
 recommend_v73 = recommend_v70
 recommend_v72 = recommend_v70
 recommend_v661 = recommend_v70
@@ -1206,8 +1277,8 @@ def run_benchmark(dump_file):
         actual_sim = simulate_battle(actual_p_keys, wave, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obs)
         actual_sim_results.append(actual_sim)
 
-        r72 = [c[0][1] for c in recommend_v72(wave, active_buffs, player_tiers, p_sq, e_sq, obstacle_set=obs)]
-        advisor_sim = simulate_battle(r72, wave, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obs)
+        r74 = [c[0][1] for c in recommend_v74(wave, active_buffs, player_tiers, p_sq, e_sq, obstacle_set=obs)]
+        advisor_sim = simulate_battle(r74, wave, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obs)
         v72_sim_results.append(advisor_sim)
 
         e_str = "/".join(resolve_unit(w)["short"][:4] for w in wave)
@@ -1243,7 +1314,7 @@ def run_benchmark(dump_file):
         print(f"{u_name:24} | {s['picks']:6d} | {avg_l:9.1f}% | {s['wiped']:3d} ({w_pct:4.0f}%)   | {s['under20']:3d} ({s_pct:4.0f}%)")
 
     print("\n" + "=" * 90)
-    print("OVERALL PERFORMANCE SUMMARY: ACTUAL PLAYED vs ACTUAL SIMULATED vs ADVISOR v7.3")
+    print("OVERALL PERFORMANCE SUMMARY: ACTUAL PLAYED vs ACTUAL SIMULATED vs ADVISOR v7.4")
     print("=" * 90)
     act_wins = sum(1 for w, _ in actual_records if w)
     act_avg = sum(l for _, l in actual_records) / len(actual_records)
@@ -1257,7 +1328,7 @@ def run_benchmark(dump_file):
     sim_fidelity_mae = sum(abs(actual_records[i][1] - actual_sim_results[i]["loss_pct"]) for i in range(len(actual_records))) / len(actual_records)
     fair_delta = act_sim_avg - sim_avg
 
-    print(f"{'Metric':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v7.3 (Sim)':22}")
+    print(f"{'Metric':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v7.4 (Sim)':22}")
     print("-" * 90)
     print(f"{'Win Rate':26} | {act_wins}/{len(actual_records)} ({act_wins/len(actual_records)*100:5.1f}%)          | {act_sim_wins}/{len(actual_sim_results)} ({act_sim_wins/len(actual_sim_results)*100:5.1f}%)          | {sim_wins}/{len(v72_sim_results)} ({sim_wins/len(v72_sim_results)*100:5.1f}%)")
     print(f"{'Average Casualties':26} | {act_avg:5.1f}%                 | {act_sim_avg:5.1f}%                 | {sim_avg:5.1f}%")
@@ -1266,7 +1337,7 @@ def run_benchmark(dump_file):
     print(f"[*] Fair Sim-vs-Sim Delta (Actual Sim Avg - Advisor Sim Avg): {fair_delta:+.2f} pts {'(Advisor Better)' if fair_delta > 0 else '(Advisor Worse)'}")
 
     print("\nCASUALTY DISTRIBUTION BRACKETS:")
-    print(f"{'Bracket':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v7.3 (Sim)':22}")
+    print(f"{'Bracket':26} | {'Actual Played (Real)':22} | {'Actual Lineup (Sim)':22} | {'Advisor v7.4 (Sim)':22}")
     print("-" * 90)
     brackets = [
         ("< 15% (Flawless)", 0, 15),

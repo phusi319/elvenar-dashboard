@@ -2425,7 +2425,18 @@
             const directAtk = (pUnit.atk && pUnit.atk[targetEu.cls]) || 0;
             const directDef = (pUnit.def && pUnit.def[targetEu.cls]) || 0;
             if (directStar === 0 && directAtk === 0 && directDef === 0) {
-              sWave -= 150.0;
+              sWave -= 2000.0;
+            }
+
+            // Engine v7.4: Kiểm soát chặt 1⭐ Secondary Counter (4S-B10 S1, 4S-B22 S2)
+            if (directStar === 1) {
+              const primary3StarCls = Object.keys(pUnit.str || {}).find(c => pUnit.str[c] === 3);
+              if (primary3StarCls && (wCtx.clsCounts[primary3StarCls] || 0) === 0) {
+                const isFrogChokeException = (pKey.startsWith("mc_hr") && targetEu.cls === "light_ranged" && (liveObstacles ? liveObstacles.length : 0) >= 12);
+                if (!isFrogChokeException) {
+                  sWave -= 40.0;
+                }
+              }
             }
 
             // Wave-level Dual-Class Coverage Bonus for 2⭐/2⭐ Barracks units when wave contains both countered classes
@@ -2608,14 +2619,40 @@
         });
         let vKeys = rawSlotCandidates[s].slice(0, 6).filter(c => c.score > 0.0).map(c => c.key);
         if (vKeys.length === 0 && rawSlotCandidates[s].length > 0) {
-          vKeys = [rawSlotCandidates[s][0].key];
+          const targetEu = resolveUnit(waves[0][s]);
+          const tCls = targetEu ? targetEu.cls : '';
+          const candsCounter = [];
+          rawSlotCandidates[s].forEach(c => {
+            const uC = resolveUnit(c.key);
+            const st = (uC && uC.str && uC.str[tCls]) || 0;
+            if (st > 0) candsCounter.push({ st, score: c.score, key: c.key });
+          });
+          const cands2Star = candsCounter.filter(item => item.st >= 2).map(item => item.key);
+          if (cands2Star.length > 0) {
+            vKeys = cands2Star.slice(0, 3);
+          } else {
+            const cands1Star = candsCounter.filter(item => item.st >= 1).map(item => item.key);
+            vKeys = cands1Star.length > 0 ? cands1Star.slice(0, 3) : [rawSlotCandidates[s][0].key];
+          }
         }
         validSlotKeys.push(vKeys);
       }
 
       const top1 = [0, 1, 2, 3, 4].map(s => rawSlotCandidates[s][0].key);
       const top2 = [0, 1, 2, 3, 4].map(s => validSlotKeys[s][Math.min(1, validSlotKeys[s].length - 1)]);
-      const candLineups = [top1, top2];
+
+      // Pure 3⭐ Direct Lineup (Engine v7.4)
+      const top3StarDirect = [0, 1, 2, 3, 4].map(s => {
+        const targetEu = resolveUnit(waves[0][s]);
+        const tCls = targetEu ? targetEu.cls : '';
+        const best3s = rawSlotCandidates[s].find(c => {
+          const uC = resolveUnit(c.key);
+          return uC && uC.str && uC.str[tCls] === 3 && validSlotKeys[s].includes(c.key);
+        });
+        return best3s ? best3s.key : top1[s];
+      });
+
+      const candLineups = [top1, top2, top3StarDirect];
 
       for (let s = 0; s < 5; s++) {
         for (let vi = 1; vi < validSlotKeys[s].length; vi++) {
@@ -2719,6 +2756,41 @@
             if (r.obj < bestObj) {
               bestObj = r.obj;
               bestL = trialL;
+              bestSim = r.sim;
+              bestHAvg = r.hAvg;
+            }
+          }
+        }
+      }
+
+      // 2-Opt Pairwise Slot Swap & Joint Polish (Engine v7.4)
+      for (let s1 = 0; s1 < 4; s1++) {
+        for (let s2 = s1 + 1; s2 < 5; s2++) {
+          const u1 = bestL[s1];
+          const u2 = bestL[s2];
+          if (u1 !== u2 && validSlotKeys[s1].includes(u2) && validSlotKeys[s2].includes(u1)) {
+            const swapL = [...bestL];
+            swapL[s1] = u2;
+            swapL[s2] = u1;
+            const r = evalLineup(swapL);
+            if (r.obj < bestObj) {
+              bestObj = r.obj;
+              bestL = swapL;
+              bestSim = r.sim;
+              bestHAvg = r.hAvg;
+            }
+          }
+
+          const cand1 = validSlotKeys[s1].find(k => k !== bestL[s1]);
+          const cand2 = validSlotKeys[s2].find(k => k !== bestL[s2]);
+          if (cand1 && cand2) {
+            const jointL = [...bestL];
+            jointL[s1] = cand1;
+            jointL[s2] = cand2;
+            const r = evalLineup(jointL);
+            if (r.obj < bestObj) {
+              bestObj = r.obj;
+              bestL = jointL;
               bestSim = r.sim;
               bestHAvg = r.hAvg;
             }
@@ -2939,7 +3011,7 @@
       [[1, 1], [1, 2], [1, 5], [1, 6], [2, 1], [2, 5], [3, 1], [3, 5], [4, 0], [4, 7], [5, 0], [5, 1], [5, 4], [5, 5], [5, 6], [6, 2]]
     ];
 
-    function simulateBattle(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet = null, initialCounts = null) {
+    function simulateBattle(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet = null, initialCounts = null, adverseMode = false) {
       const pSq = playerSquadSize || (state.enc && state.enc.playerSquadSize) || (state.arm && state.arm.squadSize) || 1000;
       const eSq = enemySquadSize || (state.enc && state.enc.enemySquadSize) || Math.round(pSq * 1.5);
       const buffs = activeBuffs || getActiveArmyBuffs();
@@ -3125,8 +3197,13 @@
               const item = candTargets[cIdx];
               const tgt = item.tgt;
               const em = calcEffMult(attacker, tgt);
-              const edmg = attacker.count * attacker.dmgPerUnit * em * DMG_EXPECTED_MULT;
-              const kr = Math.min(1.5, edmg / Math.max(1.0, tgt.hpPool));
+              const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? 1.08 : 1.0);
+              const edmg = attacker.count * attacker.dmgPerUnit * em * DMG_EXPECTED_MULT * atkDmgMult;
+              const effDmg = Math.min(edmg, tgt.hpPool);
+              const startHpPool = Math.max(1.0, (tgt.startCount || tgt.count) * tgt.hpPerUnit);
+              const valKr = effDmg / startHpPool;
+              const finishBonus = edmg >= (tgt.hpPool * 0.95) ? 28.0 : 0.0;
+              const krTerm = (valKr * 135.0) + finishBonus;
               const dNow = hexDist(start, [tgt.x, tgt.y]);
 
               const hpBuff = tgt.team === 1 ? (buffs.hp || 0.0) : 0.0;
@@ -3157,7 +3234,7 @@
               const canRetal = (tgt.retalLeft > 0 && hexDist(item.bestC, [tgt.x, tgt.y]) <= tgt.rng);
               const retalBonus = !canRetal ? 20.0 : 0.0;
 
-              const score = emTerm + (kr * 140.0) - stepPen - (dNow * 6.0) + fb + forwardExposure + threatBonus + retalBonus;
+              const score = emTerm + krTerm - stepPen - (dNow * 6.0) + fb + forwardExposure + threatBonus + retalBonus;
               if (score > bestScore) {
                 bestScore = score;
                 bestT = tgt;
@@ -3168,7 +3245,8 @@
             attacker.x = bestPos[0];
             attacker.y = bestPos[1];
             const effMult = calcEffMult(attacker, bestT);
-            const dealtDmg = attacker.count * attacker.dmgPerUnit * effMult * DMG_EXPECTED_MULT;
+            const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? 1.08 : 1.0);
+            const dealtDmg = attacker.count * attacker.dmgPerUnit * effMult * DMG_EXPECTED_MULT * atkDmgMult;
             bestT.hpPool = Math.max(0.0, bestT.hpPool - dealtDmg);
             bestT.count = bestT.hpPool > 0 ? Math.ceil(bestT.hpPool / bestT.hpPerUnit) : 0;
 
@@ -3188,7 +3266,8 @@
 
             if (bestT.count > 0 && bestT.retalLeft > 0 && hexDist([attacker.x, attacker.y], [bestT.x, bestT.y]) <= bestT.rng) {
               const retEffMult = calcEffMult(bestT, attacker);
-              const retDmg = bestT.count * bestT.dmgPerUnit * retEffMult * DMG_EXPECTED_MULT * RETALIATION_MULT;
+              const retDmgMult = bestT.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? 1.08 : 1.0);
+              const retDmg = bestT.count * bestT.dmgPerUnit * retEffMult * DMG_EXPECTED_MULT * RETALIATION_MULT * retDmgMult;
               attacker.hpPool = Math.max(0.0, attacker.hpPool - retDmg);
               attacker.count = attacker.hpPool > 0 ? Math.ceil(attacker.hpPool / attacker.hpPerUnit) : 0;
               bestT.retalLeft -= 1;
@@ -3270,12 +3349,12 @@
       };
     }
 
-    function simulateMultiWave(playerUnitKeys, waves, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet = null) {
+    function simulateMultiWave(playerUnitKeys, waves, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet = null, adverseMode = false) {
       if (!waves || waves.length === 0) {
         return { won: true, lossPct: 0.0, rounds: 0, endCounts: [0, 0, 0, 0, 0], squadsRemaining: 5.0, squadsLost: 0.0, slotLosses: [] };
       }
       if (waves.length === 1) {
-        return simulateBattle(playerUnitKeys, waves[0], playerSquadSize, enemySquadSize, activeBuffs, obstacleSet);
+        return simulateBattle(playerUnitKeys, waves[0], playerSquadSize, enemySquadSize, activeBuffs, obstacleSet, null, adverseMode);
       }
 
       const pSq = playerSquadSize || (state.enc && state.enc.playerSquadSize) || (state.arm && state.arm.squadSize) || 1000;
@@ -3291,7 +3370,7 @@
       let totalRounds = 0;
       for (let wIdx = 0; wIdx < waves.length; wIdx++) {
         const w = waves[wIdx];
-        const res = simulateBattle(playerUnitKeys, w, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet, curCounts);
+        const res = simulateBattle(playerUnitKeys, w, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet, curCounts, adverseMode);
         lastRes = res;
         totalRounds += res.rounds;
         if (!res.won) {
@@ -3327,6 +3406,13 @@
         rounds: totalRounds,
         endCounts: curCounts
       };
+    }
+
+    function simulateBattleAdverse(playerUnitKeys, wavesOrWave, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet = null) {
+      if (wavesOrWave && wavesOrWave.length > 1 && Array.isArray(wavesOrWave[0])) {
+        return simulateMultiWave(playerUnitKeys, wavesOrWave, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet, true);
+      }
+      return simulateBattle(playerUnitKeys, wavesOrWave, playerSquadSize, enemySquadSize, activeBuffs, obstacleSet, null, true);
     }
 
     function simulateBattleMonteCarlo(playerUnitKeys, enemyUnitIds, playerSquadSize, enemySquadSize, activeBuffs) {
@@ -4040,7 +4126,12 @@
             const simRes = (advisorWaves && advisorWaves.length > 1)
               ? simulateMultiWave(recPKeys, advisorWaves, pSqSize, eSqSize, simBuffs, liveObstacles)
               : simulateBattle(recPKeys, curWave, pSqSize, eSqSize, simBuffs, liveObstacles);
-            const mcRes = simulateBattleMonteCarlo(recPKeys, (advisorWaves && advisorWaves.length > 1) ? advisorWaves : curWave, pSqSize, eSqSize, simBuffs);
+            const adverseRes = Array.isArray(liveObstacles)
+              ? simulateBattleAdverse(recPKeys, (advisorWaves && advisorWaves.length > 1) ? advisorWaves : curWave, pSqSize, eSqSize, simBuffs, liveObstacles)
+              : null;
+            const mcRes = !Array.isArray(liveObstacles)
+              ? simulateBattleMonteCarlo(recPKeys, (advisorWaves && advisorWaves.length > 1) ? advisorWaves : curWave, pSqSize, eSqSize, simBuffs)
+              : null;
 
             let simCardClass = 'sim-safe';
             let titleText = hasCustomSlots ? '📊 DỰ BÁO: ĐỘI HÌNH TÙY CHỈNH CỦA BẠN' : '🔵 DỰ BÁO: THẮNG AN TOÀN (SAFE AUTO)';
@@ -4071,29 +4162,51 @@
                   </div>
                 </div>
                 <div class="adv-sim-body">
-                  ${(mcRes.p90Loss >= 45 || mcRes.winRate < 95) ? `
-                    <div class="cater-warning-badge" style="background:rgba(239, 68, 68, 0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-                      ⚠️ RỦI RO CAO (p90: ~${Math.round(mcRes.p90Loss)}%) — NÊN ĐÀM PHÁN (CATER)
-                    </div>
-                  ` : ''}
+                  ${(() => {
+                    if (Array.isArray(liveObstacles) && adverseRes) {
+                      if (!simRes.won || !adverseRes.won || simRes.lossPct >= 42 || adverseRes.lossPct >= 52) {
+                        const adverseLossText = !adverseRes.won ? '100% THUA' : ('~' + Math.round(adverseRes.lossPct) + '%');
+                        return `
+                          <div class="cater-warning-badge" style="background:rgba(239, 68, 68, 0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                            ⚠️ RỦI RO CAO TRÊN MAP THẬT (Chuẩn: ~${Math.round(simRes.lossPct)}% | Xấu: ${adverseLossText}) — NÊN ĐÀM PHÁN (CATER)!
+                          </div>
+                        `;
+                      }
+                      return '';
+                    } else if (mcRes && (mcRes.p90Loss >= 45 || mcRes.winRate < 95)) {
+                      return `
+                        <div class="cater-warning-badge" style="background:rgba(239, 68, 68, 0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                          ⚠️ RỦI RO ĐỊA HÌNH CHƯA BIẾT (Map xấu p90: ~${Math.round(mcRes.p90Loss)}%) — HÃY SOI MAP HOẶC CATER!
+                        </div>
+                      `;
+                    }
+                    return '';
+                  })()}
                   <div class="adv-sim-stat">
                     <span>🛡️ Lực lượng bảo toàn: <strong>${simRes.squadsRemaining} / 5.0 Squads</strong></span>
-                    <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
-                      (Mất ~${simRes.lossPct}% • -${simRes.squadsLost} squads)
-                    </span>
+                    ${Array.isArray(liveObstacles) && adverseRes ? `
+                      <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
+                        (Dự báo chuẩn: ~${simRes.lossPct}% • -${simRes.squadsLost} squads | Kịch bản xấu RNG: ~${adverseRes.lossPct}%)
+                      </span>
+                    ` : `
+                      <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
+                        (Mất ~${simRes.lossPct}% • -${simRes.squadsLost} squads)
+                      </span>
+                    `}
                     ${(() => {
                       const provMatch = (enc && enc.provKey) ? enc.provKey.match(/_P(\d+)/i) : null;
                       const provLabel = provMatch ? ` Tỉnh P${provMatch[1]}` : ((enc && enc.provKey) ? ` ${enc.provKey}` : "");
                       if (Array.isArray(liveObstacles)) {
                         return `
                           <span style="color:#38bdf8;font-weight:800;background:rgba(56, 189, 248, 0.15);padding:2px 7px;border-radius:4px;border:1px solid rgba(56, 189, 248, 0.4);margin-left:6px;" title="Bản đồ vật cản thật được đồng bộ từ Cloud / Seed!">
-                            🗺️ ĐÃ KHÓA MAP THẬT${provLabel} (${liveObstacles.length} vật cản • Cloud) • Dự báo: ~${Math.round(simRes.lossPct)}%
+                            🗺️ ĐÃ KHÓA MAP THẬT${provLabel} (${liveObstacles.length} vật cản • Cloud)
                           </span>
                         `;
                       } else {
+                        const p90Val = mcRes ? Math.round(mcRes.p90Loss) : Math.round(simRes.lossPct);
                         return `
                           <span style="color:#f59e0b;font-weight:800;background:rgba(245, 158, 11, 0.15);padding:2px 7px;border-radius:4px;border:1px solid rgba(245, 158, 11, 0.4);margin-left:6px;" title="Chưa có dữ liệu bản đồ địa hình của tỉnh này trên Cloud lẫn máy!">
-                            ⚠️ CHƯA CÓ MAP${provLabel} (Giả lập 21 mẫu: ~${Math.round(simRes.lossPct)}% | p90: ${Math.round(mcRes.p90Loss)}%) — Hãy vào Soi Map!
+                            ⚠️ CHƯA CÓ MAP${provLabel} (Giả lập 21 mẫu: ~${Math.round(simRes.lossPct)}% | p90: ${p90Val}%) — Hãy vào Soi Map!
                           </span>
                         `;
                       }
