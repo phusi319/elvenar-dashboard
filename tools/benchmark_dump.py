@@ -830,6 +830,14 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
         d_deb = target["def_debuff"]["val"] / 100.0
         return (1.0 + atk_b) * (1.0 + a_deb) * (1.0 - def_b) * (1.0 - d_deb)
 
+    # v7.6 team_init assignment per team (InnoGames Interleaving Law)
+    for team_units in (p_units, e_units):
+        init_counts = {}
+        for u in sorted(team_units, key=lambda x: x["slot"]):
+            i_val = u["init"]
+            init_counts[i_val] = init_counts.get(i_val, 0) + 1
+            u["team_init"] = init_counts[i_val]
+
     obs_list = [tuple(o) for o in (obstacle_set or [])]
     obs_set = set(obs_list)
 
@@ -849,7 +857,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
             u["retal_left"] = u["retal_max"]
 
         all_units = [u for u in p_units + e_units if u["count"] > 0]
-        all_units.sort(key=lambda u: (u["init"], 1 if u["team"] == 1 else 0, u["slot"]), reverse=True)
+        all_units.sort(key=lambda u: (u["init"], u["team_init"], 1 if (u["team"] == 1 or u["team"] == "P") else 0, u["slot"]), reverse=True)
 
         for attacker in all_units:
             if attacker["count"] <= 0: continue
@@ -1077,16 +1085,25 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
             var_L[s] = v_key
             cand_lineups.append(tuple(var_L))
 
-    # Cohesive Counter Lineups: group slots using the same unit ONLY where that unit is a valid Top-3 counter
+    # Cohesive Counter Lineups & Mono-Core + Specialist (4-1 / 3-2) (Engine v7.6)
     for u in PLAYER_UNIT_KEYS:
-        cohesive_L = list(top1)
-        placed = 0
-        for s in range(5):
-            if u in valid_slot_keys[s]:
+        matching_slots = [s for s in range(5) if u in valid_slot_keys[s]]
+        if len(matching_slots) >= 2:
+            cohesive_L = list(top1)
+            for s in matching_slots:
                 cohesive_L[s] = u
-                placed += 1
-        if placed >= 2:
             cand_lineups.append(tuple(cohesive_L))
+
+            # Specialist variants (4-1 / 3-2): place top_3star_direct or top2 in remaining slots
+            if len(matching_slots) < 5:
+                cohesive_3s = list(cohesive_L)
+                cohesive_top2 = list(cohesive_L)
+                for s in range(5):
+                    if s not in matching_slots:
+                        cohesive_3s[s] = top_3star_direct[s]
+                        cohesive_top2[s] = top2[s]
+                cand_lineups.append(tuple(cohesive_3s))
+                cand_lineups.append(tuple(cohesive_top2))
 
     unique_cands = []
     seen = set()
@@ -1149,47 +1166,57 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
             best_sim = sim
             best_h_avg = h_avg
 
-    # 1-Pass Coordinate Polish (Strictly within valid_slot_keys[s])
-    for s in range(5):
-        cur_unit = best_L[s]
-        for cand_unit in valid_slot_keys[s]:
-            if cand_unit != cur_unit:
-                trial_L = list(best_L)
-                trial_L[s] = cand_unit
-                trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L)
-                if trial_obj < best_obj:
-                    best_obj = trial_obj
-                    best_L = trial_L
-                    best_sim = trial_sim
-                    best_h_avg = trial_h_avg
+    # 2-Iteration Coordinate + 2-Opt Polish (Engine v7.6)
+    for _iter in range(2):
+        iter_improved = False
 
-    # 2-Opt Pairwise Slot Swap & Joint Polish (Engine v7.4)
-    for s1 in range(4):
-        for s2 in range(s1 + 1, 5):
-            # 1) Pairwise Swap: hoán vị hai ô s1 và s2 nếu cả hai đơn vị hợp lệ ở ô mới
-            u1, u2 = best_L[s1], best_L[s2]
-            if u1 != u2 and u2 in valid_slot_keys[s1] and u1 in valid_slot_keys[s2]:
-                swap_L = list(best_L)
-                swap_L[s1], swap_L[s2] = u2, u1
-                swap_obj, swap_sim, swap_h_avg = eval_lineup(swap_L)
-                if swap_obj < best_obj:
-                    best_obj = swap_obj
-                    best_L = swap_L
-                    best_sim = swap_sim
-                    best_h_avg = swap_h_avg
+        # Coordinate Polish (Strictly within valid_slot_keys[s])
+        for s in range(5):
+            cur_unit = best_L[s]
+            for cand_unit in valid_slot_keys[s]:
+                if cand_unit != cur_unit:
+                    trial_L = list(best_L)
+                    trial_L[s] = cand_unit
+                    trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L)
+                    if trial_obj < best_obj:
+                        best_obj = trial_obj
+                        best_L = trial_L
+                        best_sim = trial_sim
+                        best_h_avg = trial_h_avg
+                        iter_improved = True
 
-            # 2) Joint Polish: thử thay đồng thời s1 và s2 bằng ứng viên top-2 của mỗi ô
-            cand1 = next((k for k in valid_slot_keys[s1] if k != best_L[s1]), None)
-            cand2 = next((k for k in valid_slot_keys[s2] if k != best_L[s2]), None)
-            if cand1 and cand2:
-                joint_L = list(best_L)
-                joint_L[s1], joint_L[s2] = cand1, cand2
-                joint_obj, joint_sim, joint_h_avg = eval_lineup(joint_L)
-                if joint_obj < best_obj:
-                    best_obj = joint_obj
-                    best_L = joint_L
-                    best_sim = joint_sim
-                    best_h_avg = joint_h_avg
+        # 2-Opt Pairwise Slot Swap & Joint Polish
+        for s1 in range(4):
+            for s2 in range(s1 + 1, 5):
+                # 1) Pairwise Swap: hoán vị hai ô s1 và s2 nếu cả hai đơn vị hợp lệ ở ô mới
+                u1, u2 = best_L[s1], best_L[s2]
+                if u1 != u2 and u2 in valid_slot_keys[s1] and u1 in valid_slot_keys[s2]:
+                    swap_L = list(best_L)
+                    swap_L[s1], swap_L[s2] = u2, u1
+                    swap_obj, swap_sim, swap_h_avg = eval_lineup(swap_L)
+                    if swap_obj < best_obj:
+                        best_obj = swap_obj
+                        best_L = swap_L
+                        best_sim = swap_sim
+                        best_h_avg = swap_h_avg
+                        iter_improved = True
+
+                # 2) Joint Polish: thử thay đồng thời s1 và s2 bằng ứng viên top-2 của mỗi ô
+                cand1 = next((k for k in valid_slot_keys[s1] if k != best_L[s1]), None)
+                cand2 = next((k for k in valid_slot_keys[s2] if k != best_L[s2]), None)
+                if cand1 and cand2:
+                    joint_L = list(best_L)
+                    joint_L[s1], joint_L[s2] = cand1, cand2
+                    joint_obj, joint_sim, joint_h_avg = eval_lineup(joint_L)
+                    if joint_obj < best_obj:
+                        best_obj = joint_obj
+                        best_L = joint_L
+                        best_sim = joint_sim
+                        best_h_avg = joint_h_avg
+                        iter_improved = True
+
+        if not iter_improved:
+            break
 
     # Stage 3: Simulation-Ranked 1-Slot Swap Alternatives (Backup #2 and #3)
     final_slots = []
@@ -1219,6 +1246,8 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     return final_slots
 
 
+recommend_v76 = recommend_v70
+recommend_v75 = recommend_v70
 recommend_v74 = recommend_v70
 recommend_v73 = recommend_v70
 recommend_v72 = recommend_v70
