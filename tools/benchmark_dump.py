@@ -776,7 +776,8 @@ OBSTACLE_PRESETS = [
 
 def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None, initial_counts=None):
     active_buffs = active_buffs or {"hp": 0.0, "atk": {}}
-    DMG_EXPECTED_MULT = 1.07
+    squad_ratio = enemy_squad_size / max(1, player_squad_size)
+    DMG_EXPECTED_MULT = 1.00 if squad_ratio >= 1.60 else 1.07
     RETALIATION_MULT = 0.50
 
     p_units = []
@@ -848,7 +849,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
             u["retal_left"] = u["retal_max"]
 
         all_units = [u for u in p_units + e_units if u["count"] > 0]
-        all_units.sort(key=lambda u: (u["init"], u["slot"], 1 if u["team"] == 1 else 0), reverse=True)
+        all_units.sort(key=lambda u: (u["init"], 1 if u["team"] == 1 else 0, u["slot"]), reverse=True)
 
         for attacker in all_units:
             if attacker["count"] <= 0: continue
@@ -1107,12 +1108,26 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
         h_avg = sum(slot_score_map[s].get(L[s], 0.0) for s in range(5)) / 5.0
 
         high_stage_pen = 0.0
-        if squad_ratio >= 1.75 and has_fr:
-            for k in L:
-                u = resolve_unit(k, player_tiers)
-                u_ret = u.get("retal", u.get("ret", 1 if u.get("rng") == 1 else 0))
-                if u.get("cls") == "light_ranged" and u_ret == 0:
-                    high_stage_pen += (squad_ratio - 1.5) * 25.0
+        if squad_ratio >= 1.75:
+            if has_fr:
+                for k in L:
+                    u = resolve_unit(k, player_tiers)
+                    u_ret = u.get("retal", u.get("ret", 1 if u.get("rng") == 1 else 0))
+                    if u.get("cls") == "light_ranged" and u_ret == 0:
+                        high_stage_pen += (squad_ratio - 1.5) * 25.0
+
+            # Anti-Rainbow Penalty (Rule 5S-1)
+            distinct_classes = len(set(resolve_unit(k, player_tiers)["cls"] for k in L))
+            if distinct_classes >= 3:
+                high_stage_pen += (distinct_classes - 2) * 18.0 * (squad_ratio - 1.5)
+
+            # Slow-Melee Choke Penalty (Rule 5S-1)
+            obs_cnt = len(obstacle_set) if obstacle_set else 0
+            if obs_cnt >= 12:
+                slow_melee_cnt = sum(1 for k in L if (resolve_unit(k, player_tiers).get("mv", 2) <= 2 and resolve_unit(k, player_tiers).get("rng", 1) <= 1))
+                ranged_cnt = sum(1 for k in L if resolve_unit(k, player_tiers).get("rng", 1) >= 3)
+                if 1 <= slow_melee_cnt <= 2 and ranged_cnt >= 3:
+                    high_stage_pen += slow_melee_cnt * 25.0 * (squad_ratio - 1.5)
 
         stock_pen = 5000.0 if any(slot_score_map[s].get(L[s], 0.0) < -300.0 for s in range(5)) else 0.0
         non_counter_pen = 2000.0 if any(L[s] not in valid_slot_keys[s] for s in range(5)) else 0.0
