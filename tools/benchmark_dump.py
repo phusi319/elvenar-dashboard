@@ -895,7 +895,11 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                     eff_dmg = min(edmg, tgt["hp_pool"])
                     start_hp_pool = max(1.0, tgt.get("startCount", tgt["count"]) * tgt["hp_per_unit"])
                     val_kr = eff_dmg / start_hp_pool
-                    finish_bonus = 28.0 if edmg >= tgt["hp_pool"] * 0.95 else 0.0
+                    rem_ratio = tgt["hp_pool"] / start_hp_pool
+                    if edmg >= tgt["hp_pool"] * 0.95:
+                        finish_bonus = 8.0 if rem_ratio < 0.06 else 28.0
+                    else:
+                        finish_bonus = 0.0
                     kr_term = (val_kr * 135.0) + finish_bonus
                     d_now = hex_dist(start, (tgt["x"], tgt["y"]))
 
@@ -903,12 +907,15 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
                     fb = 0.0
                     forward_exposure = 0.0
+                    wounded_focus = 0.0
                     if attacker["team"] == 2:
                         if tgt_base_hp < 120:
                             fb = (120.0 - tgt_base_hp) * (1.8 if attacker["rng"] >= 4 else 1.2)
                         if tgt["x"] >= 3:
                             exposure_mult = 1.5 if tgt_base_hp <= 150 else 1.0
                             forward_exposure = max(0, tgt["x"] - 2) * 18.0 * exposure_mult
+                        if squad_ratio >= 1.50 and tgt_base_hp < 110 and rem_ratio < 0.85:
+                            wounded_focus = 18.0 * (1.0 - rem_ratio)
 
                     em_term = (em - 1.0) * 60.0 * min(1.3, 75.0 / tgt_base_hp)
                     threat_bonus = tgt["slot"] * 1.5
@@ -921,7 +928,7 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                     can_retal = (tgt["retal_left"] > 0 and hex_dist(best_c, (tgt["x"], tgt["y"])) <= tgt["rng"])
                     retal_bonus = 20.0 if not can_retal else 0.0
 
-                    score = em_term + kr_term - step_pen - (d_now * 6.0) + fb + forward_exposure + threat_bonus + retal_bonus
+                    score = em_term + kr_term - step_pen - (d_now * 6.0) + fb + forward_exposure + wounded_focus + threat_bonus + retal_bonus
                     if score > best_score:
                         best_score = score
                         best_t = tgt
@@ -1031,6 +1038,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
 
     p_sq = player_squad_size or 25000
     e_sq = enemy_squad_size or 25000
+    squad_ratio = (e_sq / p_sq) if (p_sq and p_sq > 0) else 1.5
 
     # Stage 1: Heuristic Slot Scoring
     heuristic_slots = recommend_heuristic(first_wave, active_buffs, player_tiers, p_sq, e_sq, obstacle_set=obstacle_set)
@@ -1105,6 +1113,16 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                 cand_lineups.append(tuple(cohesive_3s))
                 cand_lineups.append(tuple(cohesive_top2))
 
+    # Heavy-Armor Phalanx Pivot (Engine v7.7 - 6S-B31/B32 P35)
+    hr_count = sum(1 for eu_id in first_wave if resolve_unit(eu_id, player_tiers).get("cls") == "heavy_ranged")
+    ma_count = sum(1 for eu_id in first_wave if resolve_unit(eu_id, player_tiers).get("cls") == "mage")
+    is_phalanx_candidate = (squad_ratio >= 1.85 and hr_count >= 3 and ma_count <= 1)
+    if is_phalanx_candidate:
+        cand_lineups.append(tuple(["eb_hm"] * 5))
+        cand_lineups.append(tuple(["mc_hm"] * 5))
+        cand_lineups.append(tuple(["eb_hm", "eb_hm", "mc_hm", "eb_hm", "eb_hm"]))
+        cand_lineups.append(tuple(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "mc_hm"]))
+
     unique_cands = []
     seen = set()
     for L in cand_lineups:
@@ -1138,18 +1156,26 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
             if distinct_classes >= 3:
                 high_stage_pen += (distinct_classes - 2) * 18.0 * (squad_ratio - 1.5)
 
-            # Slow-Melee Choke Penalty (Rule 5S-1)
-            obs_cnt = len(obstacle_set) if obstacle_set else 0
-            if obs_cnt >= 12:
-                slow_melee_cnt = sum(1 for k in L if (resolve_unit(k, player_tiers).get("mv", 2) <= 2 and resolve_unit(k, player_tiers).get("rng", 1) <= 1))
-                ranged_cnt = sum(1 for k in L if resolve_unit(k, player_tiers).get("rng", 1) >= 3)
-                if 1 <= slow_melee_cnt <= 2 and ranged_cnt >= 3:
-                    high_stage_pen += slow_melee_cnt * 25.0 * (squad_ratio - 1.5)
+        # Slow-Melee Choke Penalty (Rule 5S-1 / v7.7: squad_ratio >= 1.50 on obs >= 14, or squad_ratio >= 1.75 on obs >= 12)
+        obs_cnt = len(obstacle_set) if obstacle_set else 0
+        if (squad_ratio >= 1.50 and obs_cnt >= 14) or (squad_ratio >= 1.75 and obs_cnt >= 12):
+            slow_melee_cnt = sum(1 for k in L if (resolve_unit(k, player_tiers).get("mv", 2) <= 2 and resolve_unit(k, player_tiers).get("rng", 1) <= 1))
+            ranged_cnt = sum(1 for k in L if resolve_unit(k, player_tiers).get("rng", 1) >= 3)
+            if 1 <= slow_melee_cnt <= 2 and ranged_cnt >= 3:
+                high_stage_pen += slow_melee_cnt * 25.0 * (squad_ratio - 1.5)
 
-        stock_pen = 5000.0 if any(slot_score_map[s].get(L[s], 0.0) < -300.0 for s in range(5)) else 0.0
-        non_counter_pen = 2000.0 if any(L[s] not in valid_slot_keys[s] for s in range(5)) else 0.0
+        is_pure_hm = all(resolve_unit(k, player_tiers)["cls"] == "heavy_melee" for k in L)
+        if is_pure_hm and is_phalanx_candidate:
+            stock_pen = 0.0
+            non_counter_pen = 0.0
+            h_bonus = 0.0
+        else:
+            stock_pen = 5000.0 if any(slot_score_map[s].get(L[s], 0.0) < -300.0 for s in range(5)) else 0.0
+            non_counter_pen = 2000.0 if any(L[s] not in valid_slot_keys[s] for s in range(5)) else 0.0
+            h_bonus = h_avg * 0.15
+
         defeat_pen = 0.0 if sim["won"] else 1000.0
-        obj = stock_pen + non_counter_pen + defeat_pen + high_stage_pen + sim["loss_pct"] - (h_avg * 0.15)
+        obj = stock_pen + non_counter_pen + defeat_pen + high_stage_pen + sim["loss_pct"] - h_bonus
         res = (obj, sim, h_avg)
         eval_cache[t] = res
         return res
@@ -1166,65 +1192,82 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
             best_sim = sim
             best_h_avg = h_avg
 
-    # 2-Iteration Coordinate + 2-Opt Polish (Engine v7.6)
+    # 2-Iteration Coordinate + 2-Opt Polish (Engine v7.6 / v7.7)
     for _iter in range(2):
         iter_improved = False
 
-        # Coordinate Polish (Strictly within valid_slot_keys[s])
-        for s in range(5):
-            cur_unit = best_L[s]
-            for cand_unit in valid_slot_keys[s]:
-                if cand_unit != cur_unit:
-                    trial_L = list(best_L)
-                    trial_L[s] = cand_unit
-                    trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L)
-                    if trial_obj < best_obj:
-                        best_obj = trial_obj
-                        best_L = trial_L
-                        best_sim = trial_sim
-                        best_h_avg = trial_h_avg
-                        iter_improved = True
+        cur_hm = sum(1 for k in best_L if resolve_unit(k, player_tiers)["cls"] == "heavy_melee")
+        if cur_hm == 5 and is_phalanx_candidate:
+            hm_keys = ["eb_hm", "mc_hm"]
+            for s in range(5):
+                for cand_unit in hm_keys:
+                    if cand_unit != best_L[s]:
+                        trial_L = list(best_L)
+                        trial_L[s] = cand_unit
+                        trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L)
+                        if trial_obj < best_obj - 0.01:
+                            best_obj = trial_obj
+                            best_L = trial_L
+                            best_sim = trial_sim
+                            best_h_avg = trial_h_avg
+                            iter_improved = True
+        else:
+            # Coordinate Polish (Strictly within valid_slot_keys[s])
+            for s in range(5):
+                cur_unit = best_L[s]
+                for cand_unit in valid_slot_keys[s]:
+                    if cand_unit != cur_unit:
+                        trial_L = list(best_L)
+                        trial_L[s] = cand_unit
+                        trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L)
+                        if trial_obj < best_obj - 0.01:
+                            best_obj = trial_obj
+                            best_L = trial_L
+                            best_sim = trial_sim
+                            best_h_avg = trial_h_avg
+                            iter_improved = True
 
-        # 2-Opt Pairwise Slot Swap & Joint Polish
-        for s1 in range(4):
-            for s2 in range(s1 + 1, 5):
-                # 1) Pairwise Swap: hoán vị hai ô s1 và s2 nếu cả hai đơn vị hợp lệ ở ô mới
-                u1, u2 = best_L[s1], best_L[s2]
-                if u1 != u2 and u2 in valid_slot_keys[s1] and u1 in valid_slot_keys[s2]:
-                    swap_L = list(best_L)
-                    swap_L[s1], swap_L[s2] = u2, u1
-                    swap_obj, swap_sim, swap_h_avg = eval_lineup(swap_L)
-                    if swap_obj < best_obj:
-                        best_obj = swap_obj
-                        best_L = swap_L
-                        best_sim = swap_sim
-                        best_h_avg = swap_h_avg
-                        iter_improved = True
+            # 2-Opt Pairwise Slot Swap & Joint Polish
+            for s1 in range(4):
+                for s2 in range(s1 + 1, 5):
+                    # 1) Pairwise Swap: hoán vị hai ô s1 và s2 nếu cả hai đơn vị hợp lệ ở ô mới
+                    u1, u2 = best_L[s1], best_L[s2]
+                    if u1 != u2 and u2 in valid_slot_keys[s1] and u1 in valid_slot_keys[s2]:
+                        swap_L = list(best_L)
+                        swap_L[s1], swap_L[s2] = u2, u1
+                        swap_obj, swap_sim, swap_h_avg = eval_lineup(swap_L)
+                        if swap_obj < best_obj - 0.01:
+                            best_obj = swap_obj
+                            best_L = swap_L
+                            best_sim = swap_sim
+                            best_h_avg = swap_h_avg
+                            iter_improved = True
 
-                # 2) Joint Polish: thử thay đồng thời s1 và s2 bằng ứng viên top-2 của mỗi ô
-                cand1 = next((k for k in valid_slot_keys[s1] if k != best_L[s1]), None)
-                cand2 = next((k for k in valid_slot_keys[s2] if k != best_L[s2]), None)
-                if cand1 and cand2:
-                    joint_L = list(best_L)
-                    joint_L[s1], joint_L[s2] = cand1, cand2
-                    joint_obj, joint_sim, joint_h_avg = eval_lineup(joint_L)
-                    if joint_obj < best_obj:
-                        best_obj = joint_obj
-                        best_L = joint_L
-                        best_sim = joint_sim
-                        best_h_avg = joint_h_avg
-                        iter_improved = True
+                    # 2) Joint Polish: thử thay đồng thời s1 và s2 bằng ứng viên top-2 của mỗi ô
+                    cand1 = next((k for k in valid_slot_keys[s1] if k != best_L[s1]), None)
+                    cand2 = next((k for k in valid_slot_keys[s2] if k != best_L[s2]), None)
+                    if cand1 and cand2:
+                        joint_L = list(best_L)
+                        joint_L[s1], joint_L[s2] = cand1, cand2
+                        joint_obj, joint_sim, joint_h_avg = eval_lineup(joint_L)
+                        if joint_obj < best_obj - 0.01:
+                            best_obj = joint_obj
+                            best_L = joint_L
+                            best_sim = joint_sim
+                            best_h_avg = joint_h_avg
+                            iter_improved = True
 
         if not iter_improved:
             break
 
     # Stage 3: Simulation-Ranked 1-Slot Swap Alternatives (Backup #2 and #3)
     final_slots = []
+    cur_hm = sum(1 for k in best_L if resolve_unit(k, player_tiers)["cls"] == "heavy_melee")
     for s in range(5):
         best_key = best_L[s]
         best_cand = next((c for c in heuristic_slots[s] if c[1] == best_key), heuristic_slots[s][0])
 
-        other_valid_keys = [k for k in valid_slot_keys[s] if k != best_key]
+        other_valid_keys = [k for k in (["eb_hm", "mc_hm"] if (cur_hm == 5 and is_phalanx_candidate) else valid_slot_keys[s]) if k != best_key]
         swap_ranked = []
         for cand_key in other_valid_keys:
             swap_L = list(best_L)
@@ -1244,6 +1287,9 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
         final_slots.append(slot_cands)
 
     return final_slots
+
+
+recommend_v77 = recommend_v70
 
 
 recommend_v76 = recommend_v70

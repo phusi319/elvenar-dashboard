@@ -2688,6 +2688,18 @@
         }
       });
 
+      // Heavy-Armor Phalanx Pivot (Engine v7.7 - 6S-B31/B32 P35)
+      const firstWave = waves[0] || [];
+      const hrCount = firstWave.filter(eid => resolveUnit(eid).cls === "heavy_ranged").length;
+      const maCount = firstWave.filter(eid => resolveUnit(eid).cls === "mage").length;
+      const isPhalanxCandidate = (squadRatio >= 1.85 && hrCount >= 3 && maCount <= 1);
+      if (isPhalanxCandidate) {
+        candLineups.push(["eb_hm", "eb_hm", "eb_hm", "eb_hm", "eb_hm"]);
+        candLineups.push(["mc_hm", "mc_hm", "mc_hm", "mc_hm", "mc_hm"]);
+        candLineups.push(["eb_hm", "eb_hm", "mc_hm", "eb_hm", "eb_hm"]);
+        candLineups.push(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "mc_hm"]);
+      }
+
       const uniqueCands = [];
       const seen = new Set();
       candLineups.forEach(L => {
@@ -2734,26 +2746,38 @@
           if (distinctClasses >= 3) {
             highStageLineupPen += (distinctClasses - 2) * 18.0 * (squadRatio - 1.5);
           }
-          // Slow-Melee Choke Penalty (Rule 5S-1)
-          const obsCnt = Array.isArray(liveObstacles) ? liveObstacles.length : 0;
-          if (obsCnt >= 12) {
-            let slowMeleeCnt = 0;
-            let rangedCnt = 0;
-            for (let s = 0; s < 5; s++) {
-              const u = resolveUnit(L[s]);
-              if ((u.mv || 2) <= 2 && (u.rng || 1) <= 1) slowMeleeCnt++;
-              if ((u.rng || 1) >= 3) rangedCnt++;
-            }
-            if (slowMeleeCnt >= 1 && slowMeleeCnt <= 2 && rangedCnt >= 3) {
-              highStageLineupPen += slowMeleeCnt * 25.0 * (squadRatio - 1.5);
-            }
+        }
+
+        // Slow-Melee Choke Penalty (Rule 5S-1 / v7.7: squadRatio >= 1.50 on obs >= 14, or squadRatio >= 1.75 on obs >= 12)
+        const obsCnt = Array.isArray(liveObstacles) ? liveObstacles.length : 0;
+        if ((squadRatio >= 1.50 && obsCnt >= 14) || (squadRatio >= 1.75 && obsCnt >= 12)) {
+          let slowMeleeCnt = 0;
+          let rangedCnt = 0;
+          for (let s = 0; s < 5; s++) {
+            const u = resolveUnit(L[s]);
+            if ((u.mv || 2) <= 2 && (u.rng || 1) <= 1) slowMeleeCnt++;
+            if ((u.rng || 1) >= 3) rangedCnt++;
+          }
+          if (slowMeleeCnt >= 1 && slowMeleeCnt <= 2 && rangedCnt >= 3) {
+            highStageLineupPen += slowMeleeCnt * 25.0 * (squadRatio - 1.5);
           }
         }
 
-        const stockPen = hasStockOut ? 5000.0 : 0.0;
-        const nonCounterPen = hasNonCounter ? 2000.0 : 0.0;
+        const isPureHm = L.every(k => resolveUnit(k).cls === "heavy_melee");
+        let stockPen = 0.0;
+        let nonCounterPen = 0.0;
+        let hBonus = hAvg * 0.15;
+        if (isPureHm && isPhalanxCandidate) {
+          stockPen = 0.0;
+          nonCounterPen = 0.0;
+          hBonus = 0.0;
+        } else {
+          stockPen = hasStockOut ? 5000.0 : 0.0;
+          nonCounterPen = hasNonCounter ? 2000.0 : 0.0;
+        }
+
         const defeatPen = sim.won ? 0.0 : 1000.0;
-        const obj = stockPen + nonCounterPen + defeatPen + highStageLineupPen + sim.lossPct - (hAvg * 0.15);
+        const obj = stockPen + nonCounterPen + defeatPen + highStageLineupPen + sim.lossPct - hBonus;
         const res = { obj, sim, hAvg };
         evalCache.set(k, res);
         return res;
@@ -2774,62 +2798,84 @@
         }
       });
 
-      // 2-Iteration Coordinate + 2-Opt Polish (Engine v7.6)
+      // 2-Iteration Coordinate + 2-Opt Polish (Engine v7.6 / v7.7)
       for (let iter = 0; iter < 2; iter++) {
         let iterImproved = false;
 
-        // Coordinate Polish (Strictly within validSlotKeys[s])
-        for (let s = 0; s < 5; s++) {
-          const curUnit = bestL[s];
-          for (let optIdx = 0; optIdx < validSlotKeys[s].length; optIdx++) {
-            const candUnit = validSlotKeys[s][optIdx];
-            if (candUnit !== curUnit) {
-              const trialL = [...bestL];
-              trialL[s] = candUnit;
-              const r = evalLineup(trialL);
-              if (r.obj < bestObj) {
-                bestObj = r.obj;
-                bestL = trialL;
-                bestSim = r.sim;
-                bestHAvg = r.hAvg;
-                iterImproved = true;
+        const curHm = bestL.filter(k => resolveUnit(k).cls === "heavy_melee").length;
+        if (curHm === 5 && isPhalanxCandidate) {
+          const hmKeys = ["eb_hm", "mc_hm"];
+          for (let s = 0; s < 5; s++) {
+            for (let hi = 0; hi < hmKeys.length; hi++) {
+              const candUnit = hmKeys[hi];
+              if (candUnit !== bestL[s]) {
+                const trialL = [...bestL];
+                trialL[s] = candUnit;
+                const r = evalLineup(trialL);
+                if (r.obj < bestObj - 0.01) {
+                  bestObj = r.obj;
+                  bestL = trialL;
+                  bestSim = r.sim;
+                  bestHAvg = r.hAvg;
+                  iterImproved = true;
+                }
               }
             }
           }
-        }
-
-        // 2-Opt Pairwise Slot Swap & Joint Polish
-        for (let s1 = 0; s1 < 4; s1++) {
-          for (let s2 = s1 + 1; s2 < 5; s2++) {
-            const u1 = bestL[s1];
-            const u2 = bestL[s2];
-            if (u1 !== u2 && validSlotKeys[s1].includes(u2) && validSlotKeys[s2].includes(u1)) {
-              const swapL = [...bestL];
-              swapL[s1] = u2;
-              swapL[s2] = u1;
-              const r = evalLineup(swapL);
-              if (r.obj < bestObj) {
-                bestObj = r.obj;
-                bestL = swapL;
-                bestSim = r.sim;
-                bestHAvg = r.hAvg;
-                iterImproved = true;
+        } else {
+          // Coordinate Polish (Strictly within validSlotKeys[s])
+          for (let s = 0; s < 5; s++) {
+            const curUnit = bestL[s];
+            for (let optIdx = 0; optIdx < validSlotKeys[s].length; optIdx++) {
+              const candUnit = validSlotKeys[s][optIdx];
+              if (candUnit !== curUnit) {
+                const trialL = [...bestL];
+                trialL[s] = candUnit;
+                const r = evalLineup(trialL);
+                if (r.obj < bestObj - 0.01) {
+                  bestObj = r.obj;
+                  bestL = trialL;
+                  bestSim = r.sim;
+                  bestHAvg = r.hAvg;
+                  iterImproved = true;
+                }
               }
             }
+          }
 
-            const cand1 = validSlotKeys[s1].find(k => k !== bestL[s1]);
-            const cand2 = validSlotKeys[s2].find(k => k !== bestL[s2]);
-            if (cand1 && cand2) {
-              const jointL = [...bestL];
-              jointL[s1] = cand1;
-              jointL[s2] = cand2;
-              const r = evalLineup(jointL);
-              if (r.obj < bestObj) {
-                bestObj = r.obj;
-                bestL = jointL;
-                bestSim = r.sim;
-                bestHAvg = r.hAvg;
-                iterImproved = true;
+          // 2-Opt Pairwise Slot Swap & Joint Polish
+          for (let s1 = 0; s1 < 4; s1++) {
+            for (let s2 = s1 + 1; s2 < 5; s2++) {
+              const u1 = bestL[s1];
+              const u2 = bestL[s2];
+              if (u1 !== u2 && validSlotKeys[s1].includes(u2) && validSlotKeys[s2].includes(u1)) {
+                const swapL = [...bestL];
+                swapL[s1] = u2;
+                swapL[s2] = u1;
+                const r = evalLineup(swapL);
+                if (r.obj < bestObj - 0.01) {
+                  bestObj = r.obj;
+                  bestL = swapL;
+                  bestSim = r.sim;
+                  bestHAvg = r.hAvg;
+                  iterImproved = true;
+                }
+              }
+
+              const cand1 = validSlotKeys[s1].find(k => k !== bestL[s1]);
+              const cand2 = validSlotKeys[s2].find(k => k !== bestL[s2]);
+              if (cand1 && cand2) {
+                const jointL = [...bestL];
+                jointL[s1] = cand1;
+                jointL[s2] = cand2;
+                const r = evalLineup(jointL);
+                if (r.obj < bestObj - 0.01) {
+                  bestObj = r.obj;
+                  bestL = jointL;
+                  bestSim = r.sim;
+                  bestHAvg = r.hAvg;
+                  iterImproved = true;
+                }
               }
             }
           }
@@ -2839,13 +2885,14 @@
       }
 
       // Stage 3: Rank Backup Candidates by 1-Slot Swap Simulation Performance
+      const curHm = bestL.filter(k => resolveUnit(k).cls === "heavy_melee").length;
       for (let s = 0; s < 5; s++) {
         const bestKey = bestL[s];
         const bestCand = rawSlotCandidates[s].find(c => c.key === bestKey) || rawSlotCandidates[s][0];
         bestCand.swapLossPct = bestSim ? bestSim.lossPct : 0.0;
         bestCand.swapWon = bestSim ? bestSim.won : true;
 
-        const otherValidKeys = validSlotKeys[s].filter(k => k !== bestKey);
+        const otherValidKeys = (curHm === 5 && isPhalanxCandidate ? ["eb_hm", "mc_hm"] : validSlotKeys[s]).filter(k => k !== bestKey);
         const swapRanked = [];
         otherValidKeys.forEach(candKey => {
           const swapL = [...bestL];
@@ -3251,20 +3298,21 @@
               const item = candTargets[cIdx];
               const tgt = item.tgt;
               const em = calcEffMult(attacker, tgt);
-              const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? 1.08 : 1.0);
+              const hpBuff = tgt.team === 1 ? (buffs.hp || 0.0) : 0.0;
+              const tgtBaseHp = ((tgt.hpPerUnit || 100) / (1.0 + hpBuff)) / (tgt.wt || 1);
+              const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? (squadRatio >= 1.50 && tgtBaseHp <= 160 ? 1.12 : 1.08) : 1.0);
               const edmg = attacker.count * attacker.dmgPerUnit * em * DMG_EXPECTED_MULT * atkDmgMult;
               const effDmg = Math.min(edmg, tgt.hpPool);
               const startHpPool = Math.max(1.0, (tgt.startCount || tgt.count) * tgt.hpPerUnit);
               const valKr = effDmg / startHpPool;
-              const finishBonus = edmg >= (tgt.hpPool * 0.95) ? 28.0 : 0.0;
+              const remRatio = tgt.hpPool / startHpPool;
+              const finishBonus = edmg >= (tgt.hpPool * 0.95) ? (remRatio < 0.06 ? 8.0 : 28.0) : 0.0;
               const krTerm = (valKr * 135.0) + finishBonus;
               const dNow = hexDist(start, [tgt.x, tgt.y]);
 
-              const hpBuff = tgt.team === 1 ? (buffs.hp || 0.0) : 0.0;
-              const tgtBaseHp = ((tgt.hpPerUnit || 100) / (1.0 + hpBuff)) / (tgt.wt || 1);
-
               let fb = 0.0;
               let forwardExposure = 0.0;
+              let woundedFocus = 0.0;
               if (attacker.team === 2) {
                 if (tgtBaseHp < 120) {
                   fb = (120.0 - tgtBaseHp) * ((attacker.rng || 1) >= 4 ? 1.8 : 1.2);
@@ -3272,6 +3320,9 @@
                 if (tgt.x >= 3) {
                   const exposureMult = tgtBaseHp <= 150 ? 1.5 : 1.0;
                   forwardExposure = Math.max(0, tgt.x - 2) * 18.0 * exposureMult;
+                }
+                if (squadRatio >= 1.50 && tgtBaseHp < 110 && remRatio < 0.85) {
+                  woundedFocus = 18.0 * (1.0 - remRatio);
                 }
               }
 
@@ -3288,7 +3339,7 @@
               const canRetal = (tgt.retalLeft > 0 && hexDist(item.bestC, [tgt.x, tgt.y]) <= tgt.rng);
               const retalBonus = !canRetal ? 20.0 : 0.0;
 
-              const score = emTerm + krTerm - stepPen - (dNow * 6.0) + fb + forwardExposure + threatBonus + retalBonus;
+              const score = emTerm + krTerm - stepPen - (dNow * 6.0) + fb + forwardExposure + woundedFocus + threatBonus + retalBonus;
               if (score > bestScore) {
                 bestScore = score;
                 bestT = tgt;
@@ -3299,7 +3350,9 @@
             attacker.x = bestPos[0];
             attacker.y = bestPos[1];
             const effMult = calcEffMult(attacker, bestT);
-            const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? 1.08 : 1.0);
+            const bestTHpBuff = bestT.team === 1 ? (buffs.hp || 0.0) : 0.0;
+            const bestTBaseHp = ((bestT.hpPerUnit || 100) / (1.0 + bestTHpBuff)) / (bestT.wt || 1);
+            const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? (squadRatio >= 1.50 && bestTBaseHp <= 160 ? 1.12 : 1.08) : 1.0);
             const dealtDmg = attacker.count * attacker.dmgPerUnit * effMult * DMG_EXPECTED_MULT * atkDmgMult;
             bestT.hpPool = Math.max(0.0, bestT.hpPool - dealtDmg);
             bestT.count = bestT.hpPool > 0 ? Math.ceil(bestT.hpPool / bestT.hpPerUnit) : 0;
@@ -4184,20 +4237,28 @@
             const adverseRes = Array.isArray(liveObstacles)
               ? simulateBattleAdverse(recPKeys, (advisorWaves && advisorWaves.length > 1) ? advisorWaves : curWave, pSqSize, eSqSize, simBuffs, liveObstacles)
               : null;
-            const mcRes = (!Array.isArray(liveObstacles) || squadRatio >= 1.85)
+            const mcRes = (!Array.isArray(liveObstacles) || squadRatio >= 1.50)
               ? simulateBattleMonteCarlo(recPKeys, (advisorWaves && advisorWaves.length > 1) ? advisorWaves : curWave, pSqSize, eSqSize, simBuffs)
               : null;
 
-            // Enemy multi-threat analysis (Upgrade 3: High-Ratio & Multi-Threat Safety Gate)
+            const effectiveRiskLoss = Math.max(
+              adverseRes ? adverseRes.lossPct : (mcRes ? mcRes.p90Loss : simRes.lossPct),
+              Math.round((0.75 * (mcRes ? mcRes.p90Loss : (adverseRes ? adverseRes.lossPct : simRes.lossPct)) + 0.25 * simRes.lossPct) * 10) / 10
+            );
+
+            // Enemy multi-threat analysis (Upgrade 3: High-Ratio & Multi-Threat Safety Gate v7.7)
             const eUnitsResolved = curWave.filter(Boolean).map(id => resolveUnit(id));
             const distinctEnemyClasses = new Set(eUnitsResolved.map(u => u.cls)).size;
             const lrCount = eUnitsResolved.filter(u => u.cls === 'light_ranged').length;
             const maCount = eUnitsResolved.filter(u => u.cls === 'mage').length;
 
-            const isHighRatioMultiThreat = (squadRatio >= 1.85) && (
-              (mcRes && mcRes.p90Loss >= 70) ||
-              (adverseRes && adverseRes.lossPct >= 35) ||
-              (distinctEnemyClasses >= 3 && (lrCount + maCount >= 2))
+            const isHighRatioMultiThreat = (
+              (squadRatio >= 1.85 && (
+                (mcRes && mcRes.p90Loss >= 70) ||
+                (adverseRes && adverseRes.lossPct >= 35) ||
+                (distinctEnemyClasses >= 3 && (lrCount + maCount >= 2))
+              )) ||
+              (squadRatio >= 1.50 && ((mcRes && mcRes.p90Loss >= 55) || effectiveRiskLoss >= 45))
             );
 
             let simCardClass = 'sim-safe';
@@ -4213,7 +4274,7 @@
             } else if (isHighRatioMultiThreat) {
               simCardClass = 'sim-moderate';
               if (!hasCustomSlots) titleText = '⚠️ CẢNH BÁO: RỦI RO CAO Ở TỈNH SÂU';
-              hintText = `🚨 Tỷ lệ quân địch r=${squadRatio.toFixed(2)}x với hỏa lực dồn sát thương cực lớn. Rất nguy hiểm nếu Auto — Khuyên ĐÀM PHÁN (CATER) hoặc cắn buff!`;
+              hintText = `🚨 Tỷ lệ quân địch r=${squadRatio.toFixed(2)}x với hỏa lực dồn sát thương cực lớn (Trần rủi ro ~${effectiveRiskLoss}%). Rất nguy hiểm nếu Auto — Khuyên ĐÀM PHÁN (CATER) hoặc cắn buff!`;
             } else if (simRes.lossPct < 15) {
               simCardClass = 'sim-flawless';
               if (!hasCustomSlots) titleText = '🟢 DỰ BÁO: THẮNG ÁP ĐẢO (FLAWLESS AUTO)';
@@ -4238,16 +4299,16 @@
                     if (isHighRatioMultiThreat) {
                       return `
                         <div class="cater-warning-badge" style="background:rgba(239, 68, 68, 0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-                          ⚠️ RỦI RO CAO Ở TỈNH SÂU (r=${squadRatio.toFixed(2)}x | p90: ~${p90Display}%) — NÊN ĐÀM PHÁN (CATER) HOẶC CẮN BUFF!
+                          ⚠️ RỦI RO CAO Ở TỈNH SÂU (r=${squadRatio.toFixed(2)}x | Trần rủi ro: ~${effectiveRiskLoss}%) — NÊN ĐÀM PHÁN (CATER) HOẶC CẮN BUFF!
                         </div>
                       `;
                     }
                     if (Array.isArray(liveObstacles) && adverseRes) {
-                      if (!simRes.won || !adverseRes.won || simRes.lossPct >= 42 || adverseRes.lossPct >= 52) {
-                        const adverseLossText = !adverseRes.won ? '100% THUA' : ('~' + Math.round(adverseRes.lossPct) + '%');
+                      if (!simRes.won || !adverseRes.won || simRes.lossPct >= 42 || adverseRes.lossPct >= 52 || effectiveRiskLoss >= 45) {
+                        const adverseLossText = !adverseRes.won ? '100% THUA' : ('~' + Math.round(effectiveRiskLoss) + '%');
                         return `
                           <div class="cater-warning-badge" style="background:rgba(239, 68, 68, 0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-                            ⚠️ RỦI RO CAO TRÊN MAP THẬT (Chuẩn: ~${Math.round(simRes.lossPct)}% | Xấu: ${adverseLossText}) — NÊN ĐÀM PHÁN (CATER)!
+                            ⚠️ RỦI RO CAO TRÊN MAP THẬT (Chuẩn: ~${Math.round(simRes.lossPct)}% | Rủi ro: ${adverseLossText}) — NÊN ĐÀM PHÁN (CATER)!
                           </div>
                         `;
                       }
@@ -4265,7 +4326,7 @@
                     <span>🛡️ Lực lượng bảo toàn: <strong>${simRes.squadsRemaining} / 5.0 Squads</strong></span>
                     ${Array.isArray(liveObstacles) && adverseRes ? `
                       <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
-                        (Dự báo chuẩn: ~${simRes.lossPct}% • -${simRes.squadsLost} squads | Kịch bản xấu RNG: ~${adverseRes.lossPct}%)
+                        (Dự báo chuẩn: ~${simRes.lossPct}% • -${simRes.squadsLost} squads | Trần rủi ro lệch mục tiêu / RNG: ~${effectiveRiskLoss}%)
                       </span>
                     ` : `
                       <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
