@@ -2704,27 +2704,59 @@
         waveCounterCount[uKey] = cnt;
       });
 
+      // Stage 1.5: Dynamic Non-Light-Melee Phalanx Generator + Anti-Hard-Counter Law (Engine v7.9)
+      const viablePhalanxUnits = [];
+      pool.forEach(uKey => {
+        const u = resolveUnit(uKey);
+        // Condition 1: Non-Light-Melee (Anti-Light-Melee-Rush Law)
+        if (!u || u.cls === 'light_melee') return;
+        // Condition 2: Counter at least 2 enemy slots
+        if ((waveCounterCount[uKey] || 0) < 2) return;
+        // Condition 3: Anti-Hard-Counter Law for Melee (rng == 1, i.e. heavy_melee)
+        if ((u.rng || 1) === 1) {
+          let hardCounterCount = 0;
+          waves.forEach(w => {
+            w.forEach(raw => {
+              if (!raw) return;
+              const eu = resolveUnit(raw);
+              const st = (eu.str && eu.str[u.cls]) || 0;
+              const at = (eu.atk && eu.atk[u.cls]) || 0;
+              if (st >= 2 || at >= 40) hardCounterCount++;
+            });
+          });
+          if (hardCounterCount > 1) return;
+        }
+        // Condition 4: Not out of stock
+        if ((slotScoreMap[0][uKey] || 0.0) < -300.0) return;
+        viablePhalanxUnits.push(uKey);
+      });
+
       const phalanxCands = [];
-      const majorUnits = ["eb_hm", "mc_hm", "tg_ma", "eb_ma", "mc_lr", "eb_lr", "tg_hr", "eb_hr"];
-      majorUnits.forEach(mu => {
-        if (pool.includes(mu)) {
-          phalanxCands.push([mu, mu, mu, mu, mu]);
+      viablePhalanxUnits.forEach(u => {
+        phalanxCands.push([u, u, u, u, u]);
+      });
+
+      const byClass = {};
+      viablePhalanxUnits.forEach(u => {
+        const cls = resolveUnit(u).cls;
+        if (!byClass[cls]) byClass[cls] = [];
+        byClass[cls].push(u);
+      });
+
+      Object.keys(byClass).forEach(cls => {
+        const uList = byClass[cls];
+        if (uList.length >= 2) {
+          for (let i = 0; i < uList.length; i++) {
+            for (let j = 0; j < uList.length; j++) {
+              if (i !== j) {
+                const u1 = uList[i], u2 = uList[j];
+                phalanxCands.push([u1, u1, u2, u1, u1]);
+                phalanxCands.push([u1, u1, u2, u1, u2]);
+              }
+            }
+          }
         }
       });
-      if (pool.includes("eb_hm") && pool.includes("mc_hm")) {
-        phalanxCands.push(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "eb_hm"]);
-        phalanxCands.push(["eb_hm", "eb_hm", "mc_hm", "eb_hm", "eb_hm"]);
-        phalanxCands.push(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "mc_hm"]);
-      }
-      if (pool.includes("tg_ma") && pool.includes("eb_ma")) {
-        phalanxCands.push(["tg_ma", "tg_ma", "eb_ma", "tg_ma", "tg_ma"]);
-      }
-      if (pool.includes("mc_lr") && pool.includes("eb_lr")) {
-        phalanxCands.push(["mc_lr", "mc_lr", "eb_lr", "mc_lr", "mc_lr"]);
-      }
-      if (pool.includes("tg_hr") && pool.includes("eb_hr")) {
-        phalanxCands.push(["tg_hr", "tg_hr", "eb_hr", "tg_hr", "tg_hr"]);
-      }
 
       // Stage 2: Full-Team Simulation Re-Ranking
       const evalCache = new Map();
@@ -2849,19 +2881,27 @@
         }
       });
 
-      // 3. Pareto Dominance Guard (Engine v7.8 Universal Principle)
+      // 3. Strict Dual-Sim Pareto Dominance Guard (Engine v7.9)
       let chosenL = [...bestLaneL];
       let chosenSim = bestLaneSim;
       let chosenObj = bestLaneObj;
       let isPhalanxChosen = false;
 
       if (bestPhalanxSim && bestPhalanxSim.won) {
+        const laneAdvSim = simulateMultiWave(bestLaneL, waves, pSqVal, eSqVal, activeBuffs, liveObstacles, true);
+        const phAdvSim = simulateMultiWave(bestPhalanxL, waves, pSqVal, eSqVal, activeBuffs, liveObstacles, true);
+
         if (!bestLaneSim.won) {
           chosenL = [...bestPhalanxL];
           chosenSim = bestPhalanxSim;
           chosenObj = bestPhalanxObj;
           isPhalanxChosen = true;
-        } else if (bestPhalanxSim.lossPct < bestLaneSim.lossPct - 5.0) {
+        } else if (!laneAdvSim.won && phAdvSim.won) {
+          chosenL = [...bestPhalanxL];
+          chosenSim = bestPhalanxSim;
+          chosenObj = bestPhalanxObj;
+          isPhalanxChosen = true;
+        } else if (bestPhalanxSim.lossPct < bestLaneSim.lossPct - 5.0 && phAdvSim.won && phAdvSim.lossPct <= laneAdvSim.lossPct) {
           chosenL = [...bestPhalanxL];
           chosenSim = bestPhalanxSim;
           chosenObj = bestPhalanxObj;
@@ -3382,13 +3422,14 @@
               const em = calcEffMult(attacker, tgt);
               const hpBuff = tgt.team === 1 ? (buffs.hp || 0.0) : 0.0;
               const tgtBaseHp = ((tgt.hpPerUnit || 100) / (1.0 + hpBuff)) / (tgt.wt || 1);
-              const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? (squadRatio >= 1.50 && tgtBaseHp <= 160 ? 1.12 : 1.08) : 1.0);
-              const edmg = attacker.count * attacker.dmgPerUnit * em * DMG_EXPECTED_MULT * atkDmgMult;
+              const candAtkMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? (1.08 + (tgtBaseHp <= 160 ? 0.04 * Math.min(1.0, Math.max(0.0, (squadRatio - 1.20) / 0.60)) : 0.0)) : 1.0);
+              const edmg = attacker.count * attacker.dmgPerUnit * em * DMG_EXPECTED_MULT * candAtkMult;
               const effDmg = Math.min(edmg, tgt.hpPool);
               const startHpPool = Math.max(1.0, (tgt.startCount || tgt.count) * tgt.hpPerUnit);
               const valKr = effDmg / startHpPool;
               const remRatio = tgt.hpPool / startHpPool;
-              const finishBonus = edmg >= (tgt.hpPool * 0.95) ? (remRatio < 0.06 ? 8.0 : 28.0) : 0.0;
+              const effRatio = effDmg / Math.max(1.0, edmg);
+              const finishBonus = edmg >= (tgt.hpPool * 0.95) ? (8.0 + 20.0 * Math.min(1.0, effRatio / 0.35)) : 0.0;
               const krTerm = (valKr * 135.0) + finishBonus;
               const dNow = hexDist(start, [tgt.x, tgt.y]);
 
@@ -3403,9 +3444,14 @@
                   const exposureMult = tgtBaseHp <= 150 ? 1.5 : 1.0;
                   forwardExposure = Math.max(0, tgt.x - 2) * 18.0 * exposureMult;
                 }
-                // Universal Wounded Focus (Simulator v7.8 - 238-Battle Empirical Law)
+                // Symmetric Universal Wounded Focus (Simulator v7.9 - 18.0 for Enemy AI)
                 if (remRatio < 0.90) {
                   woundedFocus = 18.0 * (1.0 - remRatio);
+                }
+              } else {
+                // Symmetric Universal Wounded Focus (Simulator v7.9 - 14.0 for Player Auto-AI)
+                if (remRatio < 0.90) {
+                  woundedFocus = 14.0 * (1.0 - remRatio);
                 }
               }
 
@@ -3435,7 +3481,7 @@
             const effMult = calcEffMult(attacker, bestT);
             const bestTHpBuff = bestT.team === 1 ? (buffs.hp || 0.0) : 0.0;
             const bestTBaseHp = ((bestT.hpPerUnit || 100) / (1.0 + bestTHpBuff)) / (bestT.wt || 1);
-            const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? (squadRatio >= 1.50 && bestTBaseHp <= 160 ? 1.12 : 1.08) : 1.0);
+            const atkDmgMult = attacker.team === 1 ? (adverseMode ? 0.92 : 1.0) : (adverseMode ? (1.08 + (bestTBaseHp <= 160 ? 0.04 * Math.min(1.0, Math.max(0.0, (squadRatio - 1.20) / 0.60)) : 0.0)) : 1.0);
             const dealtDmg = attacker.count * attacker.dmgPerUnit * effMult * DMG_EXPECTED_MULT * atkDmgMult;
             bestT.hpPool = Math.max(0.0, bestT.hpPool - dealtDmg);
             bestT.count = bestT.hpPool > 0 ? Math.ceil(bestT.hpPool / bestT.hpPerUnit) : 0;

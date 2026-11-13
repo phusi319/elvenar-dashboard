@@ -774,7 +774,7 @@ OBSTACLE_PRESETS = [
 ]
 
 
-def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None, initial_counts=None):
+def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None, initial_counts=None, adverse_mode=False):
     active_buffs = active_buffs or {"hp": 0.0, "atk": {}}
     squad_ratio = enemy_squad_size / max(1, player_squad_size)
     DMG_EXPECTED_MULT = 1.00 if squad_ratio >= 1.60 else 1.07
@@ -891,19 +891,30 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
                 for tgt, best_c, min_steps in cand_targets:
                     em = calc_eff_mult(attacker, tgt)
-                    edmg = attacker["count"] * attacker["dmg_per_unit"] * em * DMG_EXPECTED_MULT
+                    tgt_base_hp = (tgt["hp_per_unit"] / (1.0 + (active_buffs.get("hp", 0.0) if tgt["team"] == 1 else 0.0))) / tgt["wt"]
+
+                    if attacker["team"] == 1:
+                        cand_atk_mult = 0.92 if adverse_mode else 1.0
+                    else:
+                        if adverse_mode:
+                            cand_atk_mult = 1.08 + (0.04 * min(1.0, max(0.0, (squad_ratio - 1.20) / 0.60)) if tgt_base_hp <= 160 else 0.0)
+                        else:
+                            cand_atk_mult = 1.0
+
+                    edmg = attacker["count"] * attacker["dmg_per_unit"] * em * DMG_EXPECTED_MULT * cand_atk_mult
                     eff_dmg = min(edmg, tgt["hp_pool"])
                     start_hp_pool = max(1.0, tgt.get("startCount", tgt["count"]) * tgt["hp_per_unit"])
                     val_kr = eff_dmg / start_hp_pool
                     rem_ratio = tgt["hp_pool"] / start_hp_pool
+
+                    # Continuous Overkill Efficiency finish_bonus (Simulator v7.9)
                     if edmg >= tgt["hp_pool"] * 0.95:
-                        finish_bonus = 8.0 if rem_ratio < 0.06 else 28.0
+                        eff_ratio = eff_dmg / max(1.0, edmg)
+                        finish_bonus = 8.0 + 20.0 * min(1.0, eff_ratio / 0.35)
                     else:
                         finish_bonus = 0.0
                     kr_term = (val_kr * 135.0) + finish_bonus
                     d_now = hex_dist(start, (tgt["x"], tgt["y"]))
-
-                    tgt_base_hp = (tgt["hp_per_unit"] / (1.0 + (active_buffs.get("hp", 0.0) if tgt["team"] == 1 else 0.0))) / tgt["wt"]
 
                     fb = 0.0
                     forward_exposure = 0.0
@@ -914,11 +925,15 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                         if tgt["x"] >= 3:
                             exposure_mult = 1.5 if tgt_base_hp <= 150 else 1.0
                             forward_exposure = max(0, tgt["x"] - 2) * 18.0 * exposure_mult
-                        # Universal Wounded Focus (Simulator v7.8 - 238-Battle Empirical Law)
+                        # Universal Wounded Focus (Simulator v7.9 - 18.0 for Enemy AI)
                         if rem_ratio < 0.90:
                             wounded_focus = 18.0 * (1.0 - rem_ratio)
+                    else:
+                        # Symmetric Universal Wounded Focus (Simulator v7.9 - 14.0 for Player Auto-AI)
+                        if rem_ratio < 0.90:
+                            wounded_focus = 14.0 * (1.0 - rem_ratio)
 
-                    em_term = (em - 1.0) * 60.0 * min(1.3, 75.0 / tgt_base_hp)
+                    em_term = (em - 1.0) * 60.0 * min(1.3, 75.0 / max(1.0, tgt_base_hp))
                     threat_bonus = tgt["slot"] * 1.5
 
                     if attacker["rng"] > 1:
@@ -937,7 +952,17 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
                 attacker["x"], attacker["y"] = best_pos
                 eff_mult = calc_eff_mult(attacker, best_t)
-                dealt_dmg = attacker["count"] * attacker["dmg_per_unit"] * eff_mult * DMG_EXPECTED_MULT
+                best_t_base_hp = (best_t["hp_per_unit"] / (1.0 + (active_buffs.get("hp", 0.0) if best_t["team"] == 1 else 0.0))) / best_t["wt"]
+
+                if attacker["team"] == 1:
+                    atk_dmg_mult = 0.92 if adverse_mode else 1.0
+                else:
+                    if adverse_mode:
+                        atk_dmg_mult = 1.08 + (0.04 * min(1.0, max(0.0, (squad_ratio - 1.20) / 0.60)) if best_t_base_hp <= 160 else 0.0)
+                    else:
+                        atk_dmg_mult = 1.0
+
+                dealt_dmg = attacker["count"] * attacker["dmg_per_unit"] * eff_mult * DMG_EXPECTED_MULT * atk_dmg_mult
                 best_t["hp_pool"] = max(0.0, best_t["hp_pool"] - dealt_dmg)
                 best_t["count"] = math.ceil(best_t["hp_pool"] / best_t["hp_per_unit"]) if best_t["hp_pool"] > 0 else 0
 
@@ -953,7 +978,11 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
 
                 if best_t["count"] > 0 and best_t["retal_left"] > 0 and hex_dist((attacker["x"], attacker["y"]), (best_t["x"], best_t["y"])) <= best_t["rng"]:
                     ret_eff_mult = calc_eff_mult(best_t, attacker)
-                    ret_dmg = best_t["count"] * best_t["dmg_per_unit"] * ret_eff_mult * DMG_EXPECTED_MULT * RETALIATION_MULT
+                    if adverse_mode:
+                        ret_dmg_mult = 0.92 if best_t["team"] == 1 else 1.08
+                    else:
+                        ret_dmg_mult = 1.0
+                    ret_dmg = best_t["count"] * best_t["dmg_per_unit"] * ret_eff_mult * DMG_EXPECTED_MULT * RETALIATION_MULT * ret_dmg_mult
                     attacker["hp_pool"] = max(0.0, attacker["hp_pool"] - ret_dmg)
                     attacker["count"] = math.ceil(attacker["hp_pool"] / attacker["hp_per_unit"]) if attacker["hp_pool"] > 0 else 0
                     best_t["retal_left"] -= 1
@@ -977,11 +1006,11 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
     return {"won": won, "loss_pct": loss_pct, "rounds": round_num, "end_counts": [u["count"] for u in p_units]}
 
 
-def simulate_multi_wave(player_unit_keys, waves, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None):
+def simulate_multi_wave(player_unit_keys, waves, player_squad_size, enemy_squad_size, active_buffs, player_tiers=None, obstacle_set=None, adverse_mode=False):
     if not waves:
         return {"won": True, "loss_pct": 0.0, "rounds": 0, "end_counts": [0] * 5}
     if len(waves) == 1:
-        return simulate_battle(player_unit_keys, waves[0], player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obstacle_set)
+        return simulate_battle(player_unit_keys, waves[0], player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obstacle_set, adverse_mode=adverse_mode)
 
     tot_p_start = 0
     for i in range(5):
@@ -994,7 +1023,7 @@ def simulate_multi_wave(player_unit_keys, waves, player_squad_size, enemy_squad_
     last_res = None
     total_rounds = 0
     for w in waves:
-        res = simulate_battle(player_unit_keys, w, player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obstacle_set, initial_counts=cur_counts)
+        res = simulate_battle(player_unit_keys, w, player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obstacle_set, initial_counts=cur_counts, adverse_mode=adverse_mode)
         last_res = res
         total_rounds += res["rounds"]
         if not res["won"]:
@@ -1129,16 +1158,51 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                 cnt += 1
         wave_counter_count[u_key] = cnt
 
+    # Stage 1.5: Dynamic Non-Light-Melee Phalanx Generator + Anti-Hard-Counter Law (Engine v7.9)
+    viable_phalanx_units = []
+    for u_key in PLAYER_UNIT_KEYS:
+        u = resolve_unit(u_key, player_tiers)
+        # Condition 1: Non-Light-Melee (Anti-Light-Melee-Rush Law)
+        if u.get("cls") == "light_melee":
+            continue
+        # Condition 2: Counter at least 2 enemy slots
+        if wave_counter_count.get(u_key, 0) < 2:
+            continue
+        # Condition 3: Anti-Hard-Counter Law for Melee (rng == 1, i.e. heavy_melee)
+        if u.get("rng", 1) == 1:
+            hard_counter_count = 0
+            for w in waves:
+                for eid in w:
+                    if not eid: continue
+                    eu = resolve_unit(eid, player_tiers)
+                    st = eu.get("str", {}).get(u["cls"], 0)
+                    at = eu.get("atk", {}).get(u["cls"], 0)
+                    if st >= 2 or at >= 40:
+                        hard_counter_count += 1
+            if hard_counter_count > 1:
+                continue
+        # Condition 4: Not out of stock
+        if slot_score_map[0].get(u_key, 0.0) < -300.0:
+            continue
+        viable_phalanx_units.append(u_key)
+
     phalanx_cands = []
-    major_units = ["eb_hm", "mc_hm", "tg_ma", "eb_ma", "mc_lr", "eb_lr", "tg_hr", "eb_hr"]
-    for mu in major_units:
-        phalanx_cands.append(tuple([mu] * 5))
-    phalanx_cands.append(tuple(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "eb_hm"]))
-    phalanx_cands.append(tuple(["eb_hm", "eb_hm", "mc_hm", "eb_hm", "eb_hm"]))
-    phalanx_cands.append(tuple(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "mc_hm"]))
-    phalanx_cands.append(tuple(["tg_ma", "tg_ma", "eb_ma", "tg_ma", "tg_ma"]))
-    phalanx_cands.append(tuple(["mc_lr", "mc_lr", "eb_lr", "mc_lr", "mc_lr"]))
-    phalanx_cands.append(tuple(["tg_hr", "tg_hr", "eb_hr", "tg_hr", "tg_hr"]))
+    for u in viable_phalanx_units:
+        phalanx_cands.append(tuple([u] * 5))
+
+    by_class = defaultdict(list)
+    for u in viable_phalanx_units:
+        cls = resolve_unit(u, player_tiers)["cls"]
+        by_class[cls].append(u)
+
+    for cls, u_list in by_class.items():
+        if len(u_list) >= 2:
+            for i in range(len(u_list)):
+                for j in range(len(u_list)):
+                    if i != j:
+                        u1, u2 = u_list[i], u_list[j]
+                        phalanx_cands.append(tuple([u1, u1, u2, u1, u1]))
+                        phalanx_cands.append(tuple([u1, u1, u2, u1, u2]))
 
     # Stage 2: Full-Team Simulation Re-Ranking
     eval_cache = {}
@@ -1147,10 +1211,10 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     obs_cnt = len(obstacle_set) if obstacle_set else 0
 
     def eval_lineup(L, is_phalanx=False):
-        t = tuple(L)
-        if t in eval_cache:
-            return eval_cache[t]
-        sim = simulate_multi_wave(list(L), waves, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obstacle_set)
+        cache_key = (tuple(L), is_phalanx)
+        if cache_key in eval_cache:
+            return eval_cache[cache_key]
+        sim = simulate_multi_wave(list(L), waves, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obstacle_set, adverse_mode=False)
         h_avg = sum(slot_score_map[s].get(L[s], 0.0) for s in range(5)) / 5.0
 
         high_stage_pen = 0.0
@@ -1186,7 +1250,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
         defeat_pen = 0.0 if sim["won"] else 1000.0
         obj = stock_pen + non_counter_pen + defeat_pen + high_stage_pen + sim["loss_pct"] - h_bonus
         res = (obj, sim, h_avg)
-        eval_cache[t] = res
+        eval_cache[cache_key] = res
         return res
 
     # 1. Best Lane-Counter Lineup
@@ -1229,19 +1293,27 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                 best_phalanx_sim = sim
                 best_phalanx_obj = obj
 
-    # 3. Pareto Dominance Guard (Engine v7.8 Universal Principle):
+    # 3. Strict Dual-Sim Pareto Dominance Guard (Engine v7.9)
     chosen_L = list(best_lane_L)
     chosen_sim = best_lane_sim
     chosen_obj = best_lane_obj
     is_phalanx_chosen = False
 
     if best_phalanx_sim and best_phalanx_sim["won"]:
+        lane_adv_sim = simulate_multi_wave(best_lane_L, waves, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obstacle_set, adverse_mode=True)
+        ph_adv_sim = simulate_multi_wave(best_phalanx_L, waves, p_sq, e_sq, active_buffs, player_tiers, obstacle_set=obstacle_set, adverse_mode=True)
+
         if not best_lane_sim["won"]:
             chosen_L = list(best_phalanx_L)
             chosen_sim = best_phalanx_sim
             chosen_obj = best_phalanx_obj
             is_phalanx_chosen = True
-        elif best_phalanx_sim["loss_pct"] < best_lane_sim["loss_pct"] - 5.0:
+        elif not lane_adv_sim["won"] and ph_adv_sim["won"]:
+            chosen_L = list(best_phalanx_L)
+            chosen_sim = best_phalanx_sim
+            chosen_obj = best_phalanx_obj
+            is_phalanx_chosen = True
+        elif best_phalanx_sim["loss_pct"] < best_lane_sim["loss_pct"] - 5.0 and ph_adv_sim["won"] and ph_adv_sim["loss_pct"] <= lane_adv_sim["loss_pct"]:
             chosen_L = list(best_phalanx_L)
             chosen_sim = best_phalanx_sim
             chosen_obj = best_phalanx_obj
@@ -1355,6 +1427,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     return final_slots
 
 
+recommend_v79 = recommend_v70
 recommend_v78 = recommend_v70
 
 
