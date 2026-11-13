@@ -2290,13 +2290,13 @@
       };
     }
 
-    function recommendLineupForWaves(waves, allowedPoolKeys, obstacleSet = null) {
+    function recommendLineupForWaves(waves, allowedPoolKeys, obstacleSet = null, customBuffs = null, customPSq = null, customESq = null) {
       const pool = allowedPoolKeys || PLAYER_UNIT_KEYS;
       const armUnits = (state.arm && Array.isArray(state.arm.units)) ? state.arm.units : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       const hasStockData = armUnits.some(v => Number(v) > 0);
-      const activeBuffs = getActiveArmyBuffs();
-      const pSqVal = (state.enc && Number(state.enc.playerSquadSize)) || (state.arm && Number(state.arm.squadSize)) || 1000;
-      const eSqVal = (state.enc && Number(state.enc.enemySquadSize)) || Math.round(pSqVal * 1.5);
+      const activeBuffs = customBuffs || getActiveArmyBuffs();
+      const pSqVal = customPSq !== null ? Number(customPSq) : ((state.enc && Number(state.enc.playerSquadSize)) || (state.arm && Number(state.arm.squadSize)) || 1000);
+      const eSqVal = customESq !== null ? Number(customESq) : ((state.enc && Number(state.enc.enemySquadSize)) || Math.round(pSqVal * 1.5));
       const squadRatio = pSqVal > 0 ? (eSqVal / pSqVal) : 1.5;
       const liveObstacles = Array.isArray(obstacleSet) ? obstacleSet : ((!isManualOverride && state.enc && Array.isArray(state.enc.obstacles)) ? state.enc.obstacles : null);
 
@@ -2688,32 +2688,48 @@
         }
       });
 
-      // Heavy-Armor Phalanx Pivot (Engine v7.7 - 6S-B31/B32 P35)
+      // Stage 1.5: Universal Phalanx & Mono-Class Candidates (Engine v7.8 Zero-Hardcode)
       const firstWave = waves[0] || [];
-      const hrCount = firstWave.filter(eid => resolveUnit(eid).cls === "heavy_ranged").length;
-      const maCount = firstWave.filter(eid => resolveUnit(eid).cls === "mage").length;
-      const isPhalanxCandidate = (squadRatio >= 1.85 && hrCount >= 3 && maCount <= 1);
-      if (isPhalanxCandidate) {
-        candLineups.push(["eb_hm", "eb_hm", "eb_hm", "eb_hm", "eb_hm"]);
-        candLineups.push(["mc_hm", "mc_hm", "mc_hm", "mc_hm", "mc_hm"]);
-        candLineups.push(["eb_hm", "eb_hm", "mc_hm", "eb_hm", "eb_hm"]);
-        candLineups.push(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "mc_hm"]);
-      }
+      const enemyClasses = firstWave.map(eid => resolveUnit(eid).cls);
+      const waveCounterCount = {};
+      pool.forEach(uKey => {
+        const pu = resolveUnit(uKey);
+        let cnt = 0;
+        enemyClasses.forEach(ec => {
+          const st = (pu.str && pu.str[ec]) || 0;
+          const df = (pu.def && pu.def[ec]) || 0;
+          const at = (pu.atk && pu.atk[ec]) || 0;
+          if (st >= 1 || df >= 30 || at >= 30) cnt++;
+        });
+        waveCounterCount[uKey] = cnt;
+      });
 
-      const uniqueCands = [];
-      const seen = new Set();
-      candLineups.forEach(L => {
-        const k = L.join(',');
-        if (!seen.has(k)) {
-          seen.add(k);
-          uniqueCands.push(L);
+      const phalanxCands = [];
+      const majorUnits = ["eb_hm", "mc_hm", "tg_ma", "eb_ma", "mc_lr", "eb_lr", "tg_hr", "eb_hr"];
+      majorUnits.forEach(mu => {
+        if (pool.includes(mu)) {
+          phalanxCands.push([mu, mu, mu, mu, mu]);
         }
       });
+      if (pool.includes("eb_hm") && pool.includes("mc_hm")) {
+        phalanxCands.push(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "eb_hm"]);
+        phalanxCands.push(["eb_hm", "eb_hm", "mc_hm", "eb_hm", "eb_hm"]);
+        phalanxCands.push(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "mc_hm"]);
+      }
+      if (pool.includes("tg_ma") && pool.includes("eb_ma")) {
+        phalanxCands.push(["tg_ma", "tg_ma", "eb_ma", "tg_ma", "tg_ma"]);
+      }
+      if (pool.includes("mc_lr") && pool.includes("eb_lr")) {
+        phalanxCands.push(["mc_lr", "mc_lr", "eb_lr", "mc_lr", "mc_lr"]);
+      }
+      if (pool.includes("tg_hr") && pool.includes("eb_hr")) {
+        phalanxCands.push(["tg_hr", "tg_hr", "eb_hr", "tg_hr", "tg_hr"]);
+      }
 
       // Stage 2: Full-Team Simulation Re-Ranking
       const evalCache = new Map();
-      function evalLineup(L) {
-        const k = L.join(',');
+      function evalLineup(L, isPhalanx = false) {
+        const k = L.join(',') + (isPhalanx ? ':ph' : '');
         if (evalCache.has(k)) return evalCache.get(k);
         const sim = simulateMultiWave(L, waves, pSqVal, eSqVal, activeBuffs, liveObstacles);
         let hAvg = 0;
@@ -2763,11 +2779,10 @@
           }
         }
 
-        const isPureHm = L.every(k => resolveUnit(k).cls === "heavy_melee");
         let stockPen = 0.0;
         let nonCounterPen = 0.0;
         let hBonus = hAvg * 0.15;
-        if (isPureHm && isPhalanxCandidate) {
+        if (isPhalanx) {
           stockPen = 0.0;
           nonCounterPen = 0.0;
           hBonus = 0.0;
@@ -2783,36 +2798,99 @@
         return res;
       }
 
-      let bestObj = 999999.0;
-      let bestL = uniqueCands[0];
-      let bestSim = null;
-      let bestHAvg = 0;
-
-      uniqueCands.forEach(L => {
-        const r = evalLineup(L);
-        if (r.obj < bestObj) {
-          bestObj = r.obj;
-          bestL = L;
-          bestSim = r.sim;
-          bestHAvg = r.hAvg;
+      // 1. Best Lane-Counter Lineup
+      const uniqueLane = [];
+      const seenLane = new Set();
+      candLineups.forEach(L => {
+        const k = L.join(',');
+        if (!seenLane.has(k)) {
+          seenLane.add(k);
+          uniqueLane.push(L);
         }
       });
 
-      // 2-Iteration Coordinate + 2-Opt Polish (Engine v7.6 / v7.7)
+      let bestLaneObj = 999999.0;
+      let bestLaneL = uniqueLane[0];
+      let bestLaneSim = null;
+      let bestLaneH = 0;
+      uniqueLane.forEach(L => {
+        const r = evalLineup(L, false);
+        if (r.obj < bestLaneObj) {
+          bestLaneObj = r.obj;
+          bestLaneL = L;
+          bestLaneSim = r.sim;
+          bestLaneH = r.hAvg;
+        }
+      });
+
+      // 2. Best Phalanx Candidate with Wave Counter Relevance
+      let bestPhalanxL = null;
+      let bestPhalanxSim = null;
+      let bestPhalanxObj = 999999.0;
+      const uniquePhalanx = [];
+      const seenPhalanx = new Set();
+      phalanxCands.forEach(L => {
+        const k = L.join(',');
+        if (!seenPhalanx.has(k)) {
+          seenPhalanx.add(k);
+          uniquePhalanx.push(L);
+        }
+      });
+
+      uniquePhalanx.forEach(L => {
+        const primaryU = L.reduce((acc, u) => (L.filter(x => x === u).length > L.filter(x => x === acc).length ? u : acc), L[0]);
+        if ((waveCounterCount[primaryU] || 0) >= 2) {
+          const r = evalLineup(L, true);
+          if (r.sim.won && (!bestPhalanxSim || r.sim.lossPct < bestPhalanxSim.lossPct)) {
+            bestPhalanxL = L;
+            bestPhalanxSim = r.sim;
+            bestPhalanxObj = r.obj;
+          }
+        }
+      });
+
+      // 3. Pareto Dominance Guard (Engine v7.8 Universal Principle)
+      let chosenL = [...bestLaneL];
+      let chosenSim = bestLaneSim;
+      let chosenObj = bestLaneObj;
+      let isPhalanxChosen = false;
+
+      if (bestPhalanxSim && bestPhalanxSim.won) {
+        if (!bestLaneSim.won) {
+          chosenL = [...bestPhalanxL];
+          chosenSim = bestPhalanxSim;
+          chosenObj = bestPhalanxObj;
+          isPhalanxChosen = true;
+        } else if (bestPhalanxSim.lossPct < bestLaneSim.lossPct - 5.0) {
+          chosenL = [...bestPhalanxL];
+          chosenSim = bestPhalanxSim;
+          chosenObj = bestPhalanxObj;
+          isPhalanxChosen = true;
+        }
+      }
+
+      // 4. 2-Iteration Coordinate + 2-Opt Polish (Engine v7.8)
+      let bestObj = chosenObj;
+      let bestL = [...chosenL];
+      let bestSim = chosenSim;
+      let bestHAvg = bestLaneH;
+
       for (let iter = 0; iter < 2; iter++) {
         let iterImproved = false;
+        const curClasses = bestL.map(k => resolveUnit(k).cls);
+        const isMono = new Set(curClasses).size === 1;
+        const curCls = curClasses[0];
 
-        const curHm = bestL.filter(k => resolveUnit(k).cls === "heavy_melee").length;
-        if (curHm === 5 && isPhalanxCandidate) {
-          const hmKeys = ["eb_hm", "mc_hm"];
+        if (isPhalanxChosen || isMono) {
+          const sameClsKeys = pool.filter(k => resolveUnit(k).cls === curCls);
           for (let s = 0; s < 5; s++) {
-            for (let hi = 0; hi < hmKeys.length; hi++) {
-              const candUnit = hmKeys[hi];
+            for (let hi = 0; hi < sameClsKeys.length; hi++) {
+              const candUnit = sameClsKeys[hi];
               if (candUnit !== bestL[s]) {
                 const trialL = [...bestL];
                 trialL[s] = candUnit;
-                const r = evalLineup(trialL);
-                if (r.obj < bestObj - 0.01) {
+                const r = evalLineup(trialL, true);
+                if (r.sim.won && r.sim.lossPct < bestSim.lossPct - 0.01) {
                   bestObj = r.obj;
                   bestL = trialL;
                   bestSim = r.sim;
@@ -2831,7 +2909,7 @@
               if (candUnit !== curUnit) {
                 const trialL = [...bestL];
                 trialL[s] = candUnit;
-                const r = evalLineup(trialL);
+                const r = evalLineup(trialL, false);
                 if (r.obj < bestObj - 0.01) {
                   bestObj = r.obj;
                   bestL = trialL;
@@ -2852,7 +2930,7 @@
                 const swapL = [...bestL];
                 swapL[s1] = u2;
                 swapL[s2] = u1;
-                const r = evalLineup(swapL);
+                const r = evalLineup(swapL, false);
                 if (r.obj < bestObj - 0.01) {
                   bestObj = r.obj;
                   bestL = swapL;
@@ -2868,7 +2946,7 @@
                 const jointL = [...bestL];
                 jointL[s1] = cand1;
                 jointL[s2] = cand2;
-                const r = evalLineup(jointL);
+                const r = evalLineup(jointL, false);
                 if (r.obj < bestObj - 0.01) {
                   bestObj = r.obj;
                   bestL = jointL;
@@ -2885,19 +2963,23 @@
       }
 
       // Stage 3: Rank Backup Candidates by 1-Slot Swap Simulation Performance
-      const curHm = bestL.filter(k => resolveUnit(k).cls === "heavy_melee").length;
+      const curClasses = bestL.map(k => resolveUnit(k).cls);
+      const isMono = new Set(curClasses).size === 1;
+      const curCls = curClasses[0];
+      const sameClsKeys = isMono ? pool.filter(k => resolveUnit(k).cls === curCls) : [];
+
       for (let s = 0; s < 5; s++) {
         const bestKey = bestL[s];
         const bestCand = rawSlotCandidates[s].find(c => c.key === bestKey) || rawSlotCandidates[s][0];
         bestCand.swapLossPct = bestSim ? bestSim.lossPct : 0.0;
         bestCand.swapWon = bestSim ? bestSim.won : true;
 
-        const otherValidKeys = (curHm === 5 && isPhalanxCandidate ? ["eb_hm", "mc_hm"] : validSlotKeys[s]).filter(k => k !== bestKey);
+        const otherValidKeys = ((isPhalanxChosen || isMono) ? sameClsKeys : validSlotKeys[s]).filter(k => k !== bestKey);
         const swapRanked = [];
         otherValidKeys.forEach(candKey => {
           const swapL = [...bestL];
           swapL[s] = candKey;
-          const r = evalLineup(swapL);
+          const r = evalLineup(swapL, (isPhalanxChosen || isMono));
           const candObj = rawSlotCandidates[s].find(c => c.key === candKey);
           if (candObj) {
             candObj.swapLossPct = r.sim.lossPct;
@@ -3321,7 +3403,8 @@
                   const exposureMult = tgtBaseHp <= 150 ? 1.5 : 1.0;
                   forwardExposure = Math.max(0, tgt.x - 2) * 18.0 * exposureMult;
                 }
-                if (squadRatio >= 1.50 && tgtBaseHp < 110 && remRatio < 0.85) {
+                // Universal Wounded Focus (Simulator v7.8 - 238-Battle Empirical Law)
+                if (remRatio < 0.90) {
                   woundedFocus = 18.0 * (1.0 - remRatio);
                 }
               }

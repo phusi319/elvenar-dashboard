@@ -914,7 +914,8 @@ def simulate_battle(player_unit_keys, enemy_unit_ids, player_squad_size, enemy_s
                         if tgt["x"] >= 3:
                             exposure_mult = 1.5 if tgt_base_hp <= 150 else 1.0
                             forward_exposure = max(0, tgt["x"] - 2) * 18.0 * exposure_mult
-                        if squad_ratio >= 1.50 and tgt_base_hp < 110 and rem_ratio < 0.85:
+                        # Universal Wounded Focus (Simulator v7.8 - 238-Battle Empirical Law)
+                        if rem_ratio < 0.90:
                             wounded_focus = 18.0 * (1.0 - rem_ratio)
 
                     em_term = (em - 1.0) * 60.0 * min(1.3, 75.0 / tgt_base_hp)
@@ -1113,29 +1114,39 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                 cand_lineups.append(tuple(cohesive_3s))
                 cand_lineups.append(tuple(cohesive_top2))
 
-    # Heavy-Armor Phalanx Pivot (Engine v7.7 - 6S-B31/B32 P35)
-    hr_count = sum(1 for eu_id in first_wave if resolve_unit(eu_id, player_tiers).get("cls") == "heavy_ranged")
-    ma_count = sum(1 for eu_id in first_wave if resolve_unit(eu_id, player_tiers).get("cls") == "mage")
-    is_phalanx_candidate = (squad_ratio >= 1.85 and hr_count >= 3 and ma_count <= 1)
-    if is_phalanx_candidate:
-        cand_lineups.append(tuple(["eb_hm"] * 5))
-        cand_lineups.append(tuple(["mc_hm"] * 5))
-        cand_lineups.append(tuple(["eb_hm", "eb_hm", "mc_hm", "eb_hm", "eb_hm"]))
-        cand_lineups.append(tuple(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "mc_hm"]))
+    # Stage 1.5: Universal Phalanx & Mono-Class Candidates (Engine v7.8 Zero-Hardcode)
+    # Pre-analyze wave-level counter stats
+    enemy_classes = [resolve_unit(eu, player_tiers)["cls"] for eu in first_wave]
+    wave_counter_count = {}
+    for u_key in PLAYER_UNIT_KEYS:
+        pu = resolve_unit(u_key, player_tiers)
+        cnt = 0
+        for ec in enemy_classes:
+            st = pu.get("str", {}).get(ec, 0)
+            df = pu.get("def", {}).get(ec, 0)
+            at = pu.get("atk", {}).get(ec, 0)
+            if st >= 1 or df >= 30 or at >= 30:
+                cnt += 1
+        wave_counter_count[u_key] = cnt
 
-    unique_cands = []
-    seen = set()
-    for L in cand_lineups:
-        if L not in seen:
-            seen.add(L)
-            unique_cands.append(L)
+    phalanx_cands = []
+    major_units = ["eb_hm", "mc_hm", "tg_ma", "eb_ma", "mc_lr", "eb_lr", "tg_hr", "eb_hr"]
+    for mu in major_units:
+        phalanx_cands.append(tuple([mu] * 5))
+    phalanx_cands.append(tuple(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "eb_hm"]))
+    phalanx_cands.append(tuple(["eb_hm", "eb_hm", "mc_hm", "eb_hm", "eb_hm"]))
+    phalanx_cands.append(tuple(["mc_hm", "mc_hm", "eb_hm", "mc_hm", "mc_hm"]))
+    phalanx_cands.append(tuple(["tg_ma", "tg_ma", "eb_ma", "tg_ma", "tg_ma"]))
+    phalanx_cands.append(tuple(["mc_lr", "mc_lr", "eb_lr", "mc_lr", "mc_lr"]))
+    phalanx_cands.append(tuple(["tg_hr", "tg_hr", "eb_hr", "tg_hr", "tg_hr"]))
 
     # Stage 2: Full-Team Simulation Re-Ranking
     eval_cache = {}
     squad_ratio = (e_sq / p_sq) if (p_sq and p_sq > 0) else 1.5
     has_fr = any(any("tglr" in s or "eblr" in s or "hblr" in s for s in w) for w in waves)
+    obs_cnt = len(obstacle_set) if obstacle_set else 0
 
-    def eval_lineup(L):
+    def eval_lineup(L, is_phalanx=False):
         t = tuple(L)
         if t in eval_cache:
             return eval_cache[t]
@@ -1157,15 +1168,13 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                 high_stage_pen += (distinct_classes - 2) * 18.0 * (squad_ratio - 1.5)
 
         # Slow-Melee Choke Penalty (Rule 5S-1 / v7.7: squad_ratio >= 1.50 on obs >= 14, or squad_ratio >= 1.75 on obs >= 12)
-        obs_cnt = len(obstacle_set) if obstacle_set else 0
         if (squad_ratio >= 1.50 and obs_cnt >= 14) or (squad_ratio >= 1.75 and obs_cnt >= 12):
             slow_melee_cnt = sum(1 for k in L if (resolve_unit(k, player_tiers).get("mv", 2) <= 2 and resolve_unit(k, player_tiers).get("rng", 1) <= 1))
             ranged_cnt = sum(1 for k in L if resolve_unit(k, player_tiers).get("rng", 1) >= 3)
             if 1 <= slow_melee_cnt <= 2 and ranged_cnt >= 3:
                 high_stage_pen += slow_melee_cnt * 25.0 * (squad_ratio - 1.5)
 
-        is_pure_hm = all(resolve_unit(k, player_tiers)["cls"] == "heavy_melee" for k in L)
-        if is_pure_hm and is_phalanx_candidate:
+        if is_phalanx:
             stock_pen = 0.0
             non_counter_pen = 0.0
             h_bonus = 0.0
@@ -1180,36 +1189,89 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
         eval_cache[t] = res
         return res
 
-    best_obj = 999999.0
-    best_L = list(unique_cands[0])
-    best_sim = None
-    best_h_avg = 0.0
-    for L in unique_cands:
-        obj, sim, h_avg = eval_lineup(L)
-        if obj < best_obj:
-            best_obj = obj
-            best_L = list(L)
-            best_sim = sim
-            best_h_avg = h_avg
+    # 1. Best Lane-Counter Lineup
+    unique_lane = []
+    seen_lane = set()
+    for L in cand_lineups:
+        if L not in seen_lane:
+            seen_lane.add(L)
+            unique_lane.append(L)
 
-    # 2-Iteration Coordinate + 2-Opt Polish (Engine v7.6 / v7.7)
+    best_lane_obj = 999999.0
+    best_lane_L = list(unique_lane[0])
+    best_lane_sim = None
+    best_lane_h = 0.0
+    for L in unique_lane:
+        obj, sim, h = eval_lineup(L, is_phalanx=False)
+        if obj < best_lane_obj:
+            best_lane_obj = obj
+            best_lane_L = list(L)
+            best_lane_sim = sim
+            best_lane_h = h
+
+    # 2. Best Phalanx Candidate with Wave Counter Relevance
+    best_phalanx_L = None
+    best_phalanx_sim = None
+    best_phalanx_obj = 999999.0
+    unique_phalanx = []
+    seen_phalanx = set()
+    for L in phalanx_cands:
+        if L not in seen_phalanx:
+            seen_phalanx.add(L)
+            unique_phalanx.append(L)
+
+    for L in unique_phalanx:
+        primary_u = max(set(L), key=L.count)
+        if wave_counter_count.get(primary_u, 0) >= 2:
+            obj, sim, h = eval_lineup(L, is_phalanx=True)
+            if sim["won"] and (best_phalanx_sim is None or sim["loss_pct"] < best_phalanx_sim["loss_pct"]):
+                best_phalanx_L = list(L)
+                best_phalanx_sim = sim
+                best_phalanx_obj = obj
+
+    # 3. Pareto Dominance Guard (Engine v7.8 Universal Principle):
+    chosen_L = list(best_lane_L)
+    chosen_sim = best_lane_sim
+    chosen_obj = best_lane_obj
+    is_phalanx_chosen = False
+
+    if best_phalanx_sim and best_phalanx_sim["won"]:
+        if not best_lane_sim["won"]:
+            chosen_L = list(best_phalanx_L)
+            chosen_sim = best_phalanx_sim
+            chosen_obj = best_phalanx_obj
+            is_phalanx_chosen = True
+        elif best_phalanx_sim["loss_pct"] < best_lane_sim["loss_pct"] - 5.0:
+            chosen_L = list(best_phalanx_L)
+            chosen_sim = best_phalanx_sim
+            chosen_obj = best_phalanx_obj
+            is_phalanx_chosen = True
+
+    # 4. 2-Iteration Coordinate + 2-Opt Polish (Engine v7.8)
+    best_obj = chosen_obj
+    best_L = list(chosen_L)
+    best_sim = chosen_sim
+    best_h_avg = best_lane_h
+
     for _iter in range(2):
         iter_improved = False
+        cur_classes = [resolve_unit(k, player_tiers)["cls"] for k in best_L]
+        is_mono = (len(set(cur_classes)) == 1)
+        cur_cls = cur_classes[0]
 
-        cur_hm = sum(1 for k in best_L if resolve_unit(k, player_tiers)["cls"] == "heavy_melee")
-        if cur_hm == 5 and is_phalanx_candidate:
-            hm_keys = ["eb_hm", "mc_hm"]
+        if is_phalanx_chosen or is_mono:
+            same_cls_keys = [k for k in PLAYER_UNIT_KEYS if resolve_unit(k, player_tiers)["cls"] == cur_cls]
             for s in range(5):
-                for cand_unit in hm_keys:
+                for cand_unit in same_cls_keys:
                     if cand_unit != best_L[s]:
                         trial_L = list(best_L)
                         trial_L[s] = cand_unit
-                        trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L)
-                        if trial_obj < best_obj - 0.01:
+                        trial_obj, trial_sim, trial_h = eval_lineup(trial_L, is_phalanx=True)
+                        if trial_sim["won"] and trial_sim["loss_pct"] < best_sim["loss_pct"] - 0.01:
                             best_obj = trial_obj
                             best_L = trial_L
                             best_sim = trial_sim
-                            best_h_avg = trial_h_avg
+                            best_h_avg = trial_h
                             iter_improved = True
         else:
             # Coordinate Polish (Strictly within valid_slot_keys[s])
@@ -1219,7 +1281,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                     if cand_unit != cur_unit:
                         trial_L = list(best_L)
                         trial_L[s] = cand_unit
-                        trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L)
+                        trial_obj, trial_sim, trial_h_avg = eval_lineup(trial_L, is_phalanx=False)
                         if trial_obj < best_obj - 0.01:
                             best_obj = trial_obj
                             best_L = trial_L
@@ -1235,7 +1297,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                     if u1 != u2 and u2 in valid_slot_keys[s1] and u1 in valid_slot_keys[s2]:
                         swap_L = list(best_L)
                         swap_L[s1], swap_L[s2] = u2, u1
-                        swap_obj, swap_sim, swap_h_avg = eval_lineup(swap_L)
+                        swap_obj, swap_sim, swap_h_avg = eval_lineup(swap_L, is_phalanx=False)
                         if swap_obj < best_obj - 0.01:
                             best_obj = swap_obj
                             best_L = swap_L
@@ -1249,7 +1311,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                     if cand1 and cand2:
                         joint_L = list(best_L)
                         joint_L[s1], joint_L[s2] = cand1, cand2
-                        joint_obj, joint_sim, joint_h_avg = eval_lineup(joint_L)
+                        joint_obj, joint_sim, joint_h_avg = eval_lineup(joint_L, is_phalanx=False)
                         if joint_obj < best_obj - 0.01:
                             best_obj = joint_obj
                             best_L = joint_L
@@ -1262,17 +1324,21 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
 
     # Stage 3: Simulation-Ranked 1-Slot Swap Alternatives (Backup #2 and #3)
     final_slots = []
-    cur_hm = sum(1 for k in best_L if resolve_unit(k, player_tiers)["cls"] == "heavy_melee")
+    cur_classes = [resolve_unit(k, player_tiers)["cls"] for k in best_L]
+    is_mono = (len(set(cur_classes)) == 1)
+    cur_cls = cur_classes[0]
+    same_cls_keys = [k for k in PLAYER_UNIT_KEYS if resolve_unit(k, player_tiers)["cls"] == cur_cls] if is_mono else []
+
     for s in range(5):
         best_key = best_L[s]
         best_cand = next((c for c in heuristic_slots[s] if c[1] == best_key), heuristic_slots[s][0])
 
-        other_valid_keys = [k for k in (["eb_hm", "mc_hm"] if (cur_hm == 5 and is_phalanx_candidate) else valid_slot_keys[s]) if k != best_key]
+        other_valid_keys = [k for k in ((same_cls_keys if (is_phalanx_chosen or is_mono) else valid_slot_keys[s])) if k != best_key]
         swap_ranked = []
         for cand_key in other_valid_keys:
             swap_L = list(best_L)
             swap_L[s] = cand_key
-            swap_obj, swap_sim, swap_h = eval_lineup(swap_L)
+            swap_obj, swap_sim, swap_h = eval_lineup(swap_L, is_phalanx=(is_phalanx_chosen or is_mono))
             cand_item = next((c for c in heuristic_slots[s] if c[1] == cand_key), None)
             if cand_item:
                 swap_ranked.append((swap_obj, swap_sim["loss_pct"], swap_sim["won"], cand_item))
@@ -1287,6 +1353,9 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
         final_slots.append(slot_cands)
 
     return final_slots
+
+
+recommend_v78 = recommend_v70
 
 
 recommend_v77 = recommend_v70
