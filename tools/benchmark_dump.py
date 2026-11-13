@@ -1181,8 +1181,8 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                         hard_counter_count += 1
             if hard_counter_count > 1:
                 continue
-        # Condition 4: Not out of stock
-        if slot_score_map[0].get(u_key, 0.0) < -300.0:
+        # Condition 4: Not out of stock across all 5 slots
+        if max(slot_score_map[s].get(u_key, -9999.0) for s in range(5)) < -300.0:
             continue
         viable_phalanx_units.append(u_key)
 
@@ -1202,7 +1202,9 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                     if i != j:
                         u1, u2 = u_list[i], u_list[j]
                         phalanx_cands.append(tuple([u1, u1, u2, u1, u1]))
+                        phalanx_cands.append(tuple([u1, u2, u1, u1, u1]))
                         phalanx_cands.append(tuple([u1, u1, u2, u1, u2]))
+                        phalanx_cands.append(tuple([u1, u2, u1, u2, u1]))
 
     # Stage 2: Full-Team Simulation Re-Ranking
     eval_cache = {}

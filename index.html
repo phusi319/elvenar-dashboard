@@ -2726,8 +2726,13 @@
           });
           if (hardCounterCount > 1) return;
         }
-        // Condition 4: Not out of stock
-        if ((slotScoreMap[0][uKey] || 0.0) < -300.0) return;
+        // Condition 4: Not out of stock across all 5 slots
+        let maxSlotScore = -9999.0;
+        for (let s = 0; s < 5; s++) {
+          const sc = (slotScoreMap[s][uKey] !== undefined) ? slotScoreMap[s][uKey] : -9999.0;
+          if (sc > maxSlotScore) maxSlotScore = sc;
+        }
+        if (maxSlotScore < -300.0) return;
         viablePhalanxUnits.push(uKey);
       });
 
@@ -2751,7 +2756,9 @@
               if (i !== j) {
                 const u1 = uList[i], u2 = uList[j];
                 phalanxCands.push([u1, u1, u2, u1, u1]);
+                phalanxCands.push([u1, u2, u1, u1, u1]);
                 phalanxCands.push([u1, u1, u2, u1, u2]);
+                phalanxCands.push([u1, u2, u1, u2, u1]);
               }
             }
           }
