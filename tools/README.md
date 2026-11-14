@@ -45,7 +45,7 @@ python tools/benchmark_dump.py "D:\ElvenarAuto\Batte AI Data\(tourney 6 stars) )
 - **Engine v7.9.2** = v7.9.1 + sửa lỗi: không đề xuất quân đã hết kho, chấm đa đợt Python khớp JS, trận đa đợt dưới 5 slot, làm tròn Python khớp JS. Trên 238 trận giải đấu thật, đội hình đề xuất không đổi so với v7.9.1.
 - **Simulator giữ nguyên như v7.9.1.** Sai số so với trận thật (MAE, đúng đội hình người chơi đã đánh, 238 trận một đợt, có vật cản): **10.01 điểm %**; khớp thắng/thua 228/238.
 - Các số thắng/tổn thất của đội hình do Engine đề xuất là do chính Simulator chấm, không phải kết quả đánh thật.
-- Userscript đi kèm: 6.7.7.
+- Userscript đi kèm: 6.7.8.
 
 ---
 

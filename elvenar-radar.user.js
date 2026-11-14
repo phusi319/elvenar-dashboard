@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.7.7
+// @version      6.7.8
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -273,7 +273,7 @@
     // nguyên nhân gán nhầm tỉnh là cấp sao đầu vào sai, đã sửa bởi CR-U410). Điều kiện ghi cache + PATCH cho MỌI tỉnh:
     // khóa tính từ pts THẬT của chính gói tin (không ptsInferred) VÀ gói bản đồ đọc đủ lưới (CR-U427).
     // Hàm dưới chỉ còn dùng để ghi log thông tin (CR-U411), không quyết định ghi.
-    const RADAR_WRITER_VERSION = "6.7.7";
+    const RADAR_WRITER_VERSION = "6.7.8";
     function provKeyCloudBlockReason(provKey, pSq, eSq) {
         if (!provKey) return "không có khóa";
         if (!Array.isArray(SEEDED_TOURNEY_MAPS[provKey])) return "khóa ngoài SEEDED_TOURNEY_MAPS";
@@ -1867,6 +1867,8 @@
         const reqBodyStr = (typeof body === "string") ? body : "";
         this.addEventListener('load', function() {
             try {
+                // [CR-U431] Yêu cầu nhị phân (ảnh, âm thanh): getter responseText ném lỗi; bỏ qua, không đọc, không log.
+                if (this.responseType !== "" && this.responseType !== "text") return;
                 const text = this.responseText;
                 if (!text || (text[0] !== '{' && text[0] !== '[')) return;
 
@@ -1922,6 +1924,7 @@
     }
 
     // --- 4. TẠO NỘI DUNG DASHBOARD TELEGRAM ---
+    let telegramPayloadDropLogged = false; // [CR-U432] cờ: ghi console.info đúng một lần mỗi phiên
     function buildTelegramDashboardText() {
         const now = Math.floor(Date.now() / 1000);
         const timeString = new Date().toLocaleTimeString('vi-VN', { hour12: false });
@@ -2047,7 +2050,15 @@
         // Nhưng WebApp vẫn bóc tách và đọc ngầm dữ liệu bình thường!
         try {
             const compact = buildCompactPayload(now);
-            msg += encodeZeroWidthPayload(JSON.stringify(compact));
+            const hiddenPayload = encodeZeroWidthPayload(JSON.stringify(compact));
+            // [CR-U432] Telegram từ chối tin > 4096 ký tự (MESSAGE_TOO_LONG, cả phần chữ không cập nhật). Ngưỡng thận trọng: đếm cả thẻ HTML.
+            // Quá ngưỡng thì bỏ payload ẩn (dashboard vẫn nhận dữ liệu chính qua Firebase), không cắt phần chữ nhìn thấy.
+            if (msg.length + hiddenPayload.length <= 4096) {
+                msg += hiddenPayload;
+            } else if (!telegramPayloadDropLogged) {
+                telegramPayloadDropLogged = true;
+                console.info("[Telegram Live] Tin vượt 4096 ký tự: bỏ payload ẩn, dashboard vẫn nhận dữ liệu qua Firebase (CR-U432)");
+            }
         } catch(e) {}
         return msg;
     }
