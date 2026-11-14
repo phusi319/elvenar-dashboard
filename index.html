@@ -430,6 +430,15 @@
       transition: all 0.2s ease;
     }
 
+    /* [CR-U426] Thanh tab không tràn ngang trên màn hẹp (điện thoại 375 px): nút được co (min-width 0),
+       chữ nhỏ lại; nhãn quá dài thì cắt bằng "…" thay vì đẩy tràn. Màn rộng giữ nguyên như cũ. */
+    @media (max-width: 520px) {
+      .tab-bar { gap: 3px; padding: 3px; }
+      .tab-btn { min-width: 0; gap: 2px; padding: 8px 2px; font-size: 11px; }
+      .tab-btn .tab-icon { flex-shrink: 0; }
+      .tab-btn .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    }
+
     .tab-btn.active {
       background: rgba(56, 189, 248, 0.16);
       color: #38bdf8;
@@ -1586,6 +1595,10 @@
       return Number(num).toLocaleString('en-US');
     }
 
+    // [CR-U417] Payload compact từ #d= được giải mã SAU khi mọi const (SEEDED_TOURNEY_MAPS…) đã khởi tạo
+    // (giải mã ngay ở đây gây ReferenceError TDZ, bị catch nuốt và rơi về demo).
+    let deferredHashCompact = null;
+
     // Parse Data from URL Hash or Search Params
     function getPayload() {
       try {
@@ -1606,9 +1619,13 @@
           const decodedStr = decodeURIComponent(escape(atob(clean)));
           const parsed = JSON.parse(decodedStr);
           if (parsed && parsed.m && !parsed.mil) {
-            return decodeCompactPayload(parsed);
+            deferredHashCompact = parsed; // [CR-U417] giải mã ở "Initial Execution"; tạm dùng demo
+          } else if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray(parsed.mil)) {
+            return parsed;
+          } else {
+            // [CR-U418] payload null / {} / sai dạng: hỏng êm, dùng trạng thái demo (không trắng màn hình, không TypeError lặp)
+            console.warn("Payload (#d=) không hợp lệ, bỏ qua:", parsed === null ? "null" : typeof parsed);
           }
-          return parsed;
         }
       } catch (e) {
         console.error("Payload decoding error:", e);
@@ -2331,12 +2348,22 @@
         };
       });
 
+      // CR-E33: dinh nghia DUY NHAT "het kho" = co du lieu kho VA kho cua quan <= 0.9 doi (cung nguong phat -600).
+      // Quan het kho bi loai khoi moi noi sinh ung vien; neu ca pool deu het kho thi dung lai toan pool va gan co stockExhausted.
+      const isOutOfStockKey = (k) => {
+        const u = resolveUnit(k);
+        return hasStockData && !!u && (Number(armUnits[u.uIdx]) || 0) <= 0.9;
+      };
+      const stockExhausted = hasStockData && pool.length > 0 && pool.every(k => isOutOfStockKey(k));
+      const isExcludedKey = (k) => !stockExhausted && isOutOfStockKey(k);
+
       const rawSlotCandidates = [];
       for (let slotI = 0; slotI < 5; slotI++) {
         const candidates = [];
         pool.forEach(pKey => {
           const pUnit = resolveUnit(pKey);
           if (!pUnit) return;
+          if (isExcludedKey(pKey)) return;
           const stock = Number(armUnits[pUnit.uIdx]) || 0;
 
           let weightedSum = 0;
@@ -2610,6 +2637,11 @@
         rawSlotCandidates.push(candidates);
       }
 
+      // CR-E33: pool rong (hoac khong quan nao giai duoc) => khong nem TypeError
+      if (rawSlotCandidates.some(c => c.length === 0)) {
+        return { slots: [[], [], [], [], []], avgTeamScore: -100.0, bestLineup: [], stockExhausted };
+      }
+
       // Stage 1.B: Extract Heuristic Candidate Pool (Strictly Counter-Compliant)
       const slotScoreMap = [{}, {}, {}, {}, {}];
       const validSlotKeys = [];
@@ -2726,7 +2758,9 @@
           });
           if (hardCounterCount > 1) return;
         }
-        // Condition 4: Not out of stock across all 5 slots
+        // CR-E33: loai quan het kho bang co tuong minh
+        if (isExcludedKey(uKey)) return;
+        // Condition 4: khac che cuc te o ca 5 slot (nguong -300 khong con la dau hieu kho)
         let maxSlotScore = -9999.0;
         for (let s = 0; s < 5; s++) {
           const sc = (slotScoreMap[s][uKey] !== undefined) ? slotScoreMap[s][uKey] : -9999.0;
@@ -2929,7 +2963,7 @@
         const curCls = curClasses[0];
 
         if (isPhalanxChosen || isMono) {
-          const sameClsKeys = pool.filter(k => resolveUnit(k).cls === curCls);
+          const sameClsKeys = pool.filter(k => resolveUnit(k).cls === curCls && !isExcludedKey(k));
           for (let s = 0; s < 5; s++) {
             for (let hi = 0; hi < sameClsKeys.length; hi++) {
               const candUnit = sameClsKeys[hi];
@@ -3013,7 +3047,7 @@
       const curClasses = bestL.map(k => resolveUnit(k).cls);
       const isMono = new Set(curClasses).size === 1;
       const curCls = curClasses[0];
-      const sameClsKeys = isMono ? pool.filter(k => resolveUnit(k).cls === curCls) : [];
+      const sameClsKeys = isMono ? pool.filter(k => resolveUnit(k).cls === curCls && !isExcludedKey(k)) : [];
 
       for (let s = 0; s < 5; s++) {
         const bestKey = bestL[s];
@@ -3049,7 +3083,8 @@
       return {
         slots: rawSlotCandidates.map(c => c.slice(0, 3)),
         avgTeamScore,
-        bestLineup: bestL
+        bestLineup: bestL,
+        stockExhausted
       };
     }
 
@@ -3196,7 +3231,9 @@
       if (p <= 0 || e <= 0) return "";
       const r = e / p;
       const k = getTournamentK(r);
-      const pts = Number(basePts) || 30;
+      // [CR-U410] Sao lấy từ pts thật; pts thiếu / không phải số dương => không suy khóa (giống hệt userscript 6.7.7)
+      const pts = Number(basePts);
+      if (!(pts > 0)) return "";
       const star = (pts >= 30 && pts <= 60) ? Math.max(1, Math.min(6, Math.round((pts - 24) / 6))) : 1;
       const provNum = Math.max(1, k - (star - 1));
       return `${good}_P${provNum}`;
@@ -3601,8 +3638,13 @@
       }
 
       const pSq = playerSquadSize || (state.enc && state.enc.playerSquadSize) || (state.arm && state.arm.squadSize) || 1000;
-      let totPStart = 0;
+      // CR-E34: chi tinh cac slot co quan (cung bo loc voi simulateBattle); endCounts cua simulateBattle xep theo quan co mat
+      const presentIdx = [];
       for (let i = 0; i < 5; i++) {
+        if (i < playerUnitKeys.length && playerUnitKeys[i]) presentIdx.push(i);
+      }
+      let totPStart = 0;
+      for (const i of presentIdx) {
         const u = resolveUnit(playerUnitKeys[i]);
         const wt = (u && u.wt) || 1;
         totPStart += Math.max(1, Math.floor(pSq / wt)) * wt;
@@ -3627,11 +3669,14 @@
             endCounts: [0, 0, 0, 0, 0]
           };
         }
-        curCounts = res.endCounts || [0, 0, 0, 0, 0];
+        const ec = res.endCounts || [];
+        const slotCounts = [null, null, null, null, null];
+        presentIdx.forEach((i, k) => { slotCounts[i] = (ec[k] !== undefined ? ec[k] : 0); });
+        curCounts = slotCounts;
       }
 
       let totPEnd = 0;
-      for (let i = 0; i < 5; i++) {
+      for (const i of presentIdx) {
         const u = resolveUnit(playerUnitKeys[i]);
         const wt = (u && u.wt) || 1;
         totPEnd += (curCounts[i] || 0) * wt;
@@ -3647,7 +3692,7 @@
         squadsLost: Math.round((5.0 - squadsRemaining) * 10) / 10,
         slotLosses: lastRes.slotLosses,
         rounds: totalRounds,
-        endCounts: curCounts
+        endCounts: presentIdx.map(i => curCounts[i])
       };
     }
 
@@ -3879,7 +3924,7 @@
             const ds = cand.directStats;
             const isAct = (u.id === currentKey || u.base === currentKey);
             let badge = ds.atkBonusPct > 0 ? `+${ds.atkBonusPct}% ATK` : (ds.defBonusPct > 0 ? `-${ds.defBonusPct}% DEF` : '');
-            const simTag = (cand.swapLossPct !== undefined) ? ` • Sim ~${cand.swapLossPct}%` : '';
+            const simTag = (cand.swapLossPct !== undefined) ? ` • Sim (Normal) ~${fmt1(cand.swapLossPct)}%` : ''; // [CR-U413/U414]
             return `
               <div onclick="setPlayerSlot(${slotIdx}, '${u.id}')" style="background:${isAct ? 'rgba(56,189,248,0.22)' : 'rgba(30,41,59,0.7)'};border:1.5px solid ${isAct ? '#38bdf8' : 'rgba(255,255,255,0.1)'};border-radius:8px;padding:6px 4px;text-align:center;cursor:pointer;position:relative;">
                 <span style="position:absolute;top:3px;left:4px;font-size:8px;font-weight:800;color:${cIdx === 0 ? '#34d399' : '#fde047'};">#${cIdx + 1} ${cIdx === 0 ? 'Top 1' : 'Dự phòng'}</span>
@@ -3910,7 +3955,7 @@
                   const cm = CLASS_META[u.cls];
                   const isAct = (u.id === currentKey || u.base === currentKey);
                   const rawStock = (u.uIdx !== undefined && armUnits[u.uIdx] !== undefined) ? (Number(armUnits[u.uIdx]) || 0) : 0;
-                  const stockSq = Math.floor(rawStock / (pSq || 1000));
+                  const stockSq = Math.floor(rawStock); // [CR-U416] arm.units đã là số ĐỘI (userscript đổi size x weight / squadSize), không chia thêm pSq
                   return `
                     <div onclick="setPlayerSlot(${slotIdx}, '${u.id}')" style="background:${isAct ? 'rgba(56,189,248,0.25)' : 'rgba(30,41,59,0.5)'};border:1px solid ${isAct ? '#38bdf8' : 'rgba(255,255,255,0.08)'};border-radius:6px;padding:4px 2px;text-align:center;cursor:pointer;">
                       <img src="${u.icon}" style="width:30px;height:30px;object-fit:contain;margin:0 auto;display:block;">
@@ -4127,6 +4172,20 @@
 
       const curWave = advisorWaves[activeWaveIdx] || advisorWaves[0];
 
+      // [CR-U418_r3] đợt địch không đủ 5 quân hợp lệ (S7e): Engine cần đủ 5 ô — hiện thông báo thay vì ném TypeError
+      const badWave = advisorWaves.find(wv => !Array.isArray(wv) || wv.length < 5 || wv.slice(0, 5).some(id => typeof id !== "string" || !id));
+      if (badWave) {
+        container.innerHTML = `
+          <div class="advisor-card">
+            <div class="adv-banner"><div class="adv-banner-left"><div class="adv-live-dot manual"></div><div>
+              <div class="adv-banner-title">⚠️ Dữ liệu đợt địch không đủ 5 quân — không thể dự báo</div>
+              <div class="adv-banner-sub">Gói tin nhận được thiếu quân địch ở ít nhất một đợt. Hãy mở lại ải trong game hoặc chọn đội hình mẫu.</div>
+            </div></div></div>
+          </div>
+        `;
+        return;
+      }
+
       // Determine allowed unit pool based on advisorMode ("optimal" vs "fast1tab")
       let recResult = null;
       let chosenBuildingName = "Mixed (All 3 Buildings)";
@@ -4137,10 +4196,12 @@
           { name: "Mercenary Camp", keys: ["mc_lm", "mc_lr", "mc_ma", "mc_hm", "mc_hr"] }
         ];
         let bestB = null;
-        bPools.forEach(bp => {
-          const r = recommendLineupForWaves(advisorWaves, bp.keys);
-          if (!bestB || r.avgTeamScore > bestB.res.avgTeamScore) {
-            bestB = { name: bp.name, res: r };
+        // [CR-U422] Bỏ qua tòa có cờ stockExhausted (mọi quân trong tòa đã hết kho) khi còn tòa khác chưa hết
+        const bResults = bPools.map(bp => ({ name: bp.name, res: recommendLineupForWaves(advisorWaves, bp.keys) }));
+        const bUsable = bResults.filter(b => !b.res.stockExhausted);
+        (bUsable.length > 0 ? bUsable : bResults).forEach(b => {
+          if (!bestB || b.res.avgTeamScore > bestB.res.avgTeamScore) {
+            bestB = b;
           }
         });
         recResult = bestB.res;
@@ -4264,6 +4325,18 @@
             }).join('')}
           </div>
 
+          ${(() => {
+            // [CR-U420] ID quân địch lạ: resolveUnit thay bằng quân mặc định (giữ nguyên để không đổi Engine) — chỉ cảnh báo rõ
+            const unknownIds = (curWave || []).filter(id => id && !isKnownUnitId(id));
+            if (unknownIds.length === 0) return '';
+            const fb = resolveUnit(unknownIds[0]);
+            return `
+              <div class="unknown-unit-warning" style="background:rgba(245,158,11,0.15);border:1px solid #f59e0b;color:#fcd34d;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:800;margin:6px 0;">
+                ⚠️ ${unknownIds.length} ID quân địch không nhận ra (${unknownIds.map(escHtml).join(', ')}) — đang tính tạm như ${escHtml(fb.short || fb.name || fb.id)}. Kết quả dự báo KHÔNG đáng tin cho trận này.
+              </div>
+            `;
+          })()}
+
           <!-- 5. Spatial Cross-Fire Divider (Shows true hex vertical order: Slot 4 - 2 - 1 - 3 - 5) -->
           <div class="vs-divider">
             <div class="vs-line"></div>
@@ -4271,6 +4344,11 @@
             <div class="vs-line"></div>
           </div>
 
+          ${recResult && recResult.stockExhausted ? `
+            <div class="stock-exhausted-warning" style="background:rgba(239,68,68,0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:11.5px;font-weight:800;margin:6px 0;">
+              🚨 HẾT SẠCH KHO: mọi quân trong nhóm đang xét đều hết đội — đội hình dưới đây dùng lại toàn bộ quân, KHÔNG đánh được nếu chưa luyện thêm!
+            </div>
+          ` : ''}
           <!-- 6. Recommended Player Lineup (5 Slots - Optimized for Auto-Battle) -->
           <div class="adv-section-label">
             <span>🛡️ RECOMMENDED AUTO-BATTLE LINEUP (${chosenBuildingName})</span>
@@ -4308,13 +4386,20 @@
                   };
                   const rawStock = (state.arm && Array.isArray(state.arm.units) && u.uIdx !== undefined) ? (Number(state.arm.units[u.uIdx]) || 0) : 0;
                   const pSq = (state.enc && Number(state.enc.playerSquadSize)) || 1000;
-                  stockVal = Math.floor(rawStock / (pSq || 1000));
+                  stockVal = Math.floor(rawStock); // [CR-U416] arm.units đã là số ĐỘI, không chia thêm pSq
                 }
               } else {
                 const top = cands[0];
-                u = top.unit;
-                ds = top.directStats;
-                stockVal = top.stock;
+                if (top && top.unit) {
+                  u = top.unit;
+                  ds = top.directStats || { atkBonusPct: 0, defBonusPct: 0, starStr: 0, firstStrike: false };
+                  stockVal = top.stock;
+                } else {
+                  // [CR-U422] danh sách ứng viên rỗng (pool rỗng): không ném TypeError, hiện ô mặc định
+                  u = resolveUnit("eb_lr_3");
+                  ds = { atkBonusPct: 0, defBonusPct: 0, starStr: 0, firstStrike: false };
+                  stockVal = 0;
+                }
               }
 
               const cm = CLASS_META[u.cls] || CLASS_META["light_melee"];
@@ -4410,7 +4495,7 @@
             } else if (isHighRatioMultiThreat) {
               simCardClass = 'sim-moderate';
               if (!hasCustomSlots) titleText = '⚠️ CẢNH BÁO: RỦI RO CAO Ở TỈNH SÂU';
-              hintText = `🚨 Tỷ lệ quân địch r=${squadRatio.toFixed(2)}x với hỏa lực dồn sát thương cực lớn (Trần rủi ro ~${effectiveRiskLoss}%). Rất nguy hiểm nếu Auto — Khuyên ĐÀM PHÁN (CATER) hoặc cắn buff!`;
+              hintText = `🚨 Tỷ lệ quân địch r=${squadRatio.toFixed(2)}x với hỏa lực dồn sát thương cực lớn (Trần rủi ro ~${fmt1(effectiveRiskLoss)}% · ${riskBasisLabel(adverseRes, mcRes)}). Rất nguy hiểm nếu Auto — Khuyên ĐÀM PHÁN (CATER) hoặc cắn buff!`;
             } else if (simRes.lossPct < 15) {
               simCardClass = 'sim-flawless';
               if (!hasCustomSlots) titleText = '🟢 DỰ BÁO: THẮNG ÁP ĐẢO (FLAWLESS AUTO)';
@@ -4426,7 +4511,14 @@
                 <div class="adv-sim-header">
                   <div class="adv-sim-title">${titleText}</div>
                   <div class="adv-sim-badge">
-                    ${simRes.won ? `Tỷ lệ thắng: 100% • ${simRes.rounds} Lượt` : `Tỷ lệ thắng: 0% • Nguy hiểm`}
+                    ${(() => {
+                      // [CR-U412] Bỏ hằng "Tỷ lệ thắng: 100%": chỉ hiện con số khi thật sự đã tính (MC 21 mẫu); còn lại ghi kết quả từng kịch bản.
+                      if (!simRes.won) return `Thua (Normal) • Nguy hiểm`;
+                      const parts = [`Thắng (Normal) • ${simRes.rounds} Lượt`];
+                      if (adverseRes) parts.push(adverseRes.won ? `Adverse: thắng` : `Adverse: THUA`);
+                      if (mcRes) parts.push(`MC 21 mẫu: thắng ${fmt1(mcRes.winRate)}%`);
+                      return parts.join(' • ');
+                    })()}
                   </div>
                 </div>
                 <div class="adv-sim-body">
@@ -4435,16 +4527,16 @@
                     if (isHighRatioMultiThreat) {
                       return `
                         <div class="cater-warning-badge" style="background:rgba(239, 68, 68, 0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-                          ⚠️ RỦI RO CAO Ở TỈNH SÂU (r=${squadRatio.toFixed(2)}x | Trần rủi ro: ~${effectiveRiskLoss}%) — NÊN ĐÀM PHÁN (CATER) HOẶC CẮN BUFF!
+                          ⚠️ RỦI RO CAO Ở TỈNH SÂU (r=${squadRatio.toFixed(2)}x | Trần rủi ro: ~${fmt1(effectiveRiskLoss)}% · ${riskBasisLabel(adverseRes, mcRes)}) — NÊN ĐÀM PHÁN (CATER) HOẶC CẮN BUFF!
                         </div>
                       `;
                     }
                     if (Array.isArray(liveObstacles) && adverseRes) {
                       if (!simRes.won || !adverseRes.won || simRes.lossPct >= 42 || adverseRes.lossPct >= 52 || effectiveRiskLoss >= 45) {
-                        const adverseLossText = !adverseRes.won ? '100% THUA' : ('~' + Math.round(effectiveRiskLoss) + '%');
+                        const adverseLossText = !adverseRes.won ? '100% THUA' : ('~' + fmt1(effectiveRiskLoss) + '%'); // [CR-U413]
                         return `
                           <div class="cater-warning-badge" style="background:rgba(239, 68, 68, 0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-                            ⚠️ RỦI RO CAO TRÊN MAP THẬT (Chuẩn: ~${Math.round(simRes.lossPct)}% | Rủi ro: ${adverseLossText}) — NÊN ĐÀM PHÁN (CATER)!
+                            ⚠️ RỦI RO CAO TRÊN MAP THẬT (Chuẩn: ~${fmt1(simRes.lossPct)}% | Rủi ro: ${adverseLossText}) — NÊN ĐÀM PHÁN (CATER)!
                           </div>
                         `;
                       }
@@ -4452,37 +4544,48 @@
                     } else if (mcRes && (mcRes.p90Loss >= 45 || mcRes.winRate < 95)) {
                       return `
                         <div class="cater-warning-badge" style="background:rgba(239, 68, 68, 0.2);border:1px solid #ef4444;color:#fca5a5;padding:5px 10px;border-radius:6px;font-size:12px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
-                          ⚠️ RỦI RO ĐỊA HÌNH CHƯA BIẾT (Map xấu p90: ~${Math.round(mcRes.p90Loss)}%) — HÃY SOI MAP HOẶC CATER!
+                          ⚠️ RỦI RO ĐỊA HÌNH CHƯA BIẾT (Map xấu p90: ~${fmt1(mcRes.p90Loss)}%) — HÃY SOI MAP HOẶC CATER!
                         </div>
                       `;
                     }
                     return '';
                   })()}
                   <div class="adv-sim-stat">
-                    <span>🛡️ Lực lượng bảo toàn: <strong>${simRes.squadsRemaining} / 5.0 Squads</strong></span>
+                    <span>🛡️ Lực lượng bảo toàn: <strong>${fmt1(simRes.squadsRemaining)} / 5.0 Squads</strong></span>
                     ${Array.isArray(liveObstacles) && adverseRes ? `
                       <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
-                        (Dự báo chuẩn: ~${simRes.lossPct}% • -${simRes.squadsLost} squads | Trần rủi ro lệch mục tiêu / RNG: ~${effectiveRiskLoss}%)
+                        (Dự báo chuẩn: ~${fmt1(simRes.lossPct)}% • -${fmt1(simRes.squadsLost)} squads | Trần rủi ro (${riskBasisLabel(adverseRes, mcRes)}): ~${fmt1(effectiveRiskLoss)}%)
                       </span>
                     ` : `
                       <span style="color:${simRes.lossPct < 20 ? '#34d399' : (simRes.lossPct < 40 ? '#facc15' : '#f87171')};font-weight:700;">
-                        (Mất ~${simRes.lossPct}% • -${simRes.squadsLost} squads)
+                        (Mất ~${fmt1(simRes.lossPct)}% • -${fmt1(simRes.squadsLost)} squads)
                       </span>
                     `}
                     ${(() => {
                       const provMatch = (enc && enc.provKey) ? enc.provKey.match(/_P(\d+)/i) : null;
                       const provLabel = provMatch ? ` Tỉnh P${provMatch[1]}` : ((enc && enc.provKey) ? ` ${enc.provKey}` : "");
                       if (Array.isArray(liveObstacles)) {
+                        // [CR-U48] nhãn theo nguồn thật: gói tin / cloud / seed / cache cũ / rỗng thật (trước: luôn "• Cloud")
+                        const origin = (enc && enc.obsOrigin) || null;
+                        const srcName = ({ packet: "Gói tin", cloud: "Cloud", seed: "Seed", cache: "Cache máy", payload: "Userscript" })[origin] || "Không rõ nguồn";
+                        let mapText;
+                        if (liveObstacles.length === 0) {
+                          mapText = `🗺️ MAP RỖNG THẬT${provLabel} (0 vật cản • ${srcName})`;
+                        } else if (origin === "seed") {
+                          mapText = `🗺️ MAP SEED${provLabel} (${liveObstacles.length} vật cản • Seed lưu sẵn, chưa xác nhận bằng gói tin)`;
+                        } else {
+                          mapText = `🗺️ ĐÃ KHÓA MAP THẬT${provLabel} (${liveObstacles.length} vật cản • ${srcName})`;
+                        }
                         return `
-                          <span style="color:#38bdf8;font-weight:800;background:rgba(56, 189, 248, 0.15);padding:2px 7px;border-radius:4px;border:1px solid rgba(56, 189, 248, 0.4);margin-left:6px;" title="Bản đồ vật cản thật được đồng bộ từ Cloud / Seed!">
-                            🗺️ ĐÃ KHÓA MAP THẬT${provLabel} (${liveObstacles.length} vật cản • Cloud)
+                          <span style="color:#38bdf8;font-weight:800;background:rgba(56, 189, 248, 0.15);padding:2px 7px;border-radius:4px;border:1px solid rgba(56, 189, 248, 0.4);margin-left:6px;" title="Nguồn bản đồ vật cản: ${srcName}">
+                            ${mapText}
                           </span>
                         `;
                       } else {
-                        const p90Val = mcRes ? Math.round(mcRes.p90Loss) : Math.round(simRes.lossPct);
+                        const p90Val = mcRes ? fmt1(mcRes.p90Loss) : fmt1(simRes.lossPct); // [CR-U413]
                         return `
                           <span style="color:#f59e0b;font-weight:800;background:rgba(245, 158, 11, 0.15);padding:2px 7px;border-radius:4px;border:1px solid rgba(245, 158, 11, 0.4);margin-left:6px;" title="Chưa có dữ liệu bản đồ địa hình của tỉnh này trên Cloud lẫn máy!">
-                            ⚠️ CHƯA CÓ MAP${provLabel} (Giả lập 21 mẫu: ~${Math.round(simRes.lossPct)}% | p90: ${p90Val}%) — Hãy vào Soi Map!
+                            ⚠️ CHƯA CÓ MAP${provLabel} (Giả lập 21 mẫu: ~${fmt1(simRes.lossPct)}% | p90: ${p90Val}%) — Hãy vào Soi Map!
                           </span>
                         `;
                       }
@@ -4515,11 +4618,13 @@
               : simulateBattle(backupLineup, curWave, pSqSize, eSqSize, simBuffs, liveObstacles);
             const bWon = backupSim.won;
             const bLoss = backupSim.lossPct;
+            // [CR-U414] Dự phòng #2 / Swap chỉ chạy Normal và tính quanh đội hình AI đề xuất: ghi rõ trên nhãn
+            const backupNote = customPlayerSlots.some(v => v !== null) ? ' — tính quanh đội hình AI, chưa theo ô bạn đổi' : '';
             return `
               <div class="adv-section-label" style="margin-top:12px;">
                 <span>🔄 ĐỘI HÌNH DỰ PHÒNG #2 (1-SLOT SWAP / BACKUP)</span>
                 <span style="color:${bWon ? (bLoss < 25 ? '#34d399' : '#fde047') : '#f87171'};font-weight:700;">
-                  ${bWon ? `Full #2: ~${bLoss}% loss` : 'Full #2: Nguy cơ'} • Chạm để thay 1 ô ↴
+                  ${bWon ? `Full #2 (Normal): ~${fmt1(bLoss)}% loss` : 'Full #2 (Normal): Nguy cơ'}${backupNote} • Chạm để thay 1 ô ↴
                 </span>
               </div>
             `;
@@ -4559,14 +4664,14 @@
               }
 
               const swapLossStr = (alt2.swapLossPct !== undefined)
-                ? (alt2.swapWon ? `Swap: ~${alt2.swapLossPct}%` : `Swap: 💀Nguy cơ`)
+                ? (alt2.swapWon ? `Swap (Normal): ~${fmt1(alt2.swapLossPct)}%` : `Swap (Normal): 💀Nguy cơ`)
                 : `Stock: ${Math.floor(alt2.stock)}⬢`;
               const swapPillCls = (alt2.swapLossPct !== undefined)
                 ? (alt2.swapWon ? (alt2.swapLossPct < 20 ? "pill-safe" : (alt2.swapLossPct < 40 ? "pill-counter" : "pill-warn")) : "pill-danger")
                 : "pill-warn";
 
               return `
-                <div class="adv-slot-card backup-slot" onclick="setPlayerSlot(${sIdx}, '${u.id}')" title="Chạm để thay ${u.short} vào Ô S${sIdx + 1} (Tổn thất 1-slot swap: ${alt2.swapLossPct !== undefined ? `~${alt2.swapLossPct}%` : 'N/A'} • Kho: ${Math.floor(alt2.stock)}⬢)">
+                <div class="adv-slot-card backup-slot" onclick="setPlayerSlot(${sIdx}, '${u.id}')" title="Chạm để thay ${u.short} vào Ô S${sIdx + 1} (Tổn thất 1-slot swap, Normal: ${alt2.swapLossPct !== undefined ? `~${fmt1(alt2.swapLossPct)}%` : 'N/A'} • Kho: ${Math.floor(alt2.stock)}⬢)">
                   <div class="slot-num-badge backup-badge">
                     <span style="color:#fbbf24;">S${sIdx + 1} #2</span>
                     <span class="slot-pos-tag" style="color:#fde047;">Dùng ô này ↴</span>
@@ -4575,7 +4680,7 @@
                   <img src="${u.icon}" class="slot-portrait" alt="${u.name}">
                   <div class="slot-unit-name" style="color:#fde047;">${u.short}</div>
                   <div class="slot-meta-pill ${badgeCls}">${badgeText}</div>
-                  <div class="slot-meta-pill ${swapPillCls}" style="margin-top:2px;" title="Tổn thất dự báo nếu thay quân này vào Đội 1 (Kho: ${Math.floor(alt2.stock)} squads)">
+                  <div class="slot-meta-pill ${swapPillCls}" style="margin-top:2px;" title="Tổn thất dự báo (Normal) nếu thay quân này vào Đội 1 (Kho: ${Math.floor(alt2.stock)} squads)">
                     ${swapLossStr} • ${Math.floor(alt2.stock)}⬢
                   </div>
                 </div>
@@ -4607,7 +4712,7 @@
                 </span>
               </div>
               <div style="font-size:10.5px;font-weight:800;color:${enc.lastResult.lossPct <= 15 ? '#34d399' : '#fbbf24'};">
-                Casualties: ${enc.lastResult.lossPct}% Squads Lost
+                Casualties: ${fmt1(enc.lastResult.lossPct)}% Squads Lost${(enc.lastResult.totalWaves || 1) > 1 ? ` (đợt ${enc.lastResult.wave}/${enc.lastResult.totalWaves})` : ''}
               </div>
             </div>
           ` : ''}
@@ -4728,10 +4833,18 @@
     // Apply Realtime Fresh State from Live Stream (Silent & Seamless)
     function applyFreshState(freshState) {
       if (!freshState || !freshState.t) return;
+      const prevState = state; // [CR-U418_r3]
       freshState.isDemo = false;
       state = freshState;
-      initUI();
-      tick();
+      try {
+        initUI();
+        tick();
+      } catch (e) {
+        reportUiErrorOnce("applyFreshState", e);
+        state = prevState;
+        try { initUI(); } catch (e2) {}
+        return;
+      }
 
       const badge = document.getElementById("liveBadgeText");
       if (badge) {
@@ -4759,7 +4872,7 @@
       const syncEl = document.getElementById("syncTime");
       const badgeText = document.getElementById("liveBadgeText");
       if (syncEl) {
-        if (state.isDemo) {
+        if (!state || state.isDemo || !state.t) { // [CR-U418] chưa có dữ liệu hợp lệ thì không báo Just updated
           syncEl.innerText = "Connecting to game data...";
         } else {
           const age = Math.max(0, now - (state.t || now));
@@ -4994,6 +5107,107 @@
     // Token an toan: Lay tu localStorage neu duoc cau hinh, tuyet doi khong luu token that cong khai tren GitHub
     const BOT_TOKEN = localStorage.getItem("ELVENAR_BOT_TOKEN") || "";
 
+    // [CR-U44] Bộ kiểm hợp lệ chung cho bản đồ vật cản (giống hệt userscript 6.7.7).
+    // Lưới 8 x 9 (x 0..7, y 0..8); ô xuất phát x ∈ {0,7} và y ∈ {2..6} không được là vật cản; tối đa 20 phần tử.
+    // Trả về mảng mới đã lọc, hoặc null khi không phải mảng / quá 20 phần tử / có phần tử mà không còn ô hợp lệ.
+    function validObs(o) {
+      if (!Array.isArray(o) || o.length > 20) return null;
+      const out = [];
+      const seen = new Set();
+      for (const c of o) {
+        if (!Array.isArray(c) || c.length < 2) continue;
+        const x = c[0], y = c[1];
+        if (!Number.isInteger(x) || !Number.isInteger(y)) continue;
+        if (x < 0 || x >= 8 || y < 0 || y >= 9) continue;
+        if ((x === 0 || x === 7) && y >= 2 && y <= 6) continue;
+        const key = x + "," + y;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push([x, y]);
+      }
+      if (o.length > 0 && out.length === 0) return null;
+      return out;
+    }
+    // [CR-U44] ts tương lai (quá 1 ngày so với đồng hồ máy) bị bỏ
+    function isFutureTs(ts, nowSec) {
+      return Number(ts) > nowSec + 86400;
+    }
+    // [CR-U44] Vật cản dùng được từ một mục maps.json (đã kiểm hợp lệ), hoặc null
+    function cloudEntryObs(key, entry, nowSec) {
+      if (!entry || typeof entry !== "object") return null;
+      if (isFutureTs(entry.ts, nowSec)) return null;
+      // [CR-U47] Bỏ mục cloud từ 90 ngày tuổi trở lên (cùng quy tắc userscript: chỉ dùng cache khi now - ts < 90 ngày).
+      // Mục không có ts (kể cả mảng trần) không xác định được tuổi => bỏ, rơi về seed nếu có.
+      const entryTs = Number(entry.ts) || 0;
+      if (!(entryTs > 0) || nowSec - entryTs >= 90 * 86400) return null;
+      // [CR-U41] Mảng rỗng chỉ khi mục có cờ empty === true hoặc seed của khóa là [] (P29).
+      // Mục chỉ có {ts} (định dạng cũ) = CHƯA CÓ bản đồ, không phải bản đồ rỗng thật.
+      let raw = Array.isArray(entry.obstacles) ? entry.obstacles : (Array.isArray(entry) ? entry : null);
+      if (raw === null || raw.length === 0) raw = (entry.empty === true || seedIsEmpty(key)) ? [] : null;
+      const checked = validObs(raw);
+      // [CR-U45_r2] khóa có seed: bản đồ cloud KHÁC seed chỉ được dùng khi bản ghi mang src "pkt" (userscript 6.7.7 ghi từ gói tin);
+      // bản ghi cũ không có trường này (6.7.6, người ghi khác) => không thay seed.
+      if (checked !== null && key && Array.isArray(SEEDED_TOURNEY_MAPS[key]) && !sameObsSet(checked, SEEDED_TOURNEY_MAPS[key]) && entry.src !== "pkt") return null;
+      // [CR-U429] khóa KHÔNG seed: không nhận bản đồ "rỗng" từ cloud (chỉ máy đã soi gửi qua payload)
+      if (checked !== null && checked.length === 0 && !(key && Array.isArray(SEEDED_TOURNEY_MAPS[key]))) return null;
+      // [CR-U429_r4] khóa có seed KHÁC rỗng: không nhận bản ghi "rỗng" từ cloud (dùng seed); khóa seed rỗng (P29) giữ nguyên
+      if (checked !== null && checked.length === 0 && key && Array.isArray(SEEDED_TOURNEY_MAPS[key]) && SEEDED_TOURNEY_MAPS[key].length > 0) return null;
+      return checked;
+    }
+    // [CR-U41] Seed của khóa là bản đồ rỗng thật (crystal_P29)
+    function seedIsEmpty(key) {
+      return Boolean(key) && Array.isArray(SEEDED_TOURNEY_MAPS[key]) && SEEDED_TOURNEY_MAPS[key].length === 0;
+    }
+
+    // [CR-U418_r3] Payload hỏng / lỗi dựng giao diện: báo MỘT lần cho mỗi loại lỗi, giữ màn hình trước, không lặp
+    const uiErrorReported = new Set();
+    function reportUiErrorOnce(where, e) {
+      const msg = String((e && e.message) || e).slice(0, 160);
+      const tag = where + "|" + msg;
+      if (uiErrorReported.has(tag)) return;
+      uiErrorReported.add(tag);
+      console.warn(`[Dashboard] Bỏ qua dữ liệu lỗi (${where}): ${msg}`);
+      try { showToast("⚠️ Dữ liệu nhận được bị lỗi — giữ màn hình trước"); } catch (e2) {}
+    }
+    function asArr(v) { return Array.isArray(v) ? v : []; }
+    function asStr(v) { return typeof v === "string" ? v : ""; }
+
+    // [CR-U413] Làm tròn thống nhất ở LỚP HIỂN THỊ: 1 chữ số thập phân cho mọi % tổn thất / trần rủi ro / số đội.
+    // Không đổi giá trị Simulator (lossPct thô vẫn dùng cho mọi ngưỡng và cảnh báo).
+    function fmt1(x) {
+      const n = Number(x);
+      if (!Number.isFinite(n)) return String(x);
+      const r = Math.round(n * 10) / 10;
+      return String(Object.is(r, -0) ? 0 : r);
+    }
+
+    // [CR-U414] Nhãn cố định cho "Trần rủi ro": luôn là effectiveRiskLoss, kèm cơ sở tính (không đổi công thức)
+    // để nhãn không âm thầm đổi nghĩa qua r = 1.50 (Adverse thuần khi có map và r < 1.50; có MC p90 khi r >= 1.50 hoặc chưa có map).
+    function riskBasisLabel(adverseRes, mcRes) {
+      if (adverseRes && mcRes) return "Adverse + MC p90";
+      if (adverseRes) return "Adverse";
+      if (mcRes) return "MC p90";
+      return "Normal";
+    }
+
+    // [CR-U420] ID quân có trong bảng đơn vị không (cùng cách tra của resolveUnit, KHÔNG đổi resolveUnit / Engine)
+    function isKnownUnitId(rawId) {
+      if (!rawId) return false;
+      const str = String(rawId).trim();
+      const base = str.replace(/_\d+$/, "");
+      return Boolean(UNIT_STATS_DB[base] || UNIT_STATS_DB[str]);
+    }
+    function escHtml(s) {
+      return String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
+    }
+
+    // [CR-U46] Hai bản đồ cùng tập ô (so nội dung, không phụ thuộc thứ tự)
+    function sameObsSet(a, b) {
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+      const norm = (arr) => arr.map(c => (Array.isArray(c) ? c[0] + "," + c[1] : String(c))).sort().join(";");
+      return norm(a) === norm(b);
+    }
+
     function decodeCompactPayload(compact) {
       if (!compact || !compact.t) return null;
       
@@ -5002,7 +5216,7 @@
         { id: "training_grounds_production", n: "Training Grounds", ic: "🏹" },
         { id: "mercenary_camp_production", n: "Mercenary Camp", ic: "🪓" }
       ];
-      const mil = (compact.m || []).map((arr, idx) => ({
+      const mil = asArr(compact.m).map(arr => (Array.isArray(arr) ? arr : [])).map((arr, idx) => ({ // [CR-U418_r3] kiểm kiểu
         id: milDefs[idx]?.id || `mil_${idx}`,
         n: milDefs[idx]?.n || "Barracks",
         ic: milDefs[idx]?.ic || "⚔️",
@@ -5012,7 +5226,7 @@
         m: arr[3] || 5
       }));
 
-      const w = compact.w || [0, 0, 0, 0, 0, 0, 0, 0];
+      const w = Array.isArray(compact.w) ? compact.w : [0, 0, 0, 0, 0, 0, 0, 0]; // [CR-U418_r3]
       const ws = {
         c: w[0] || 0,
         l: w[1] || 0,
@@ -5029,7 +5243,7 @@
         { n: "Prosperity Towers" },
         { n: "Maze of the Dark Matter" }
       ];
-      const aw = (compact.a || []).map((arr, idx) => {
+      const aw = asArr(compact.a).map(arr => (Array.isArray(arr) ? arr : [])).map((arr, idx) => { // [CR-U418_r3]
         const sChar = arr[1] || "I";
         const status = sChar === "P" ? "Producing" : (sChar === "R" ? "Ready" : (sChar === "U" ? "Upgrading" : "Idle"));
         return {
@@ -5044,14 +5258,14 @@
         { n: "Brown Bear", ic: "🐻" },
         { n: "Shellux", ic: "🐌" }
       ];
-      const pet = (compact.p || []).map((f, idx) => ({
+      const pet = asArr(compact.p).map((f, idx) => ({ // [CR-U418_r3]
         n: petDefs[idx]?.n || `Pet ${idx+1}`,
         ic: petDefs[idx]?.ic || "🐾",
         f: f || 0
       }));
 
       // 5. Standard Goods Resources (T1, T2, T3)
-      const rawR = compact.r || [];
+      const rawR = asArr(compact.r).map(row => (Array.isArray(row) ? row : null)); // [CR-U418_r3]
       const goodsMeta = [
         { id: "marble", name: "Marble", icon: "🏛️", tier: 1 },
         { id: "steel", name: "Steel", icon: "🔩", tier: 1 },
@@ -5108,36 +5322,51 @@
         }
       }
 
-      // 7. Live Encounter Data: [ts, src, good, pSq, eSq, waves, lastResult, obstacles, provKey]
+      // 7. Live Encounter Data: [ts, src, good, pSq, eSq, waves, lastResult, obstacles, provKey, obsEmptyConfirmed (CR-U41), pts (CR-U410), obsOrigin (CR-U48)]
       let enc = null;
       if (compact.enc && Array.isArray(compact.enc) && Array.isArray(compact.enc[5]) && compact.enc[5].length > 0) {
         const lr = compact.enc[6];
-        const rawProvKey = compact.enc[8] || (compact.enc[1] === "tournament" ? getTournamentProvinceKey(compact.enc[2], compact.enc[3], compact.enc[4]) : "");
+        // [CR-U410] Dự phòng khi payload không có khóa: truyền basePts = enc[10] (pts thật do userscript 6.7.7 gửi)
+        const rawProvKey = asStr(compact.enc[8]) || (compact.enc[1] === "tournament" ? getTournamentProvinceKey(asStr(compact.enc[2]), compact.enc[3], compact.enc[4], compact.enc[10]) : ""); // [CR-U418_r3] khóa phải là chuỗi
         let encObs = null;
-        if (Array.isArray(compact.enc[7])) {
-          encObs = compact.enc[7];
+        let obsOrigin = null; // [CR-U48] nguồn gốc để HIỂN THỊ: "packet" | "cloud" | "seed" | "cache" | "payload" | null
+        let obsSrc = null; // [CR-U46] nguồn vật cản nội bộ: "payload" | "cloud" | "seed" | null (chưa hiển thị — nhãn là CR-U48)
+        const payloadObs = validObs(compact.enc[7]); // [CR-U44] payload cũng qua validObs
+        // [CR-U41] payload [] chỉ là "rỗng thật" khi userscript gắn cờ enc[9] = 1 hoặc seed của khóa là []
+        if (payloadObs !== null && (payloadObs.length > 0 || compact.enc[9] === 1 || seedIsEmpty(rawProvKey))) {
+          encObs = payloadObs;
+          obsSrc = "payload";
+          // [CR-U48] nguồn gốc do userscript 6.7.7 gửi ở enc[11]; payload cũ không có => "payload" (không rõ)
+          obsOrigin = ({ pkt: "packet", seed: "seed", cloud: "cloud", cache: "cache" })[compact.enc[11]] || "payload";
         } else if (rawProvKey) {
           const cloudEntry = window.cloudTourneyMaps ? window.cloudTourneyMaps[rawProvKey] : null;
-          if (cloudEntry) {
-            encObs = Array.isArray(cloudEntry.obstacles) ? cloudEntry.obstacles : (Array.isArray(cloudEntry) ? cloudEntry : (cloudEntry.ts ? [] : null));
+          const cloudObs = cloudEntryObs(rawProvKey, cloudEntry, Math.floor(Date.now() / 1000)); // [CR-U44]
+          if (cloudObs !== null) {
+            encObs = cloudObs;
+            obsSrc = "cloud";
+            obsOrigin = "cloud"; // [CR-U48]
           } else if (SEEDED_TOURNEY_MAPS && Array.isArray(SEEDED_TOURNEY_MAPS[rawProvKey])) {
             encObs = SEEDED_TOURNEY_MAPS[rawProvKey];
+            obsSrc = "seed";
+            obsOrigin = "seed"; // [CR-U48]
           }
         }
         enc = {
           ts: compact.enc[0] || 0,
-          source: compact.enc[1] || "tournament",
-          good: compact.enc[2] || "",
+          source: asStr(compact.enc[1]) || "tournament", // [CR-U418_r3]
+          good: asStr(compact.enc[2]),
           playerSquadSize: compact.enc[3] || 0,
           enemySquadSize: compact.enc[4] || 0,
           waves: compact.enc[5],
           lastResult: Array.isArray(lr) ? {
             won: lr[0] || 0,
             lossPct: lr[1] || 0,
-            used: lr[2] || [],
-            lost: lr[3] || []
+            wave: Number(lr[2]) || 1,        // [CR-U415] userscript gửi [win, lossPct, wave, totalWaves] (trước đây đặt nhầm tên used/lost)
+            totalWaves: Number(lr[3]) || 1
           } : null,
           obstacles: encObs,
+          obsSrc: obsSrc, // [CR-U46]
+          obsOrigin: obsOrigin, // [CR-U48]
           provKey: rawProvKey
         };
       }
@@ -5186,15 +5415,19 @@
           const liveRef = db.ref("live");
 
           liveRef.on("value", snapshot => {
-            const data = snapshot.val();
-            if (data && data.t) {
-              const decoded = decodeCompactPayload(data);
-              const encChanged = Boolean(decoded && decoded.enc && decoded.enc.ts !== (state.enc?.ts || 0));
-              if (decoded && (state.isDemo || decoded.t !== (state.t || 0) || encChanged)) {
-                applyFreshState(decoded);
+            try { // [CR-U418_r3] payload hỏng trên nhánh live: báo một lần, không ném lỗi lặp
+              const data = snapshot.val();
+              if (data && data.t) {
+                const decoded = decodeCompactPayload(data);
+                const encChanged = Boolean(decoded && decoded.enc && decoded.enc.ts !== (state.enc?.ts || 0));
+                if (decoded && (state.isDemo || decoded.t !== (state.t || 0) || encChanged)) {
+                  applyFreshState(decoded);
+                }
+                const badgeText = document.getElementById("liveBadgeText");
+                if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
               }
-              const badgeText = document.getElementById("liveBadgeText");
-              if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
+            } catch (e) {
+              reportUiErrorOnce("live", e);
             }
           });
 
@@ -5234,12 +5467,16 @@
           if (data && typeof data === "object") {
             window.cloudTourneyMaps = Object.assign({}, window.cloudTourneyMaps, data);
             console.log(`[CloudMap] Loaded ${Object.keys(data).length} maps from Firebase maps.json`);
-            if (state && state.enc && state.enc.provKey && !state.enc.obstacles) {
+            // [CR-U46] Cloud hợp lệ thay seed: vá khi chưa có vật cản, HOẶC khi vật cản hiện tại lấy từ seed và mục cloud
+            // (đã qua validObs/ts của CR-U44) khác seed. Không bao giờ đè vật cản lấy từ payload (gói tin của userscript).
+            if (state && state.enc && state.enc.provKey && (!state.enc.obstacles || state.enc.obsSrc === "seed")) {
               const pk = state.enc.provKey;
               const cloudEntry = window.cloudTourneyMaps[pk];
-              const obs = cloudEntry ? (Array.isArray(cloudEntry.obstacles) ? cloudEntry.obstacles : (Array.isArray(cloudEntry) ? cloudEntry : (cloudEntry.ts ? [] : null))) : null;
-              if (Array.isArray(obs)) {
+              const obs = cloudEntryObs(pk, cloudEntry, Math.floor(Date.now() / 1000)); // [CR-U44]
+              if (Array.isArray(obs) && (!state.enc.obstacles || !sameObsSet(obs, state.enc.obstacles))) {
                 state.enc.obstacles = obs;
+                state.enc.obsSrc = "cloud";
+                state.enc.obsOrigin = "cloud"; // [CR-U48]
                 renderAdvisorUI();
               }
             }
@@ -5400,6 +5637,15 @@
     }
 
     // Initial Execution
+    if (deferredHashCompact) { // [CR-U417]
+      try {
+        const fromHash = decodeCompactPayload(deferredHashCompact);
+        if (fromHash && fromHash.t) state = fromHash;
+      } catch (e) {
+        console.error("Payload decoding error (#d=):", e);
+      }
+      deferredHashCompact = null;
+    }
     initUI();
     tick();
     setInterval(tick, 1000);

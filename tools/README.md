@@ -20,7 +20,7 @@ Công cụ phân tích độc lập (Self-contained CLI Suite) dùng để kiể
    - Thống kê tỷ lệ sống sót, số lần chọn, tỷ lệ tổn thất trung bình và số lần bị quét sạch (Wipeout 100%) của từng loại quân trong toàn bộ các trận đã đánh.
 
 4. **Đối chiếu Benchmark: Thực Tế vs Đề Xuất Advisor**:
-   - So sánh từng trận giữa kết quả thực tế người chơi đánh và kết quả giả lập theo thuật toán đề xuất mới nhất (v6.5.2).
+   - So sánh từng trận giữa kết quả thực tế người chơi đánh và kết quả giả lập theo thuật toán đề xuất của bản đang chạy (xem mục "Số hiện hành" bên dưới).
    - Thống kê Win Rate, Tỷ lệ tổn thất trung bình (Average Casualties), và Phân bổ tổn thất theo từng phân khúc (<15%, 15-30%, 30-50%, >=50%).
 
 ---
@@ -40,7 +40,18 @@ python tools/benchmark_dump.py "D:\ElvenarAuto\Batte AI Data\(tourney 6 stars) )
 
 ---
 
+## 📌 Số hiện hành (v7.9.2, phát hành 2026-11-14)
+
+- **Engine v7.9.2** = v7.9.1 + sửa lỗi: không đề xuất quân đã hết kho, chấm đa đợt Python khớp JS, trận đa đợt dưới 5 slot, làm tròn Python khớp JS. Trên 238 trận giải đấu thật, đội hình đề xuất không đổi so với v7.9.1.
+- **Simulator giữ nguyên như v7.9.1.** Sai số so với trận thật (MAE, đúng đội hình người chơi đã đánh, 238 trận một đợt, có vật cản): **10.01 điểm %**; khớp thắng/thua 228/238.
+- Các số thắng/tổn thất của đội hình do Engine đề xuất là do chính Simulator chấm, không phải kết quả đánh thật.
+- Userscript đi kèm: 6.7.7.
+
+---
+
 ## 📊 Kết Quả Tham Chiếu Mẫu (31 Trận Tourney 6 Sao)
+
+> Khối mẫu dưới đây là lần chạy cũ bằng Advisor v6.5.2, giữ lại chỉ để minh họa định dạng đầu ra. Đây KHÔNG phải số của bản hiện hành.
 
 ```text
 ================================================================================
@@ -64,7 +75,7 @@ Bracket                    | Actual Played      | Advisor v6.5.2
 ---
 
 > [!WARNING]
-> Bảng trên so **kết quả giả lập** của Advisor với **kết quả thật** của người chơi. Đây chưa phải phép so sánh công bằng. Audit 2026-11-07 cho thấy simulator có sai số MAE 12.8 điểm % so với thực tế. Xem `docs/BATTLE_ENGINE_AUDIT_ROADMAP.md`.
+> Bảng trên so **kết quả giả lập** của Advisor với **kết quả thật** của người chơi. Đây chưa phải phép so sánh công bằng. Audit 2026-11-07 (bản cũ) đo sai số MAE 12.8 điểm % so với thực tế; số hiện hành ở mục "Số hiện hành". Xem `docs/BATTLE_ENGINE_AUDIT_ROADMAP.md`.
 
 ## 🧪 Audit độ chính xác Simulator (Ground-truth `stepHistory`)
 

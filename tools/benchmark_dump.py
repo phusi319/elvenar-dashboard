@@ -110,6 +110,18 @@ def extract_obstacles_from_map(b_map):
     return obstacles
 
 
+def js_math_round(y):
+    # CR-E40: tai hien dung Math.round(y) cua JS (lam tron nua ve phia +vo cung), khac round() cua Python (nua ve chan).
+    # Tinh bang floor + phan du (y - floor(y) chinh xac voi so thuc), tranh loi floor(y + 0.5) khi y = 0.49999999999999994.
+    f = math.floor(y)
+    return f + 1 if (y - f) >= 0.5 else f
+
+
+def js_round1(x):
+    # CR-E40: tai hien dung Math.round(x * 10) / 10 cua JS: nhan 10, lam tron kieu JS, roi chia 10.
+    return js_math_round(x * 10) / 10
+
+
 def to_cube(x, y):
     q = x - ((y - (y & 1)) // 2)
     r = y
@@ -228,10 +240,10 @@ def extract_dump_data(dump_path, allow_sibling_search=True):
     player_tiers = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 3, 2, 2]
 
     def get_tournament_k(r):
-        if r < 0.92: return max(1, round(r / 0.12595))
-        elif r < 1.08: return 7 + round((r - 0.8816) / 0.0882)
-        elif r < 1.39: return 9 + round((r - 1.0580) / 0.0454)
-        elif r < 2.03: return 16 + round((r - 1.3757) / 0.0360)
+        if r < 0.92: return max(1, js_math_round(r / 0.12595))
+        elif r < 1.08: return 7 + js_math_round((r - 0.8816) / 0.0882)
+        elif r < 1.39: return 9 + js_math_round((r - 1.0580) / 0.0454)
+        elif r < 2.03: return 16 + js_math_round((r - 1.3757) / 0.0360)
         else: return 35
 
     def get_battle_prov_num(b, star):
@@ -269,7 +281,7 @@ def extract_dump_data(dump_path, allow_sibling_search=True):
                     tournament_good = d.get("good_id")
                 base_pts = d.get("baseTournamentPointsAmount")
                 if base_pts:
-                    tournament_star = max(1, round((int(base_pts) - 24) / 6))
+                    tournament_star = max(1, js_math_round((int(base_pts) - 24) / 6))
             # Check manual start or getBattle map, or BattleRealmVO
             if d.get("__class__") == "BattleRealmVO" or (d.get("requestMethod") in ["start", "getBattle"] and isinstance(d.get("responseData"), dict)):
                 realm_obj = d if d.get("__class__") == "BattleRealmVO" else d["responseData"]
@@ -1012,8 +1024,10 @@ def simulate_multi_wave(player_unit_keys, waves, player_squad_size, enemy_squad_
     if len(waves) == 1:
         return simulate_battle(player_unit_keys, waves[0], player_squad_size, enemy_squad_size, active_buffs, player_tiers, obstacle_set=obstacle_set, adverse_mode=adverse_mode)
 
+    # CR-E34: chi tinh cac slot co quan (cung bo loc voi simulate_battle); end_counts cua simulate_battle xep theo quan co mat
+    present_idx = [i for i in range(5) if i < len(player_unit_keys) and player_unit_keys[i]]
     tot_p_start = 0
-    for i in range(5):
+    for i in present_idx:
         u = resolve_unit(player_unit_keys[i], player_tiers)
         wt = u.get("wt", 1)
         cnt = max(1, int(player_squad_size / wt))
@@ -1028,11 +1042,15 @@ def simulate_multi_wave(player_unit_keys, waves, player_squad_size, enemy_squad_
         total_rounds += res["rounds"]
         if not res["won"]:
             return {"won": False, "loss_pct": 100.0, "rounds": total_rounds, "end_counts": [0] * 5}
-        cur_counts = res.get("end_counts", [0] * 5)
+        ec = res.get("end_counts", [])
+        slot_counts = [None] * 5
+        for k, i in enumerate(present_idx):
+            slot_counts[i] = ec[k] if k < len(ec) else 0
+        cur_counts = slot_counts
 
-    tot_p_end = sum(cur_counts[i] * resolve_unit(player_unit_keys[i], player_tiers).get("wt", 1) for i in range(5))
+    tot_p_end = sum(cur_counts[i] * resolve_unit(player_unit_keys[i], player_tiers).get("wt", 1) for i in present_idx)
     overall_loss_pct = (tot_p_start - tot_p_end) / tot_p_start * 100.0 if tot_p_start > 0 else 0.0
-    return {"won": True, "loss_pct": round(overall_loss_pct, 1), "rounds": total_rounds, "end_counts": cur_counts}
+    return {"won": True, "loss_pct": js_round1(overall_loss_pct), "rounds": total_rounds, "end_counts": [cur_counts[i] for i in present_idx]}
 
 
 def simulate_battle_monte_carlo(player_unit_keys, enemy_unit_ids, player_squad_size=1000, enemy_squad_size=1500, active_buffs=None, player_tiers=None):
@@ -1045,9 +1063,9 @@ def simulate_battle_monte_carlo(player_unit_keys, enemy_unit_ids, player_squad_s
         if res["won"]:
             wins += 1
     losses.sort()
-    mean_loss = round(sum(losses) / len(losses), 1)
-    p90_loss = round(losses[int(len(losses) * 0.9) - 1], 1)
-    win_rate = round(wins * 100.0 / len(OBSTACLE_PRESETS), 1)
+    mean_loss = js_round1(sum(losses) / len(losses))
+    p90_loss = js_round1(losses[int(len(losses) * 0.9) - 1])
+    win_rate = js_round1(wins * 100.0 / len(OBSTACLE_PRESETS))
     return {
         "mean_loss": mean_loss,
         "p90_loss": p90_loss,
@@ -1056,7 +1074,69 @@ def simulate_battle_monte_carlo(player_unit_keys, enemy_unit_ids, player_squad_s
     }
 
 
-def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_size=25000, enemy_squad_size=25000, obstacle_set=None):
+def recommend_heuristic_waves(waves, active_buffs, player_tiers, p_sq=25000, e_sq=25000, obstacle_set=None):
+    # CR-E35: cham heuristic tren MOI dot nhu JS recommendLineupForWaves (index.html:2342-2587):
+    # weightedSum = sum(sWave * [0.45, 0.35, 0.20][min(wIdx, 2)]); san song da dot: neu so dot > 1 va
+    # minWaveScore < -15 thi cong them minWaveScore * 0.55. Mot dot: trong so 1.0 => giu nguyen recommend_heuristic.
+    if len(waves) == 1:
+        return recommend_heuristic(waves[0], active_buffs, player_tiers, p_sq, e_sq, obstacle_set=obstacle_set)
+    per_wave = []
+    short_of = {}
+    for w in waves:
+        w_slots = recommend_heuristic(w, active_buffs, player_tiers, p_sq, e_sq, obstacle_set=obstacle_set)
+        per_wave.append([{c[1]: c[0] for c in w_slots[s]} for s in range(5)])
+        for s in range(5):
+            for c in w_slots[s]:
+                short_of[c[1]] = c[2]
+    slots = []
+    for slot_i in range(5):
+        cands = []
+        for p_key in PLAYER_UNIT_KEYS:
+            weighted_sum = 0.0
+            min_wave_score = 999999
+            for w_idx in range(len(waves)):
+                w_weight = [0.45, 0.35, 0.20][min(w_idx, 2)]
+                s_wave = per_wave[w_idx][slot_i][p_key]
+                if s_wave < min_wave_score:
+                    min_wave_score = s_wave
+                weighted_sum += s_wave * w_weight
+            if len(waves) > 1 and min_wave_score < -15:
+                weighted_sum += (min_wave_score * 0.55)
+            cands.append((weighted_sum, p_key, short_of[p_key]))
+        cands.sort(reverse=True)
+        slots.append(cands)
+    return slots
+
+
+class RecommendSlots(list):
+    """CR-E33: ket qua recommend_v70 (van la list 5 slot nhu cu) kem co stock_exhausted (JS: ket qua.stockExhausted)."""
+    stock_exhausted = False
+
+
+def _stock_num(v):
+    # JS: Number(v) || 0
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if x != x else x
+
+
+def _has_stock_data(stock):
+    # JS: armUnits.some(v => Number(v) > 0)
+    return stock is not None and any(_stock_num(v) > 0 for v in stock)
+
+
+def _unit_stock(stock, key, player_tiers=None):
+    # JS: Number(armUnits[pUnit.uIdx]) || 0  (kho tinh bang DOI, chi so uIdx: eb_lm=0 ... mc_hr=14)
+    u_idx = resolve_unit(key, player_tiers).get("uIdx")
+    if stock is None or u_idx is None or not (0 <= u_idx < len(stock)):
+        return 0.0
+    return _stock_num(stock[u_idx])
+
+
+def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_size=25000, enemy_squad_size=25000, obstacle_set=None, stock=None):
+    # CR-E33: stock = None (mac dinh, hanh vi cu) hoac list 15 so theo chi so uIdx nhu JS state.arm.units (so DOI con).
     if not waves_or_wave:
         return []
     if isinstance(waves_or_wave[0], list):
@@ -1070,8 +1150,42 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     e_sq = enemy_squad_size or 25000
     squad_ratio = (e_sq / p_sq) if (p_sq and p_sq > 0) else 1.5
 
-    # Stage 1: Heuristic Slot Scoring
-    heuristic_slots = recommend_heuristic(first_wave, active_buffs, player_tiers, p_sq, e_sq, obstacle_set=obstacle_set)
+    # Stage 1: Heuristic Slot Scoring (CR-E35: cham tren moi dot nhu JS recommendLineupForWaves)
+    heuristic_slots = recommend_heuristic_waves(waves, active_buffs, player_tiers, p_sq, e_sq, obstacle_set=obstacle_set)
+
+    # CR-E33: dinh nghia DUY NHAT "het kho" = co du lieu kho VA kho <= 0.9 doi (JS isOutOfStockKey).
+    has_stock_data = _has_stock_data(stock)
+
+    def is_out_of_stock(k):
+        return has_stock_data and _unit_stock(stock, k, player_tiers) <= 0.9
+
+    stock_exhausted = has_stock_data and len(PLAYER_UNIT_KEYS) > 0 and all(is_out_of_stock(k) for k in PLAYER_UNIT_KEYS)
+    excluded = set() if stock_exhausted else set(k for k in PLAYER_UNIT_KEYS if is_out_of_stock(k))
+    if has_stock_data:
+        # D3: phat kho nhu JS (index.html, sau san song da dot): -600 khi <= 0.9, -22 khi < 15, -8 khi < 35; roi loai quan het kho
+        new_slots = []
+        for s in range(5):
+            cands = []
+            for c in heuristic_slots[s]:
+                if c[1] in excluded:
+                    continue
+                st = _unit_stock(stock, c[1], player_tiers)
+                sc = c[0]
+                if st <= 0.9:
+                    sc -= 600
+                elif st < 15:
+                    sc -= 22
+                elif st < 35:
+                    sc -= 8
+                cands.append((sc, c[1], c[2]))
+            cands.sort(reverse=True)
+            new_slots.append(cands)
+        heuristic_slots = new_slots
+    # CR-E33: pool rong => khong nem IndexError
+    if any(len(heuristic_slots[s]) == 0 for s in range(5)):
+        empty = RecommendSlots([[] for _ in range(5)])
+        empty.stock_exhausted = stock_exhausted
+        return empty
     slot_score_map = [{c[1]: c[0] for c in heuristic_slots[s]} for s in range(5)]
 
     # Strict Slot-Counter Eligibility: Top candidates with score > 0.0 (strictly positive heuristic counter score)
@@ -1181,7 +1295,10 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
                         hard_counter_count += 1
             if hard_counter_count > 1:
                 continue
-        # Condition 4: Not out of stock across all 5 slots
+        # CR-E33: loai quan het kho bang co tuong minh
+        if u_key in excluded:
+            continue
+        # Condition 4: khac che cuc te o ca 5 slot (nguong -300 khong con la dau hieu kho)
         if max(slot_score_map[s].get(u_key, -9999.0) for s in range(5)) < -300.0:
             continue
         viable_phalanx_units.append(u_key)
@@ -1334,7 +1451,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
         cur_cls = cur_classes[0]
 
         if is_phalanx_chosen or is_mono:
-            same_cls_keys = [k for k in PLAYER_UNIT_KEYS if resolve_unit(k, player_tiers)["cls"] == cur_cls]
+            same_cls_keys = [k for k in PLAYER_UNIT_KEYS if resolve_unit(k, player_tiers)["cls"] == cur_cls and k not in excluded]
             for s in range(5):
                 for cand_unit in same_cls_keys:
                     if cand_unit != best_L[s]:
@@ -1401,7 +1518,7 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
     cur_classes = [resolve_unit(k, player_tiers)["cls"] for k in best_L]
     is_mono = (len(set(cur_classes)) == 1)
     cur_cls = cur_classes[0]
-    same_cls_keys = [k for k in PLAYER_UNIT_KEYS if resolve_unit(k, player_tiers)["cls"] == cur_cls] if is_mono else []
+    same_cls_keys = [k for k in PLAYER_UNIT_KEYS if resolve_unit(k, player_tiers)["cls"] == cur_cls and k not in excluded] if is_mono else []
 
     for s in range(5):
         best_key = best_L[s]
@@ -1426,6 +1543,8 @@ def recommend_v70(waves_or_wave, active_buffs, player_tiers=None, player_squad_s
         slot_cands = [best_cand] + [item[3] for item in swap_ranked] + remaining_cands
         final_slots.append(slot_cands)
 
+    final_slots = RecommendSlots(final_slots)
+    final_slots.stock_exhausted = stock_exhausted
     return final_slots
 
 

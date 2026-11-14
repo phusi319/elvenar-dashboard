@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Elvenar Radar
 // @namespace    http://tampermonkey.net/
-// @version      6.7.6
+// @version      6.7.7
 // @description  Silent background tracker that live-updates Elvenar military, workshops, Power of Provision spell, AWs, and Pet Food buffs to Telegram with Event-Driven Realtime Mini App (<1s sync) - Single Pinned Message Only
 // @updateURL    https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
 // @downloadURL  https://phusi319.github.io/elvenar-dashboard/elvenar-radar.user.js
@@ -196,17 +196,302 @@
         "crystal_P37": [[1,2],[2,2],[3,1],[3,2],[4,2],[4,5],[5,2],[5,6],[5,7],[6,1],[6,2],[6,7]]
     };
 
+    // [CR-U44] Bộ kiểm hợp lệ chung cho bản đồ vật cản (cloud / gói tin / cache).
+    // Lưới 8 x 9 (x 0..7, y 0..8); ô xuất phát x ∈ {0,7} và y ∈ {2..6} không được là vật cản; tối đa 20 phần tử.
+    // Trả về mảng mới đã lọc ([x,y] số nguyên, không trùng, giữ thứ tự), hoặc null khi: không phải mảng,
+    // quá 20 phần tử, hoặc có phần tử nhưng không còn ô hợp lệ nào.
+    function validObs(o) {
+        if (!Array.isArray(o) || o.length > 20) return null;
+        const out = [];
+        const seen = new Set();
+        for (const c of o) {
+            if (!Array.isArray(c) || c.length < 2) continue;
+            const x = c[0], y = c[1];
+            if (!Number.isInteger(x) || !Number.isInteger(y)) continue;
+            if (x < 0 || x >= 8 || y < 0 || y >= 9) continue;
+            if ((x === 0 || x === 7) && y >= 2 && y <= 6) continue;
+            const key = x + "," + y;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push([x, y]);
+        }
+        if (o.length > 0 && out.length === 0) return null;
+        return out;
+    }
+    // [CR-U44] ts tương lai (quá 1 ngày so với đồng hồ máy) bị bỏ
+    function isFutureTs(ts, nowSec) {
+        return Number(ts) > nowSec + 86400;
+    }
+    // [CR-U44] Vật cản dùng được từ một mục maps.json (đã kiểm hợp lệ), hoặc null
+    function cloudEntryObs(key, entry, nowSec) {
+        if (!entry || typeof entry !== "object") return null;
+        if (isFutureTs(entry.ts, nowSec)) return null;
+        // [CR-U41] Mảng rỗng chỉ khi mục có cờ empty === true hoặc seed của khóa là [] (P29).
+        // Mục chỉ có {ts} (định dạng cũ, Firebase bỏ mảng rỗng) = CHƯA CÓ bản đồ, không phải bản đồ rỗng thật.
+        let raw = Array.isArray(entry.obstacles) ? entry.obstacles : null;
+        if (raw === null || raw.length === 0) raw = (entry.empty === true || seedIsEmpty(key)) ? [] : null;
+        return validObs(raw);
+    }
+    // [CR-U41] Seed của khóa là bản đồ rỗng thật (crystal_P29)
+    function seedIsEmpty(key) {
+        return Array.isArray(SEEDED_TOURNEY_MAPS[key]) && SEEDED_TOURNEY_MAPS[key].length === 0;
+    }
+    // [CR-U41] Tạo mục bản đồ; chỉ ghi cờ empty: true khi người gọi xác nhận rỗng thật
+    function mapEntry(obs, ts, isEmpty, src) {
+        const e = { obstacles: obs, ts: ts };
+        if (isEmpty === true && Array.isArray(obs) && obs.length === 0) e.empty = true;
+        if (src) e.src = src; // [CR-U45] nguồn của mục cache cục bộ: "seed" | "pkt" | "cloud"
+        return e;
+    }
+    // [CR-U45] Hai bản đồ cùng tập ô (so nội dung, không phụ thuộc thứ tự)
+    function sameObsSet(a, b) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+        const norm = (arr) => arr.map(c => (Array.isArray(c) ? c[0] + "," + c[1] : String(c))).sort().join(";");
+        return norm(a) === norm(b);
+    }
+    // [CR-U45_r2b] Mục do CHÍNH MÁY học từ gói tin ("pkt"): lọc phần tử hỏng thay vì bỏ cả mục (vẫn bỏ khi > 20 phần tử hoặc
+    // lọc xong không còn ô hợp lệ — validObs trả null), và kẹp ts tương lai (đồng hồ lệch) về hiện tại. Mục từ cloud: giữ nghiêm ngặt.
+    function normalizePktEntry(entry, nowSec) {
+        if (!entry || typeof entry !== "object" || entry.src !== "pkt" || !Array.isArray(entry.obstacles)) return false;
+        let changed = false;
+        const v = validObs(entry.obstacles);
+        if (v !== null && v.length !== entry.obstacles.length) { entry.obstacles = v; changed = true; }
+        if (Number(entry.ts) > nowSec) { entry.ts = nowSec; changed = true; }
+        return changed;
+    }
+    // [CR-U45] Mục cache cục bộ còn nguyên vẹn: mảng ô sạch (validObs không phải bỏ phần tử nào), ts không ở tương lai,
+    // [] chỉ khi có cờ empty hoặc seed của khóa là []
+    function cacheEntryClean(key, entry, nowSec) {
+        if (!entry || typeof entry !== "object" || !Array.isArray(entry.obstacles)) return false;
+        const v = validObs(entry.obstacles);
+        if (v === null || v.length !== entry.obstacles.length) return false;
+        if (isFutureTs(entry.ts, nowSec)) return false;
+        if (entry.obstacles.length === 0 && entry.empty !== true && !seedIsEmpty(key)) return false;
+        return true;
+    }
+    // [CR-U43_r2b] THAY bản đợt A: KHÔNG còn chặn PATCH theo r >= 2.03 hay khóa ngoài SEEDED (chẩn đoán cũ bị dữ liệu bác:
+    // nguyên nhân gán nhầm tỉnh là cấp sao đầu vào sai, đã sửa bởi CR-U410). Điều kiện ghi cache + PATCH cho MỌI tỉnh:
+    // khóa tính từ pts THẬT của chính gói tin (không ptsInferred) VÀ gói bản đồ đọc đủ lưới (CR-U427).
+    // Hàm dưới chỉ còn dùng để ghi log thông tin (CR-U411), không quyết định ghi.
+    const RADAR_WRITER_VERSION = "6.7.7";
+    function provKeyCloudBlockReason(provKey, pSq, eSq) {
+        if (!provKey) return "không có khóa";
+        if (!Array.isArray(SEEDED_TOURNEY_MAPS[provKey])) return "khóa ngoài SEEDED_TOURNEY_MAPS";
+        const p = Number(pSq) || 0;
+        const e = Number(eSq) || 0;
+        if (p > 0 && e / p >= 2.03) return "r = " + (e / p).toFixed(4) + " >= 2.03";
+        return "";
+    }
+    // [CR-U411] Ghi log (một lần cho mỗi khóa + lý do) khi khóa tỉnh rơi vào vùng r >= 2.03 hoặc nằm ngoài SEEDED_TOURNEY_MAPS.
+    // Chỉ ghi log, không đổi luồng xử lý.
+    const provKeyRiskLogged = new Set();
+    function logProvKeyRisk(provKey, pSq, eSq) {
+        if (!provKey) return;
+        const reason = provKeyCloudBlockReason(provKey, pSq, eSq);
+        if (!reason) return;
+        const tag = provKey + "|" + reason;
+        if (provKeyRiskLogged.has(tag)) return;
+        provKeyRiskLogged.add(tag);
+        console.log(`[CloudMap] Khóa tỉnh ${provKey} (${reason}): đồng bộ bình thường khi pts thật và gói đủ lưới (CR-U43_r2b)`);
+    }
+    // [CR-U43_r2b] log một lần lý do KHÔNG ghi cloud (thiếu pts / pts suy đoán)
+    const noWriteLogged = new Set();
+    function logNoWriteOnce(key, reason) {
+        const tag = (key || "(chưa có khóa)") + "|" + reason;
+        if (noWriteLogged.has(tag)) return;
+        noWriteLogged.add(tag);
+        console.warn(`[CloudMap] Không ghi cache/cloud cho ${key || "(chưa có khóa)"}: ${reason}`);
+    }
+    // [CR-U428] KIỂM CHÉO KHÓA TỈNH bằng dữ liệu tường minh trong gói tin (không đổi công thức, chỉ kiểm):
+    // K1 sao từ baseTournamentPointsAmount == L + 1 (L từ provinceRewards[0].id dạng "A_L");
+    // K2 A < 15 => tỉnh công thức == A; A == 15 => tỉnh công thức >= 15;
+    // K3 nếu đã nhận gói tổng quan (ProvincesOverviewVO) trong phiên: level[tỉnh công thức] == L (thiếu trường level = 0;
+    //    tỉnh không có trong danh sách = không có dữ liệu). Mỗi phép: "PASS" | "FAIL" | "NO_DATA"; NO_DATA không tính là trượt.
+    let latestProvinceOverview = null; // { ts, levels: { number: level } } — chỉ trong bộ nhớ phiên
+    function parseProvinceRewardId(node) {
+        const lists = [node && node.provinceRewards, node && node.encounterRewards];
+        for (const l of lists) {
+            if (Array.isArray(l) && l[0] && typeof l[0].id === "string") {
+                const m = l[0].id.match(/^(\d+)_(\d+)$/);
+                if (m) return { A: Number(m[1]), L: Number(m[2]) };
+            }
+        }
+        return null;
+    }
+    // [CR-U430] uaByNum (tùy chọn): bảng { number: { level, rem } } từ updateAllTournamentProvinces — ưu tiên hơn gói tổng quan
+    function verifyProvinceKey(provKey, basePts, reward, overviewLevels, uaByNum) {
+        const res = { K1: "NO_DATA", K2: "NO_DATA", K3: "NO_DATA", fail: false, provNum: null, star: null, level: null };
+        const m = String(provKey || "").match(/_P(\d+)$/);
+        if (!m) return res;
+        const provNum = Number(m[1]);
+        res.provNum = provNum;
+        const pts = Number(basePts);
+        const star = (pts >= 30 && pts <= 60) ? Math.max(1, Math.min(6, Math.round((pts - 24) / 6))) : (pts > 0 ? 1 : null);
+        res.star = star;
+        if (reward) {
+            if (star !== null) res.K1 = (star === reward.L + 1) ? "PASS" : "FAIL";
+            if (reward.A < 15) res.K2 = (provNum === reward.A) ? "PASS" : "FAIL";
+            else if (reward.A === 15) res.K2 = (provNum >= 15) ? "PASS" : "FAIL";
+        }
+        const L = reward ? reward.L : (star !== null ? star - 1 : null);
+        if (uaByNum) {
+            // [CR-U430] K3 theo bảng updateAll: ĐẠT khi level == L VÀ không đang chờ hồi (remainingTime vắng); tỉnh vắng = không có dữ liệu
+            res.K3src = "updateAll";
+            if (L !== null && Object.prototype.hasOwnProperty.call(uaByNum, provNum)) {
+                const u = uaByNum[provNum];
+                res.level = u.level;
+                res.K3 = (u.level === L && !u.rem) ? "PASS" : "FAIL";
+            } else if (L !== null) {
+                // [CR-U430_r4] đã có bảng updateAll của đúng good_id mà tỉnh công thức VẮNG (tỉnh chưa mở) => TRƯỢT
+                res.K3 = "FAIL";
+            }
+        } else if (overviewLevels && L !== null && Object.prototype.hasOwnProperty.call(overviewLevels, provNum)) {
+            res.K3src = "overview";
+            res.level = overviewLevels[provNum];
+            res.K3 = (overviewLevels[provNum] === L) ? "PASS" : "FAIL";
+        }
+        res.fail = res.K1 === "FAIL" || res.K2 === "FAIL" || res.K3 === "FAIL";
+        return res;
+    }
+    // [CR-U430] Bảng tỉnh mới nhất từ TournamentService.updateAllTournamentProvinces, theo good_id (chỉ trong bộ nhớ phiên):
+    // byNum: number -> { level, q, r, rem }, byQR: "q,r" -> number
+    const provinceTablesByGood = {};
+    function captureProvinceTable(list, now) {
+        const fresh = {};
+        for (const p of list) {
+            if (!p || p.__class__ !== "TournamentProvinceVO" || !(Number(p.number) > 0)) continue;
+            const g = String(p.good_id || "").toLowerCase();
+            if (!fresh[g]) fresh[g] = { ts: now, byNum: {}, byQR: {} };
+            const n = Number(p.number);
+            fresh[g].byNum[n] = { level: Number(p.level) || 0, q: p.q, r: p.r, rem: p.remainingTime !== undefined && p.remainingTime !== null };
+            if (p.q !== undefined && p.r !== undefined) fresh[g].byQR[p.q + "," + p.r] = n;
+        }
+        for (const g in fresh) provinceTablesByGood[g] = fresh[g];
+    }
+    // [CR-U430] K4 — hậu kiểm sau trận THẮNG: encounter_result.q/.r -> số tỉnh thật, so với khóa đã dùng
+    const postCheckLogged = new Set();
+    function postBattleVerifyProvince(er, now) {
+        const enc = trackedEncounter;
+        if (!enc || enc.src !== "tournament" || !enc.good) return;
+        const good = String(enc.good).toLowerCase();
+        const keyUsed = enc.provKeyFormula || enc.provKey;
+        if (!keyUsed) return;
+        const tbl = provinceTablesByGood[good];
+        const n = tbl ? tbl.byQR[er.q + "," + er.r] : undefined;
+        if (!n) {
+            enc.k4 = "NO_DATA";
+            console.log(`[CloudMap] Hậu kiểm tỉnh: không tra được ô (${er.q}, ${er.r}) trong bảng updateAll của ${good}`);
+            return;
+        }
+        const trueKey = `${good}_P${n}`;
+        if (trueKey === keyUsed) { enc.k4 = "PASS"; enc.k4Key = trueKey; return; }
+        enc.k4 = "FAIL";
+        enc.k4Key = trueKey;
+        const tag = keyUsed + ">" + trueKey;
+        if (!postCheckLogged.has(tag)) {
+            postCheckLogged.add(tag);
+            console.error(`[CloudMap] Hậu kiểm tỉnh BÁC khóa ${keyUsed}: trận vừa thắng là ${trueKey} (encounter_result q,r)`);
+        }
+        // xóa mục cache do CHÍNH encounter này ghi dưới khóa sai (không đụng cloud)
+        if (enc.wroteKey && enc.wroteKey !== trueKey && tournamentMapCache[enc.wroteKey] && tournamentMapCache[enc.wroteKey].src === "pkt" &&
+            Number(tournamentMapCache[enc.wroteKey].ts) === Number(enc.wroteTs)) {
+            delete tournamentMapCache[enc.wroteKey];
+        }
+        // bản đồ đủ lưới của chính encounter này => ghi dưới khóa ĐÚNG theo điều kiện ghi hiện hành (pts thật, đủ lưới)
+        if (enc.pktFullMap && enc.obsOrigin === "pkt" && Array.isArray(enc.obstacles) && !enc.ptsInferred) {
+            tournamentMapCache[trueKey] = mapEntry(enc.obstacles, now, enc.obsEmpty === true, "pkt");
+            syncMapToCloud(trueKey, enc.obstacles, now, enc.obsEmpty === true);
+            enc.wroteKey = trueKey;
+            enc.wroteTs = now;
+        }
+        enc.provKeyRejected = keyUsed;   // trạng thái "khóa đã bị hậu kiểm bác": encounter không ghi tiếp dưới khóa sai
+        enc.provKey = trueKey;
+        enc.provKeyFormula = trueKey;
+        enc.provUnverified = false;
+        try { GM_setValue("ELVENAR_TOURNAMENT_MAP_CACHE", JSON.stringify(tournamentMapCache)); } catch (e) {}
+    }
+    // [CR-U42] Gói bản đồ có đọc đủ lưới không (số ô đọc được = width x height, mặc định 8 x 9)
+    function mapGridFullyRead(bMap) {
+        if (!bMap) return false;
+        if (bMap.map && (bMap.map.tiles || bMap.map.width)) bMap = bMap.map;
+        const tiles = bMap.tiles || (Array.isArray(bMap) ? bMap : null);
+        if (!Array.isArray(tiles) || tiles.length === 0) return false;
+        const w = Number(bMap.width) || 8;
+        const h = Number(bMap.height) || 9;
+        let n = 0;
+        if (Array.isArray(tiles[0])) {
+            for (const col of tiles) { if (Array.isArray(col)) n += col.length; }
+        } else {
+            n = tiles.length;
+        }
+        return n === w * h;
+    }
+    // [CR-U425_r2] Bản đồ seed nhúng sẵn KHÔNG bao giờ hết hạn: quy tắc 90 ngày chỉ áp cho bản đồ học từ gói tin / cloud
+    function isEmbeddedSeed(key, obs) {
+        return Array.isArray(SEEDED_TOURNEY_MAPS[key]) && sameObsSet(obs, SEEDED_TOURNEY_MAPS[key]);
+    }
+    // [CR-U45_r3] Bản đồ của trận đang theo dõi được thay bằng mục cache cùng khóa khi mục cache hợp lệ và MỚI hơn
+    // (ts cache > obsTs của trận). Bản đồ gói tin vừa nhận có obsTs = lúc nhận nên vẫn ưu tiên cho tới khi có bản soi mới hơn.
+    function refreshEncounterObsFromCache(enc) {
+        if (!enc || !enc.provKey || enc.provUnverified) return false;
+        const e = tournamentMapCache[enc.provKey];
+        const cObs = cacheEntryObs(enc.provKey, e);
+        if (cObs === null) return false;
+        const nowS = Math.floor(Date.now() / 1000);
+        if (!isEmbeddedSeed(enc.provKey, cObs) && (nowS - (Number(e.ts) || 0)) >= 90 * 86400) return false;
+        const cTs = Number(e.ts) || 0;
+        const oTs = Number(enc.obsTs) || 0;
+        if (Array.isArray(enc.obstacles) && (cTs <= oTs || sameObsSet(cObs, enc.obstacles))) return false;
+        enc.obstacles = cObs;
+        enc.obsEmpty = cObs.length === 0;
+        enc.obsOrigin = e.src || "cache";
+        enc.obsTs = cTs;
+        return true;
+    }
+    // [CR-U427] Gói bản đồ đọc THIẾU lưới (< width x height ô): không ghi cache/cloud; log một lần cho mỗi khóa
+    const partialMapLogged = new Set();
+    // [CR-U41] Vật cản dùng được từ một mục cache cục bộ: [] chỉ khi có cờ empty hoặc seed rỗng; ngược lại null
+    function cacheEntryObs(key, entry) {
+        if (!entry || !Array.isArray(entry.obstacles)) return null;
+        if (entry.obstacles.length === 0 && entry.empty !== true && !seedIsEmpty(key)) return null;
+        return entry.obstacles;
+    }
+
     let savedTourneyMapCache = null;
     try { savedTourneyMapCache = JSON.parse(GM_getValue("ELVENAR_TOURNAMENT_MAP_CACHE", "{}")); } catch(e) {}
-    let tournamentMapCache = (savedTourneyMapCache && typeof savedTourneyMapCache === "object") ? savedTourneyMapCache : {};
+    // [CR-U423] cache lưu dạng mảng (hỏng) thì bỏ: khóa chữ gắn lên mảng không bao giờ lưu lại được ("[]")
+    let tournamentMapCache = (savedTourneyMapCache && typeof savedTourneyMapCache === "object" && !Array.isArray(savedTourneyMapCache)) ? savedTourneyMapCache : {};
     const seedTs = Math.floor(Date.now() / 1000);
     let cacheSanitized = false;
+    // [CR-U45] Làm sạch cache theo NỘI DUNG thay vì số ô.
+    // Khóa không có seed: mục hỏng (cacheEntryClean = false) thì xóa.
+    for (let ck in tournamentMapCache) {
+        if (normalizePktEntry(tournamentMapCache[ck], seedTs)) cacheSanitized = true; // [CR-U45_r2b]
+        if (Array.isArray(SEEDED_TOURNEY_MAPS[ck])) continue;
+        const ce429 = tournamentMapCache[ck];
+        if (ce429 && ce429.src === "cloud" && Array.isArray(ce429.obstacles) && ce429.obstacles.length === 0) { delete tournamentMapCache[ck]; cacheSanitized = true; continue; } // [CR-U429] "rỗng" nhận từ cloud trước đây
+        if (!cacheEntryClean(ck, tournamentMapCache[ck], seedTs)) {
+            delete tournamentMapCache[ck];
+            cacheSanitized = true;
+        }
+    }
+    // Khóa có seed: chỉ ép về seed khi mục hỏng / thiếu, KHÔNG ép khi là bản đồ học từ gói tin ("pkt") hoặc cloud hợp lệ ("cloud")
+    // khác seed. Mục định dạng cũ (không có src) khác seed: giữ đúng quy tắc v6.7.6 (giữ nếu cùng số ô, ngược lại về seed).
     for (let sk in SEEDED_TOURNEY_MAPS) {
         const seededObs = SEEDED_TOURNEY_MAPS[sk];
         const entry = tournamentMapCache[sk];
-        // Làm sạch Cache: nếu chưa có, hoặc không phải mảng, hoặc số lượng vật cản lệch so với chuẩn hạt giống (đặc biệt sửa crystal_P1 bị nhiễm độc 12 vật cản)
-        if (!entry || !Array.isArray(entry.obstacles) || entry.obstacles.length !== seededObs.length) {
-            tournamentMapCache[sk] = { obstacles: seededObs, ts: seedTs };
+        let keepEntry = cacheEntryClean(sk, entry, seedTs);
+        // [CR-U429_r4] mục "rỗng" nhận từ cloud ở khóa có seed KHÁC rỗng (đợt trước) => về seed
+        if (keepEntry && entry.src === "cloud" && entry.obstacles.length === 0 && seededObs.length > 0) keepEntry = false;
+        if (keepEntry && !sameObsSet(entry.obstacles, seededObs)) {
+            // [CR-U45_r2] chỉ giữ bản đồ khác seed khi CHÍNH MÁY thấy trong gói tin ("pkt"); mục "cloud" khác seed => về seed
+            // [CR-U45_r2c] ...trừ mục cloud mà bản ghi gốc mang src "pkt" (máy 6.7.7 khác thấy trong gói tin)
+            if (entry.src === "pkt" || (entry.src === "cloud" && entry.cloudSrc === "pkt")) keepEntry = true;
+            else if (entry.src === undefined) keepEntry = entry.obstacles.length === seededObs.length;
+            else keepEntry = false;
+        }
+        if (!keepEntry) {
+            tournamentMapCache[sk] = mapEntry(seededObs, seedTs, seededObs.length === 0, "seed"); // [CR-U41/U45]
             cacheSanitized = true;
         }
     }
@@ -335,8 +620,10 @@
         });
     }
 
-    function syncMapToCloud(provKey, obstacles, ts) {
-        if (!FIREBASE_DATABASE_URL || !provKey) return;
+    function syncMapToCloud(provKey, obstacles, ts, isEmpty) {
+        if (!FIREBASE_DATABASE_URL || !provKey || !Array.isArray(obstacles)) return; // [CR-U41] không biến "chưa có" thành []
+        // [CR-U429] bản đồ RỖNG của khóa KHÔNG seed không lên cloud (chỉ lưu cục bộ + payload của máy đã soi)
+        if (obstacles.length === 0 && !Array.isArray(SEEDED_TOURNEY_MAPS[provKey])) { logNoWriteOnce(provKey, "bản đồ rỗng của tỉnh không seed chỉ lưu cục bộ (CR-U429)"); return; }
         try {
             const mapsUrl = FIREBASE_DATABASE_URL.replace('live.json', 'maps.json');
             GM_xmlhttpRequest({
@@ -344,10 +631,7 @@
                 url: mapsUrl,
                 headers: { "Content-Type": "application/json" },
                 data: JSON.stringify({
-                    [provKey]: {
-                        obstacles: Array.isArray(obstacles) ? obstacles : [],
-                        ts: Number(ts) || Math.floor(Date.now() / 1000)
-                    }
+                    [provKey]: Object.assign(mapEntry(obstacles, Number(ts) || Math.floor(Date.now() / 1000), isEmpty, "pkt"), { v: RADAR_WRITER_VERSION }) // [CR-U41]; [CR-U45_r2] src "pkt" = từ gói tin; [CR-U43_r2b] v = phiên bản ghi
                 }),
                 onload: function(res) {
                     console.log(`[CloudMap] Synced ${provKey} to Firebase maps.json (status: ${res.status})`);
@@ -374,32 +658,32 @@
                         if (res.status >= 200 && res.status < 300 && res.responseText && res.responseText !== "null") {
                             cloudData = JSON.parse(res.responseText);
                         }
-                        let missingKeys = [];
-                        for (let sk in SEEDED_TOURNEY_MAPS) {
-                            if (!cloudData || !cloudData[sk] || (cloudData[sk].obstacles === undefined && SEEDED_TOURNEY_MAPS[sk].length > 0)) {
-                                missingKeys.push(sk);
-                            }
-                        }
-                        if (missingKeys.length > 0 || !cloudData) {
-                            console.log(`[CloudMap] Cloud maps missing ${missingKeys.length} seeds. Syncing tournamentMapCache to maps.json...`);
-                            GM_xmlhttpRequest({
-                                method: "PATCH",
-                                url: mapsUrl,
-                                headers: { "Content-Type": "application/json" },
-                                data: JSON.stringify(tournamentMapCache),
-                                onload: function(patchRes) {
-                                    console.log(`[CloudMap] Successfully synced seed maps to Firebase (status: ${patchRes.status})`);
-                                }
-                            });
-                        }
+                        // [CR-U43_r2] BỎ hẳn lệnh PATCH seed lúc khởi tạo: userscript và dashboard đều có bảng seed nhúng sẵn,
+                        // không bên đọc nào cần seed nằm trên cloud; bớt một đường ghi (và hết cuộc đua đè bản đồ vừa học của máy khác).
                         if (cloudData && typeof cloudData === "object") {
                             let updated = false;
+                            const mergeNowSec = Math.floor(Date.now() / 1000);
                             for (let ck in cloudData) {
                                 if (cloudData[ck]) {
-                                    const obs = Array.isArray(cloudData[ck].obstacles) ? cloudData[ck].obstacles : (cloudData[ck].ts ? [] : null);
+                                    const obs = cloudEntryObs(ck, cloudData[ck], mergeNowSec); // [CR-U44]
+                                    // [CR-U45_r2c] khóa có seed: bản đồ cloud KHÁC seed chỉ nhận khi bản ghi mang src "pkt" (6.7.7 ghi từ gói tin);
+                                    // bản ghi cũ không có trường nguồn => dùng seed. Khóa không seed: nhận mọi bản ghi hợp lệ.
+                                    const cloudFromPkt = cloudData[ck].src === "pkt";
+                                    if (Array.isArray(obs) && Array.isArray(SEEDED_TOURNEY_MAPS[ck]) && !sameObsSet(obs, SEEDED_TOURNEY_MAPS[ck]) && !cloudFromPkt) continue;
+                                    if (Array.isArray(obs) && obs.length === 0 && !Array.isArray(SEEDED_TOURNEY_MAPS[ck])) continue; // [CR-U429] không nhận "rỗng" từ cloud cho khóa không seed
+                                    if (Array.isArray(obs) && obs.length === 0 && Array.isArray(SEEDED_TOURNEY_MAPS[ck]) && SEEDED_TOURNEY_MAPS[ck].length > 0) continue; // [CR-U429_r4] khóa có seed KHÁC rỗng: không nhận "rỗng" từ cloud
                                     if (Array.isArray(obs)) {
-                                        if (!tournamentMapCache[ck] || !Array.isArray(tournamentMapCache[ck].obstacles) || (cloudData[ck].ts && cloudData[ck].ts > (tournamentMapCache[ck].ts || 0))) {
-                                            tournamentMapCache[ck] = { obstacles: obs, ts: cloudData[ck].ts || Math.floor(Date.now() / 1000) };
+                                        // [CR-U425p2_r2] máy cài mới / máy thứ hai: mục cục bộ chỉ là seed (ts = lúc cài) thì bản đồ cloud tin cậy
+                                        // khác seed được nhận bất kể ts; giữa hai bản đồ học được thì ts mới hơn thắng; cùng nội dung thì không ghi lại.
+                                        const localEntry = tournamentMapCache[ck];
+                                        const localIsSeedOnly = Boolean(localEntry) && Array.isArray(localEntry.obstacles) && (localEntry.src === "seed" || (!localEntry.src && isEmbeddedSeed(ck, localEntry.obstacles)));
+                                        if (localEntry && Array.isArray(localEntry.obstacles) && sameObsSet(localEntry.obstacles, obs)) continue;
+                                        // [CR-U44_r3] ts tương lai (trong ngưỡng 1 ngày đã cho qua) bị KẸP về hiện tại khi so và khi lưu,
+                                        // để bản ghi "tương lai" không thắng mãi các bản soi đúng đến sau
+                                        const cloudTs = Math.min(Number(cloudData[ck].ts) || 0, mergeNowSec);
+                                        if (!localEntry || !Array.isArray(localEntry.obstacles) || localIsSeedOnly || (cloudTs > 0 && cloudTs > (Number(localEntry.ts) || 0))) {
+                                            tournamentMapCache[ck] = mapEntry(obs, cloudTs || mergeNowSec, obs.length === 0, "cloud"); // [CR-U41/U45/U44_r3]
+                                            if (cloudFromPkt) tournamentMapCache[ck].cloudSrc = "pkt"; // [CR-U45_r2c] nhớ bản ghi cloud có dấu gói tin
                                             updated = true;
                                         }
                                     }
@@ -790,7 +1074,10 @@
         if (p <= 0 || e <= 0) return "";
         const r = e / p;
         const k = getTournamentK(r);
-        const pts = Number(basePts) || 30;
+        // [CR-U410] Sao lấy từ pts thật của gói tỉnh; pts thiếu / không phải số dương => không suy khóa
+        // (trước đây mặc định 30 = sao 1, lệch sao - 1 tỉnh với tỉnh từ 2 sao trở lên)
+        const pts = Number(basePts);
+        if (!(pts > 0)) return "";
         const star = (pts >= 30 && pts <= 60) ? Math.max(1, Math.min(6, Math.round((pts - 24) / 6))) : 1;
         const provNum = Math.max(1, k - (star - 1));
         return `${good}_P${provNum}`;
@@ -1028,6 +1315,20 @@
                 }
 
                 // G. Bắt đội hình Quái khi mở ải Tournament / Province / Spire (Hỗ trợ 1-3 Waves cho Auto-Battle Advisor)
+                // [CR-U430] updateAllTournamentProvinces: danh sách TournamentProvinceVO
+                if (Array.isArray(node) && node.length > 0 && node[0] && node[0].__class__ === "TournamentProvinceVO") {
+                    captureProvinceTable(node, now);
+                }
+                // [CR-U430] K4: kết quả trận thắng mang encounter_result (q, r) của ô tỉnh
+                if (node.__class__ === "InstantBattleResultVO" && node.encounter_result && node.encounter_result.q !== undefined && node.encounter_result.r !== undefined) {
+                    postBattleVerifyProvince(node.encounter_result, now);
+                }
+                // [CR-U428] gói tổng quan getProvincesOverview: lưu bảng number -> level mới nhất (thiếu trường level = 0)
+                if (node.__class__ === "ProvincesOverviewVO" && Array.isArray(node.provinces)) {
+                    const lv = {};
+                    for (const p of node.provinces) { if (p && Number(p.number) > 0) lv[Number(p.number)] = Number(p.level) || 0; }
+                    latestProvinceOverview = { ts: now, levels: lv };
+                }
                 if (Array.isArray(node.encounters) && node.encounters.length > 0) {
                     const activeEnc = node.encounters.find(e => e && Array.isArray(e.enemyWaves) && e.enemyWaves.length > 0 && !e.completed && !e.isCompleted) ||
                                       node.encounters.find(e => e && Array.isArray(e.enemyWaves) && e.enemyWaves.length > 0);
@@ -1036,19 +1337,42 @@
                         if (waves.length > 0) {
                             const pSqVal = Number(node.playerSquadSize) || (trackedArmy && trackedArmy.squadSize) || 0;
                             const eSqVal = Number(activeEnc.enemyWaves[0].squadSize) || 0;
-                            const provKey = node.good_id ? getTournamentProvinceKey(node.good_id, pSqVal, eSqVal, node.baseTournamentPointsAmount, node.provinceNumber || node.number) : "";
+                            const provKeyFormula = node.good_id ? getTournamentProvinceKey(node.good_id, pSqVal, eSqVal, node.baseTournamentPointsAmount, node.provinceNumber || node.number) : "";
+                            // [CR-U428] kiểm chéo; có phép TRƯỢT => khóa "chưa xác định": không dùng bản đồ kho/seed/cloud, không ghi, payload khóa rỗng
+                            const uaTbl = node.good_id ? provinceTablesByGood[String(node.good_id).toLowerCase()] : null; // [CR-U430]
+                            const provCheck = provKeyFormula ? verifyProvinceKey(provKeyFormula, node.baseTournamentPointsAmount, parseProvinceRewardId(node), latestProvinceOverview ? latestProvinceOverview.levels : null, uaTbl ? uaTbl.byNum : null) : null;
+                            const provUnverified = Boolean(provCheck && provCheck.fail);
+                            if (provUnverified) {
+                                const rw = parseProvinceRewardId(node);
+                                logNoWriteOnce(provKeyFormula, `khóa tỉnh chưa xác định (CR-U428): K1=${provCheck.K1} (sao ${provCheck.star}, L+1 ${rw ? rw.L + 1 : "?"}), K2=${provCheck.K2} (A ${rw ? rw.A : "?"}, tỉnh ${provCheck.provNum}), K3=${provCheck.K3} (level ${provCheck.level})`);
+                            }
+                            const provKey = provUnverified ? "" : provKeyFormula;
+                            logProvKeyRisk(provKey, pSqVal, eSqVal); // [CR-U411]
+                            if (node.good_id && !provKey && pSqVal > 0 && eSqVal > 0) logNoWriteOnce(String(node.good_id), "gói tỉnh thiếu baseTournamentPointsAmount — không suy khóa (CR-U410)"); // [CR-U43_r2b]
                             let preservedObstacles = null;
+                            let preservedEmpty = false; // [CR-U41]
+                            let preservedOrigin = null; // [CR-U48] nguồn: "pkt" | "seed" | "cloud" | "cache" (mục cũ không src)
+                            let preservedObsTs = 0; // [CR-U45_r3]
                             if (provKey) {
                                 if (trackedEncounter && trackedEncounter.provKey === provKey && Array.isArray(trackedEncounter.obstacles)) {
                                     preservedObstacles = trackedEncounter.obstacles;
-                                } else if (tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles)) {
-                                    if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) {
-                                        preservedObstacles = tournamentMapCache[provKey].obstacles;
+                                    preservedEmpty = trackedEncounter.obsEmpty === true;
+                                    preservedOrigin = trackedEncounter.obsOrigin || null; // [CR-U48]
+                                    preservedObsTs = Number(trackedEncounter.obsTs) || 0; // [CR-U45_r3]
+                                } else if (cacheEntryObs(provKey, tournamentMapCache[provKey]) !== null) { // [CR-U41]
+                                    if (isEmbeddedSeed(provKey, tournamentMapCache[provKey].obstacles) || (now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) { // [CR-U425_r2]
+                                        preservedObstacles = cacheEntryObs(provKey, tournamentMapCache[provKey]);
+                                        preservedEmpty = preservedObstacles.length === 0;
+                                        preservedOrigin = tournamentMapCache[provKey].src || "cache"; // [CR-U48]
+                                        preservedObsTs = Number(tournamentMapCache[provKey].ts) || 0; // [CR-U45_r3]
                                     }
                                 }
-                            } else {
+                            } else if (!provUnverified) { // [CR-U428] khóa chưa xác định: không mượn bản đồ trận trước
                                 if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && areWavesCompatible(trackedEncounter.waves, waves)) {
                                     preservedObstacles = trackedEncounter.obstacles;
+                                    preservedEmpty = trackedEncounter.obsEmpty === true;
+                                    preservedOrigin = trackedEncounter.obsOrigin || null; // [CR-U48]
+                                    preservedObsTs = Number(trackedEncounter.obsTs) || 0; // [CR-U45_r3]
                                 }
                             }
                             trackedEncounter = {
@@ -1060,8 +1384,17 @@
                                 eSq: eSqVal,
                                 waves: waves,
                                 obstacles: preservedObstacles,
+                                obsEmpty: preservedEmpty, // [CR-U41]
+                                obsOrigin: Array.isArray(preservedObstacles) ? preservedOrigin : null, // [CR-U48]
+                                obsTs: Array.isArray(preservedObstacles) ? preservedObsTs : 0, // [CR-U45_r3]
+                                pts: Number(node.baseTournamentPointsAmount) > 0 ? Number(node.baseTournamentPointsAmount) : null, // [CR-U410]
+                                ptsInferred: false, // [CR-U410]
+                                provUnverified: provUnverified, // [CR-U428]
+                                provKeyFormula: provKeyFormula, // [CR-U430] khóa theo công thức (dùng cho hậu kiểm K4)
+                                provCheck: provCheck ? { K1: provCheck.K1, K2: provCheck.K2, K3: provCheck.K3, K3src: provCheck.K3src || null } : null, // [CR-U430]
                                 lastResult: trackedEncounter ? trackedEncounter.lastResult : null
                             };
+                            refreshEncounterObsFromCache(trackedEncounter); // [CR-U45_r3]
                             activeEnc._processedByParent = true;
                             GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
                             triggerLiveStreamPush();
@@ -1074,19 +1407,39 @@
                         const goodVal = node.good_id || (trackedEncounter && trackedEncounter.good) || "";
                         const pSqVal = Number(node.playerSquadSize) || (trackedEncounter && trackedEncounter.pSq) || (trackedArmy && trackedArmy.squadSize) || 0;
                         const eSqVal = Number(node.enemyWaves[0].squadSize) || 0;
-                        const provKey = goodVal ? getTournamentProvinceKey(goodVal, pSqVal, eSqVal, node.baseTournamentPointsAmount, node.provinceNumber || node.number) : ((trackedEncounter && trackedEncounter.provKey) || "");
+                        // [CR-U410] EncounterVO đứng riêng thường không có baseTournamentPointsAmount: dùng pts của trackedEncounter
+                        // cùng loại hàng và đánh dấu ptsInferred (khóa suy ra => không ghi bản đồ vào cache/cloud).
+                        const ownPts = Number(node.baseTournamentPointsAmount) > 0 ? Number(node.baseTournamentPointsAmount) : null;
+                        const inheritedPts = (!ownPts && trackedEncounter && !trackedEncounter.provUnverified && trackedEncounter.good === goodVal && Number(trackedEncounter.pts) > 0) ? Number(trackedEncounter.pts) : null; // [CR-U428] không thừa hưởng pts của khóa chưa xác định
+                        const encPts = goodVal ? (ownPts || inheritedPts) : ((trackedEncounter && trackedEncounter.pts) || null);
+                        const encPtsInferred = goodVal ? (!ownPts && inheritedPts !== null) : Boolean(trackedEncounter && trackedEncounter.ptsInferred);
+                        const provKey = goodVal ? getTournamentProvinceKey(goodVal, pSqVal, eSqVal, encPts, node.provinceNumber || node.number) : ((trackedEncounter && trackedEncounter.provKey) || "");
+                        logProvKeyRisk(provKey, pSqVal, eSqVal); // [CR-U411]
+                        if (goodVal && !provKey && pSqVal > 0 && eSqVal > 0) logNoWriteOnce(String(goodVal), "gói tỉnh thiếu pts, không có pts thừa hưởng — không suy khóa (CR-U410)"); // [CR-U43_r2b]
                         let preservedObstacles = null;
+                        let preservedEmpty = false; // [CR-U41]
+                        let preservedOrigin = null; // [CR-U48] nguồn: "pkt" | "seed" | "cloud" | "cache" (mục cũ không src)
+                        let preservedObsTs = 0; // [CR-U45_r3]
                         if (provKey) {
                             if (trackedEncounter && trackedEncounter.provKey === provKey && Array.isArray(trackedEncounter.obstacles)) {
                                 preservedObstacles = trackedEncounter.obstacles;
-                            } else if (tournamentMapCache[provKey] && Array.isArray(tournamentMapCache[provKey].obstacles)) {
-                                if ((now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) {
-                                    preservedObstacles = tournamentMapCache[provKey].obstacles;
+                                preservedEmpty = trackedEncounter.obsEmpty === true;
+                                preservedOrigin = trackedEncounter.obsOrigin || null; // [CR-U48]
+                                preservedObsTs = Number(trackedEncounter.obsTs) || 0; // [CR-U45_r3]
+                            } else if (cacheEntryObs(provKey, tournamentMapCache[provKey]) !== null) { // [CR-U41]
+                                if (isEmbeddedSeed(provKey, tournamentMapCache[provKey].obstacles) || (now - (Number(tournamentMapCache[provKey].ts) || 0)) < 90 * 86400) { // [CR-U425_r2]
+                                    preservedObstacles = cacheEntryObs(provKey, tournamentMapCache[provKey]);
+                                    preservedEmpty = preservedObstacles.length === 0;
+                                    preservedOrigin = tournamentMapCache[provKey].src || "cache"; // [CR-U48]
+                                    preservedObsTs = Number(tournamentMapCache[provKey].ts) || 0; // [CR-U45_r3]
                                 }
                             }
                         } else {
                             if (trackedEncounter && Array.isArray(trackedEncounter.obstacles) && areWavesCompatible(trackedEncounter.waves, waves)) {
                                 preservedObstacles = trackedEncounter.obstacles;
+                                preservedEmpty = trackedEncounter.obsEmpty === true;
+                                preservedOrigin = trackedEncounter.obsOrigin || null; // [CR-U48]
+                                preservedObsTs = Number(trackedEncounter.obsTs) || 0; // [CR-U45_r3]
                             }
                         }
                         trackedEncounter = {
@@ -1098,8 +1451,14 @@
                             eSq: eSqVal,
                             waves: waves,
                             obstacles: preservedObstacles,
+                            obsEmpty: preservedEmpty, // [CR-U41]
+                            obsOrigin: Array.isArray(preservedObstacles) ? preservedOrigin : null, // [CR-U48]
+                            obsTs: Array.isArray(preservedObstacles) ? preservedObsTs : 0, // [CR-U45_r3]
+                            pts: encPts, // [CR-U410]
+                            ptsInferred: encPtsInferred, // [CR-U410]
                             lastResult: trackedEncounter ? trackedEncounter.lastResult : null
                         };
+                        refreshEncounterObsFromCache(trackedEncounter); // [CR-U45_r3]
                         GM_setValue("ELVENAR_TRACKED_ENCOUNTER", JSON.stringify(trackedEncounter));
                         triggerLiveStreamPush();
                     }
@@ -1180,16 +1539,52 @@
                     battleBoard.ts = now;
                     GM_setValue("ELVENAR_BATTLE_BOARD", JSON.stringify(battleBoard));
 
-                    if (!trackedEncounter) {
-                        trackedEncounter = { ts: now, src: "tournament", good: "", provKey: "", pSq: 0, eSq: 0, waves: [], obstacles: uniqueObs, lastResult: null };
+                    // [CR-U44] Bản đồ gói tin cũng qua validObs (ô xuất phát, tối đa 20 ô); không hợp lệ thì không dùng, không ghi cache/cloud
+                    const safeObs = validObs(uniqueObs);
+                    // [CR-U42] Trích được 0 ô: seed của khóa khác [] => không ghi gì (giữ bản đồ đang có, không PATCH);
+                    // seed là [] (P29) hoặc khóa không có seed mà gói đọc đủ lưới => bản đồ rỗng thật (empty: true);
+                    // còn lại (không seed, lưới chưa đủ) => không ghi.
+                    let zeroObsSkip = false;
+                    let zeroObsEmpty = false;
+                    if (safeObs !== null && safeObs.length === 0) {
+                        const zKey = trackedEncounter ? trackedEncounter.provKey : "";
+                        const zSeed = zKey ? SEEDED_TOURNEY_MAPS[zKey] : undefined;
+                        if (Array.isArray(zSeed)) {
+                            if (zSeed.length === 0) zeroObsEmpty = true; else zeroObsSkip = true;
+                        } else if (mapGridFullyRead(mapCandidate)) {
+                            zeroObsEmpty = true;
+                        } else {
+                            zeroObsSkip = true;
+                        }
+                    }
+                    // [CR-U427] gói có lưới nhưng đọc thiếu ô => bản đồ thiếu một phần: không dùng, không ghi (giữ bản đồ đang có)
+                    const partialGrid = Boolean(mapCandidate) && !mapGridFullyRead(mapCandidate);
+                    if (safeObs === null) {
+                        console.warn(`[CloudMap] Bỏ bản đồ gói tin không hợp lệ (${uniqueObs.length} ô)`);
+                    } else if (partialGrid) {
+                        const pKey = (trackedEncounter && trackedEncounter.provKey) || "(chưa có khóa)";
+                        if (!partialMapLogged.has(pKey)) {
+                            partialMapLogged.add(pKey);
+                            console.warn(`[CloudMap] Gói bản đồ đọc thiếu lưới cho ${pKey}: không dùng, không ghi cache/cloud`);
+                        }
+                    } else if (zeroObsSkip) {
+                        console.warn(`[CloudMap] Gói bản đồ trích 0 ô cho ${(trackedEncounter && trackedEncounter.provKey) || "(chưa có khóa)"}: không ghi cache/cloud`);
+                    } else if (!trackedEncounter) {
+                        trackedEncounter = { ts: now, src: "tournament", good: "", provKey: "", pSq: 0, eSq: 0, waves: [], obstacles: safeObs, obsEmpty: zeroObsEmpty, obsOrigin: "pkt", obsTs: now, lastResult: null }; // [CR-U48/U45_r3]
                     } else {
-                        trackedEncounter.obstacles = uniqueObs;
+                        trackedEncounter.obstacles = safeObs;
+                        trackedEncounter.obsEmpty = zeroObsEmpty; // [CR-U41/U42] chỉ true khi rỗng thật đã xác nhận
+                        trackedEncounter.obsOrigin = "pkt"; // [CR-U48] bản đồ từ gói tin
+                        trackedEncounter.obsTs = now; // [CR-U45_r3]
+                        trackedEncounter.pktFullMap = Boolean(mapCandidate) && !partialGrid; // [CR-U430] bản đồ đủ lưới của chính encounter này
                         trackedEncounter.ts = now;
-                        if (trackedEncounter.provKey) {
-                            tournamentMapCache[trackedEncounter.provKey] = { obstacles: uniqueObs, ts: now };
-                            syncMapToCloud(trackedEncounter.provKey, uniqueObs, now);
+                        if (trackedEncounter.provKey && trackedEncounter.ptsInferred) logNoWriteOnce(trackedEncounter.provKey, "khóa suy từ pts của trận trước (ptsInferred)"); // [CR-U43_r2b]
+                        if (trackedEncounter.provKey && !trackedEncounter.ptsInferred && mapCandidate) { // [CR-U410] khóa từ pts suy ra: không ghi bản đồ; [CR-U427] chỉ ghi khi có gói lưới đọc đủ
+                            tournamentMapCache[trackedEncounter.provKey] = mapEntry(safeObs, now, zeroObsEmpty, "pkt"); // [CR-U42/U45]
+                            trackedEncounter.wroteKey = trackedEncounter.provKey; trackedEncounter.wroteTs = now; // [CR-U430] để hậu kiểm biết mục nào do encounter này ghi
+                            syncMapToCloud(trackedEncounter.provKey, safeObs, now, zeroObsEmpty); // [CR-U43_r2b] mọi tỉnh, kể cả tỉnh sâu / không seed
                             for (let mk in tournamentMapCache) {
-                                if (!tournamentMapCache[mk] || (now - (Number(tournamentMapCache[mk].ts) || 0)) > 90 * 86400) {
+                                if (!tournamentMapCache[mk] || (!isEmbeddedSeed(mk, tournamentMapCache[mk].obstacles) && (now - (Number(tournamentMapCache[mk].ts) || 0)) > 90 * 86400)) { // [CR-U425_r2]
                                     delete tournamentMapCache[mk];
                                 }
                             }
@@ -1310,7 +1705,7 @@
 
             // BẮN TÍN HIỆU REALTIME SSE NGAY TỨC THÌ (<1s) KHI GAME CÓ BIẾN ĐỘNG
             triggerLiveStreamPush();
-        } catch (e) {}
+        } catch (e) { logHookError("handleData", e); } // [CR-U424_r2]
     }
 
     // --- 2.B BỘ ĐỆM GHI NHẬN GÓI TIN DEBUG (HỖ TRỢ XUẤT FILE DUMP PHÂN TÍCH CHUẨN XÁC 100% CẢ ĐÁNH TAY LẪN AUTO) ---
@@ -1336,7 +1731,7 @@
                     requestData: parsedReq.requestData || parsedReq.params || null
                 };
             }
-        } catch (e) {}
+        } catch (e) { logHookError("request summary", e); } // [CR-U424_r2]
         return null;
     }
 
@@ -1427,7 +1822,7 @@
             };
             if (reqSummary) entry.request = reqSummary;
             livePacketBuffer.push(entry);
-        } catch (e) {}
+        } catch (e) { logHookError("packet buffer", e); } // [CR-U424_r2]
     }
 
     function downloadLiveDump() {
@@ -1458,6 +1853,16 @@
         this._url = url;
         return origOpen.apply(this, [method, url, ...args]);
     };
+    // [CR-U424] Ghi log (có giới hạn số lần mỗi ngữ cảnh) thay cho catch rỗng ở móc XHR / fetch. Chỉ log, không đổi luồng.
+    const hookErrorCounts = {};
+    function logHookError(ctx, e) {
+        try {
+            hookErrorCounts[ctx] = (hookErrorCounts[ctx] || 0) + 1;
+            if (hookErrorCounts[ctx] <= 20) {
+                console.warn(`[Radar] ${ctx} lỗi #${hookErrorCounts[ctx]}:`, (e && e.message) || e);
+            }
+        } catch (e2) {}
+    }
     win.XMLHttpRequest.prototype.send = function(body) {
         const reqBodyStr = (typeof body === "string") ? body : "";
         this.addEventListener('load', function() {
@@ -1470,7 +1875,7 @@
 
                 if (!shouldProcessPacket(text, reqBodyStr)) return;
                 handleData(parsed);
-            } catch (e) {}
+            } catch (e) { logHookError("XHR load", e); }
         });
         return origSend.apply(this, [body]);
     };
@@ -1493,10 +1898,10 @@
                                 if (shouldProcessPacket(text, reqBodyStr)) {
                                     handleData(parsed);
                                 }
-                            } catch (e) {}
+                            } catch (e) { logHookError("fetch text", e); }
                         }).catch(() => {});
                     }
-                } catch (e) {}
+                } catch (e) { logHookError("fetch clone", e); }
                 return response;
             });
         };
@@ -1776,8 +2181,12 @@
 
     function buildCompactEncounterData() {
         if (!trackedEncounter || !Array.isArray(trackedEncounter.waves) || !trackedEncounter.waves.length) return null;
+        refreshEncounterObsFromCache(trackedEncounter); // [CR-U45_r3] cache mới hơn (vd. vừa merge từ cloud) thắng bản lưu cũ
         const lr = trackedEncounter.lastResult;
-        const obs = Array.isArray(trackedEncounter.obstacles) ? trackedEncounter.obstacles : null;
+        // [CR-U41] [] chỉ gửi khi là bản đồ rỗng thật đã xác nhận (enc[9] = 1); [] chưa xác nhận gửi null = chưa có bản đồ
+        const rawEncObs = Array.isArray(trackedEncounter.obstacles) ? trackedEncounter.obstacles : null;
+        const obsEmptyConfirmed = Array.isArray(rawEncObs) && rawEncObs.length === 0 && trackedEncounter.obsEmpty === true;
+        const obs = (rawEncObs && (rawEncObs.length > 0 || obsEmptyConfirmed)) ? rawEncObs : null;
         return [
             trackedEncounter.ts || 0,
             trackedEncounter.src || "tournament",
@@ -1787,7 +2196,10 @@
             trackedEncounter.waves,
             lr ? [lr.win ? 1 : 0, lr.lossPct || 0, lr.wave || 1, lr.totalWaves || 1] : null,
             obs,
-            trackedEncounter.provKey || ""
+            trackedEncounter.provKey || "",
+            obsEmptyConfirmed ? 1 : 0, // [CR-U41] enc[9]
+            Number(trackedEncounter.pts) > 0 ? Number(trackedEncounter.pts) : null, // [CR-U410] enc[10] = pts của tỉnh (để dashboard truyền basePts)
+            obs ? (trackedEncounter.obsOrigin || null) : null // [CR-U48] enc[11] = nguồn bản đồ
         ];
     }
 
