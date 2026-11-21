@@ -6,7 +6,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>Elvenar Live Radar</title>
+  <title>[B] Elvenar Live Radar</title>
   <!-- Favicon & Web App Icons -->
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -1438,6 +1438,8 @@
         <div class="brand-text">
           <h1>Elvenar Live Radar</h1>
           <p id="syncTime">Connecting to game data...</p>
+          <span id="buildBadge" style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:9px;font-size:9px;font-weight:800;line-height:1.5;color:#fff;background:#6b7280;max-width:100%;"></span><!-- [CR-U509] điền từ BUILD_LABEL -->
+
         </div>
       </div>
       <div class="live-badge" id="liveBadge" onclick="reconnectStream()">
@@ -1445,6 +1447,9 @@
         <span id="liveBadgeText">STREAMING (LIVE)</span>
       </div>
     </header>
+
+    <!-- [CR-U504 / A1] Dòng "gói lạc" ở vùng đầu trang dùng chung (hiện ở MỌI tab khi có nơi khác đang gửi dữ liệu cũ) -->
+    <div id="strayLine" style="display:none;"></div>
 
     <!-- Config-Driven Tab Navigation Bar -->
     <nav class="tab-bar" id="tabBar">
@@ -2084,6 +2089,30 @@
     let isManualOverride = false;
     let lastSyncedEncounterTs = 0;
     let customPlayerSlots = [null, null, null, null, null];
+
+    // [MA9-S2 nhịp 1] Ngưỡng thời gian: đặt MỘT chỗ, có tên (đổi ngưỡng chỉ sửa ở đây).
+    const STALE_PROVINCE_SEC = 1800;     // TỈNH CŨ: tỉnh chạm quá 30 phút (CR-U504)
+    const STRAY_LINE_SEC = 600;          // dòng "gói lạc" còn hiện trong 10 phút kể từ lần cuối (CR-U504)
+    const WS_FRESH_MS = 360000;          // websocket coi là còn sống khi có sự kiện trong 6 phút (CR-U503)
+    const FETCH_STEP_TIMEOUT_MS = 5000;  // mỗi bước REST / Cloudflare / tin ghim có bộ hủy riêng (CR-U501, F4)
+    // [CR-U509] Huy hiệu tên bản (chỉ hiển thị, hằng số cố định, không dùng dữ liệu cloud). Tiền tố <title> cũng sửa tay ở thẻ <title> cho khớp BUILD_TAG.
+    const BUILD_TAG = "[B] ";
+    const BUILD_LABEL = "BẢN B · chính (Simulator đang dùng)";
+    const BUILD_BADGE_BG = "#475569";
+    // [CR-U501] Mốc neo = gói cuối cùng dashboard đã NHẬN; encFloor = enc.ts lớn nhất từng thấy ở BẤT KỲ gói nào (kể cả gói lạc)
+    let liveAnchor = { t: 0, encTs: 0, encFloor: 0, sig: "", s: null, g: 0, recvAt: 0, ch: "" };
+    let strayInfo = { count: 0, lastAt: 0, lastProv: "", lastPayload: null };
+    let forceNextAccept = false;
+    // [CR-U502] advisorEnc = bản `enc` gắn với advisorWaves hiện tại: đợt địch, số đội, bản đồ, khóa tỉnh, nhãn đều đọc từ đây
+    let advisorEnc = null;
+    let advisorWavesEncTs = 0;
+    let advisorWavesProvKey = "";
+    // [CR-U505] Đóng băng đề xuất của trận vừa đánh: thẻ giữ bản TRƯỚC TRẬN, không tính lại trên đợt địch đã đánh
+    let advisorLastRender = null;   // { encTs, html, at } — lần vẽ gần nhất của thẻ LIVE (bản trước trận)
+    let advisorFrozen = null;       // { encTs, html|null, lr, at, userUnfrozen }
+    let advisorLrAtSnap = "null";   // JSON của enc.lastResult lúc nhận gói chạm tỉnh (gói tỉnh mang theo kết quả trận TRƯỚC)
+    let advMixedWarned = ""; // console.warn "lẫn tỉnh" chỉ một lần cho mỗi tổ hợp
+    let advisorSyncOk = false; // true khi advisorEnc vừa đổi qua đường hợp lệ (cổng nhận gói) và đang chờ đồng bộ vào đợt địch
 
     // Full 175-Unit Multi-Tier Balancing Database (Tiers 1..4) extracted from Game Balancing Packet
     const ALL_UNITS_DB = {"hb_lm_1":{"id":"hb_lm_1","base":"hb_lm","name":"Axe Barbarian","cls":"light_melee","hp":86,"dmg":22,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":60,"mage":60},"def":{"light_ranged":20,"mage":20},"str":{"light_ranged":2,"mage":2},"ab":[],"retal":1},"hb_lr_1":{"id":"hb_lr_1","base":"hb_lr","name":"Crossbowman","cls":"light_ranged","hp":58,"dmg":14,"wt":1,"rng":4,"mv":3,"init":19,"ret":0,"atk":{"heavy_melee":50,"mage":50},"def":{"heavy_melee":60,"mage":30},"str":{"mage":2,"heavy_melee":2},"ab":[],"retal":0},"hb_ma_1":{"id":"hb_ma_1","base":"hb_ma","name":"Priest","cls":"mage","hp":152,"dmg":64,"wt":4,"rng":5,"mv":2,"init":13,"ret":0,"atk":{"heavy_melee":60,"heavy_ranged":70},"def":{"heavy_ranged":80},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Heavenly Curse","t":"defense","v":-40,"d":2}],"retal":0},"hb_hm_1":{"id":"hb_hm_1","base":"hb_hm","name":"Paladin","cls":"heavy_melee","hp":560,"dmg":162,"wt":6,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"light_melee":30,"heavy_ranged":30},"def":{"heavy_ranged":60},"str":{"heavy_ranged":2,"light_melee":2},"ab":[],"retal":1},"hb_hr_1":{"id":"hb_hr_1","base":"hb_hr","name":"Mortar","cls":"heavy_ranged","hp":250,"dmg":78,"wt":6,"rng":8,"mv":1,"init":5,"ret":0,"atk":{"light_melee":50,"light_ranged":60},"def":{"light_melee":40,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[],"retal":0},"eb_lm_1":{"id":"eb_lm_1","base":"eb_lm","name":"Sword Dancer","cls":"light_melee","hp":90,"dmg":21,"wt":1,"rng":1,"mv":3,"init":11,"ret":1,"atk":{"light_ranged":30,"mage":30},"def":{"light_ranged":40,"mage":40},"str":{"light_ranged":2,"mage":2},"ab":[],"retal":1},"eb_lr_1":{"id":"eb_lr_1","base":"eb_lr","name":"Archer","cls":"light_ranged","hp":54,"dmg":15,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":60,"mage":80},"def":{"heavy_melee":50},"str":{"mage":2,"heavy_melee":2},"ab":[],"retal":0},"eb_ma_1":{"id":"eb_ma_1","base":"eb_ma","name":"Sorceress","cls":"mage","hp":168,"dmg":60,"wt":4,"rng":3,"mv":4,"init":14,"ret":0,"atk":{"heavy_melee":50,"heavy_ranged":60},"def":{"heavy_melee":60,"heavy_ranged":50},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Broken Valor","t":"attack","v":-50,"d":2}],"retal":0},"eb_hm_1":{"id":"eb_hm_1","base":"eb_hm","name":"Treant","cls":"heavy_melee","hp":750,"dmg":168,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"heavy_ranged":40},"def":{"light_melee":30,"heavy_ranged":80},"str":{"heavy_ranged":2,"light_melee":2},"ab":[],"retal":1},"eb_hr_1":{"id":"eb_hr_1","base":"eb_hr","name":"Golem","cls":"heavy_ranged","hp":380,"dmg":138,"wt":6,"rng":3,"mv":3,"init":7,"ret":0,"atk":{"light_melee":70,"light_ranged":20},"def":{"light_ranged":40},"str":{"light_melee":2,"light_ranged":2},"ab":[],"retal":0},"tg_lm_1":{"id":"tg_lm_1","base":"tg_lm","name":"Cerberus","cls":"light_melee","hp":78,"dmg":19,"wt":1,"rng":1,"mv":5,"init":9,"ret":1,"atk":{"light_ranged":30,"mage":60},"def":{"mage":30},"str":{"light_ranged":1,"mage":3},"ab":[],"retal":1},"tg_lr_1":{"id":"tg_lr_1","base":"tg_lr","name":"Dryad","cls":"light_ranged","hp":88,"dmg":36,"wt":2,"rng":4,"mv":3,"init":17,"ret":1,"atk":{"heavy_melee":70},"def":{"heavy_melee":80,"mage":40},"str":{"mage":1,"heavy_melee":3},"ab":[],"retal":1},"tg_ma_1":{"id":"tg_ma_1","base":"tg_ma","name":"Banshee ","cls":"mage","hp":132,"dmg":57,"wt":3,"rng":3,"mv":4,"init":15,"ret":0,"atk":{"heavy_melee":10,"heavy_ranged":70},"def":{"heavy_melee":70,"heavy_ranged":80},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Silver Scream ","t":"defense","v":-50,"d":1}],"retal":0},"tg_hm_1":{"id":"tg_hm_1","base":"tg_hm","name":"Orc Warrior","cls":"heavy_melee","hp":260,"dmg":64,"wt":2,"rng":1,"mv":2,"init":4,"ret":1,"atk":{"light_melee":70,"heavy_ranged":20},"def":{"light_melee":30,"heavy_ranged":30},"str":{"heavy_ranged":1,"light_melee":3},"ab":[],"retal":1},"tg_hr_1":{"id":"tg_hr_1","base":"tg_hr","name":"Orc Strategist","cls":"heavy_ranged","hp":132,"dmg":48,"wt":2,"rng":3,"mv":3,"init":6,"ret":1,"atk":{"light_ranged":60},"def":{"light_melee":40,"light_ranged":70},"str":{"light_melee":1,"light_ranged":3},"ab":[],"retal":1},"mc_lm_1":{"id":"mc_lm_1","base":"mc_lm","name":"Drone Rider","cls":"light_melee","hp":176,"dmg":46,"wt":2,"rng":1,"mv":4,"init":12,"ret":1,"atk":{"light_ranged":70,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[],"retal":1},"mc_lr_1":{"id":"mc_lr_1","base":"mc_lr","name":"Ranger","cls":"light_ranged","hp":46,"dmg":16,"wt":1,"rng":4,"mv":4,"init":20,"ret":1,"atk":{"heavy_melee":40,"mage":80},"def":{"heavy_melee":40,"mage":80},"str":{"mage":3,"heavy_melee":1},"ab":[],"retal":1},"mc_ma_1":{"id":"mc_ma_1","base":"mc_ma","name":"Blossom Mage","cls":"mage","hp":96,"dmg":60,"wt":3,"rng":5,"mv":2,"init":16,"ret":0,"atk":{"heavy_melee":80,"heavy_ranged":30},"def":{"heavy_melee":60,"heavy_ranged":70},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Blossom Winds","t":"defense","v":-30,"d":3}],"retal":0},"mc_hm_1":{"id":"mc_hm_1","base":"mc_hm","name":"Vallorian Guard","cls":"heavy_melee","hp":580,"dmg":180,"wt":6,"rng":2,"mv":2,"init":3,"ret":1,"atk":{"heavy_ranged":60},"def":{"light_melee":20,"heavy_ranged":70},"str":{"heavy_ranged":3,"light_melee":1},"ab":[],"retal":1},"mc_hr_1":{"id":"mc_hr_1","base":"mc_hr","name":"Faineant Frog","cls":"heavy_ranged","hp":210,"dmg":56,"wt":4,"rng":8,"mv":1,"init":8,"ret":0,"atk":{"light_melee":80,"light_ranged":40},"def":{"light_melee":60,"light_ranged":40},"str":{"light_melee":3,"light_ranged":1},"ab":[],"retal":0},"mob_hblm_1":{"id":"mob_hblm_1","base":"mob_hblm","name":"Ancient Orc","cls":"light_melee","hp":148,"dmg":44,"wt":2,"rng":1,"mv":4,"init":11,"ret":1,"atk":{"light_ranged":60,"mage":30},"def":{"light_ranged":20},"str":{"light_ranged":3,"mage":1},"ab":[],"retal":1},"mob_hblr_1":{"id":"mob_hblr_1","base":"mob_hblr","name":"Bandit","cls":"light_ranged","hp":46,"dmg":15,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":70,"mage":20},"def":{"heavy_melee":60,"mage":20},"str":{"mage":1,"heavy_melee":3},"ab":[],"retal":0},"mob_hbma_1":{"id":"mob_hbma_1","base":"mob_hbma","name":"Abbot","cls":"mage","hp":136,"dmg":68,"wt":4,"rng":5,"mv":2,"init":12,"ret":0,"atk":{"heavy_melee":30,"heavy_ranged":70},"def":{"heavy_melee":30,"heavy_ranged":70},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Pretended Pacifism","t":"attack","v":-50,"d":2}],"retal":0},"mob_hbhm_1":{"id":"mob_hbhm_1","base":"mob_hbhm","name":"Knight","cls":"heavy_melee","hp":370,"dmg":92,"wt":4,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"heavy_ranged":60},"def":{"light_melee":20,"heavy_ranged":40},"str":{"heavy_ranged":3,"light_melee":1},"ab":[],"retal":1},"mob_hbhr_1":{"id":"mob_hbhr_1","base":"mob_hbhr","name":"Cannoneer","cls":"heavy_ranged","hp":220,"dmg":42,"wt":6,"rng":8,"mv":1,"init":4,"ret":0,"atk":{"light_melee":60,"light_ranged":60},"def":{"light_melee":20,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[],"retal":0},"mob_eblm_1":{"id":"mob_eblm_1","base":"mob_eblm","name":"Thief","cls":"light_melee","hp":98,"dmg":21,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":50,"mage":50},"def":{},"str":{"light_ranged":2,"mage":2},"ab":[],"retal":1},"mob_eblr_1":{"id":"mob_eblr_1","base":"mob_eblr","name":"Wild Archer","cls":"light_ranged","hp":50,"dmg":12,"wt":1,"rng":4,"mv":3,"init":17,"ret":0,"atk":{"heavy_melee":70,"mage":50},"def":{"heavy_melee":40,"mage":20},"str":{"mage":2,"heavy_melee":2},"ab":[],"retal":0},"mob_ebma_1":{"id":"mob_ebma_1","base":"mob_ebma","name":"Enchantress","cls":"mage","hp":152,"dmg":76,"wt":4,"rng":3,"mv":4,"init":13,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":70},"def":{"heavy_melee":40,"heavy_ranged":60},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Weird Witchcraft","t":"defense","v":-40,"d":2}],"retal":0},"mob_ebhm_1":{"id":"mob_ebhm_1","base":"mob_ebhm","name":"Swamp Monster","cls":"heavy_melee","hp":540,"dmg":174,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"light_melee":10,"heavy_ranged":20},"def":{"light_melee":20,"heavy_ranged":60},"str":{"heavy_ranged":2,"light_melee":2},"ab":[],"retal":1},"mob_ebhr_1":{"id":"mob_ebhr_1","base":"mob_ebhr","name":"Steinling","cls":"heavy_ranged","hp":210,"dmg":72,"wt":4,"rng":3,"mv":3,"init":6,"ret":0,"atk":{"light_melee":50,"light_ranged":60},"def":{"light_ranged":30},"str":{"light_melee":1,"light_ranged":3},"ab":[],"retal":0},"mob_tglm_1":{"id":"mob_tglm_1","base":"mob_tglm","name":"Hellhound","cls":"light_melee","hp":62,"dmg":19,"wt":1,"rng":1,"mv":5,"init":7,"ret":1,"atk":{"light_ranged":20,"mage":50},"def":{"light_ranged":30,"mage":70},"str":{"light_ranged":1,"mage":3},"ab":[],"retal":1},"mob_tglr_1":{"id":"mob_tglr_1","base":"mob_tglr","name":"Mist Walker","cls":"light_ranged","hp":88,"dmg":28,"wt":2,"rng":4,"mv":4,"init":21,"ret":1,"atk":{"heavy_melee":30,"mage":80},"def":{"heavy_melee":30,"mage":60},"str":{"mage":3,"heavy_melee":1},"ab":[],"retal":1},"mob_mcma_1":{"id":"mob_mcma_1","base":"mob_mcma","name":"Thornrose Mage","cls":"mage","hp":78,"dmg":48,"wt":3,"rng":5,"mv":2,"init":15,"ret":1,"atk":{"heavy_melee":80,"heavy_ranged":20},"def":{"heavy_melee":70,"heavy_ranged":60},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Thorn Winds","t":"attack","v":-40,"d":3}],"retal":1},"mob_tghm_1":{"id":"mob_tghm_1","base":"mob_tghm","name":"Orc General","cls":"heavy_melee","hp":170,"dmg":60,"wt":2,"rng":1,"mv":2,"init":3,"ret":1,"atk":{"light_melee":40,"heavy_ranged":30},"def":{"light_melee":30,"heavy_ranged":20},"str":{"heavy_ranged":1,"light_melee":3},"ab":[],"retal":1},"mob_tghr_1":{"id":"mob_tghr_1","base":"mob_tghr","name":"Orc Deserter","cls":"heavy_ranged","hp":340,"dmg":96,"wt":6,"rng":3,"mv":3,"init":5,"ret":1,"atk":{"light_melee":70,"light_ranged":30},"def":{"light_melee":60},"str":{"light_melee":3,"light_ranged":1},"ab":[],"retal":1},"hb_lm_2":{"id":"hb_lm_2","base":"hb_lm","name":"Axe Barbarian II","cls":"light_melee","hp":95,"dmg":24,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":70,"mage":70},"def":{"light_ranged":20,"mage":20},"str":{"light_ranged":2,"mage":2},"ab":[],"retal":1},"hb_lr_2":{"id":"hb_lr_2","base":"hb_lr","name":"Crossbowman II","cls":"light_ranged","hp":64,"dmg":15,"wt":1,"rng":4,"mv":3,"init":19,"ret":0,"atk":{"heavy_melee":60,"mage":60},"def":{"heavy_melee":60,"mage":30},"str":{"mage":2,"heavy_melee":2},"ab":[],"retal":0},"hb_ma_2":{"id":"hb_ma_2","base":"hb_ma","name":"Priest II","cls":"mage","hp":167,"dmg":70,"wt":4,"rng":5,"mv":2,"init":13,"ret":0,"atk":{"heavy_melee":70,"heavy_ranged":80},"def":{"heavy_ranged":80},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Heavenly Curse","t":"defense","v":-40,"d":2}],"retal":0},"hb_hm_2":{"id":"hb_hm_2","base":"hb_hm","name":"Paladin II","cls":"heavy_melee","hp":620,"dmg":178,"wt":6,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"light_melee":30,"heavy_ranged":40},"def":{"heavy_ranged":70},"str":{"heavy_ranged":2,"light_melee":2},"ab":[],"retal":1},"hb_hr_2":{"id":"hb_hr_2","base":"hb_hr","name":"Mortar II","cls":"heavy_ranged","hp":280,"dmg":86,"wt":6,"rng":9,"mv":1,"init":5,"ret":0,"atk":{"light_melee":60,"light_ranged":70},"def":{"light_melee":40,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[],"retal":0},"eb_lm_2":{"id":"eb_lm_2","base":"eb_lm","name":"Sword Dancer II","cls":"light_melee","hp":99,"dmg":23,"wt":1,"rng":1,"mv":3,"init":11,"ret":1,"atk":{"light_ranged":30,"mage":30},"def":{"light_ranged":50,"mage":50},"str":{"light_ranged":2,"mage":2},"ab":[],"retal":1},"eb_lr_2":{"id":"eb_lr_2","base":"eb_lr","name":"Archer II","cls":"light_ranged","hp":59,"dmg":17,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":70,"mage":90},"def":{"heavy_melee":50},"str":{"mage":2,"heavy_melee":2},"ab":[],"retal":0},"eb_ma_2":{"id":"eb_ma_2","base":"eb_ma","name":"Sorceress II","cls":"mage","hp":185,"dmg":66,"wt":4,"rng":3,"mv":4,"init":14,"ret":0,"atk":{"heavy_melee":60,"heavy_ranged":70},"def":{"heavy_melee":60,"heavy_ranged":50},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Broken Valor","t":"attack","v":-50,"d":2}],"retal":0},"eb_hm_2":{"id":"eb_hm_2","base":"eb_hm","name":"Treant II","cls":"heavy_melee","hp":830,"dmg":185,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"heavy_ranged":50},"def":{"light_melee":40,"heavy_ranged":80},"str":{"heavy_ranged":2,"light_melee":2},"ab":[],"retal":1},"eb_hr_2":{"id":"eb_hr_2","base":"eb_hr","name":"Golem II","cls":"heavy_ranged","hp":420,"dmg":152,"wt":6,"rng":3,"mv":3,"init":7,"ret":0,"atk":{"light_melee":80,"light_ranged":20},"def":{"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[],"retal":0},"tg_lm_2":{"id":"tg_lm_2","base":"tg_lm","name":"Cerberus II","cls":"light_melee","hp":86,"dmg":21,"wt":1,"rng":1,"mv":6,"init":9,"ret":2,"atk":{"light_ranged":30,"mage":70},"def":{"mage":40},"str":{"light_ranged":1,"mage":3},"ab":[],"retal":2},"tg_lr_2":{"id":"tg_lr_2","base":"tg_lr","name":"Dryad II","cls":"light_ranged","hp":97,"dmg":40,"wt":2,"rng":4,"mv":3,"init":17,"ret":1,"atk":{"heavy_melee":90},"def":{"heavy_melee":80,"mage":40},"str":{"mage":1,"heavy_melee":3},"ab":[],"retal":1},"tg_ma_2":{"id":"tg_ma_2","base":"tg_ma","name":"Banshee II ","cls":"mage","hp":145,"dmg":63,"wt":3,"rng":3,"mv":4,"init":15,"ret":0,"atk":{"heavy_melee":10,"heavy_ranged":90},"def":{"heavy_melee":70,"heavy_ranged":80},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Silver Scream ","t":"defense","v":-50,"d":1}],"retal":0},"tg_hm_2":{"id":"tg_hm_2","base":"tg_hm","name":"Orc Warrior II","cls":"heavy_melee","hp":290,"dmg":70,"wt":2,"rng":1,"mv":2,"init":4,"ret":2,"atk":{"light_melee":80,"heavy_ranged":20},"def":{"light_melee":40,"heavy_ranged":30},"str":{"heavy_ranged":1,"light_melee":3},"ab":[],"retal":2},"tg_hr_2":{"id":"tg_hr_2","base":"tg_hr","name":"Orc Strategist II","cls":"heavy_ranged","hp":145,"dmg":53,"wt":2,"rng":3,"mv":3,"init":6,"ret":1,"atk":{"light_ranged":70},"def":{"light_melee":40,"light_ranged":80},"str":{"light_melee":1,"light_ranged":3},"ab":[],"retal":1},"mc_lm_2":{"id":"mc_lm_2","base":"mc_lm","name":"Drone Rider II","cls":"light_melee","hp":194,"dmg":51,"wt":2,"rng":1,"mv":4,"init":12,"ret":1,"atk":{"light_ranged":90,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[],"retal":1},"mc_lr_2":{"id":"mc_lr_2","base":"mc_lr","name":"Ranger II","cls":"light_ranged","hp":51,"dmg":18,"wt":1,"rng":4,"mv":4,"init":20,"ret":1,"atk":{"heavy_melee":40,"mage":90},"def":{"heavy_melee":40,"mage":90},"str":{"mage":3,"heavy_melee":1},"ab":[],"retal":1},"mc_ma_2":{"id":"mc_ma_2","base":"mc_ma","name":"Blossom Mage II","cls":"mage","hp":106,"dmg":66,"wt":3,"rng":5,"mv":2,"init":16,"ret":0,"atk":{"heavy_melee":90,"heavy_ranged":30},"def":{"heavy_melee":70,"heavy_ranged":70},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Blossom Winds","t":"defense","v":-30,"d":3}],"retal":0},"mc_hm_2":{"id":"mc_hm_2","base":"mc_hm","name":"Vallorian Guard II ","cls":"heavy_melee","hp":630,"dmg":198,"wt":6,"rng":2,"mv":2,"init":3,"ret":1,"atk":{"heavy_ranged":70},"def":{"light_melee":20,"heavy_ranged":80},"str":{"heavy_ranged":3,"light_melee":1},"ab":[],"retal":1},"mc_hr_2":{"id":"mc_hr_2","base":"mc_hr","name":"Faineant Frog II ","cls":"heavy_ranged","hp":230,"dmg":62,"wt":4,"rng":9,"mv":1,"init":8,"ret":0,"atk":{"light_melee":90,"light_ranged":40},"def":{"light_melee":70,"light_ranged":40},"str":{"light_melee":3,"light_ranged":1},"ab":[],"retal":0},"mob_hblm_2":{"id":"mob_hblm_2","base":"mob_hblm","name":"Ancient Orc","cls":"light_melee","hp":163,"dmg":48,"wt":2,"rng":1,"mv":4,"init":11,"ret":2,"atk":{"light_ranged":70,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[],"retal":2},"mob_hblr_2":{"id":"mob_hblr_2","base":"mob_hblr","name":"Bandit","cls":"light_ranged","hp":51,"dmg":17,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":80,"mage":20},"def":{"heavy_melee":70,"mage":20},"str":{"mage":1,"heavy_melee":3},"ab":[],"retal":0},"mob_hbma_2":{"id":"mob_hbma_2","base":"mob_hbma","name":"Abbot","cls":"mage","hp":150,"dmg":75,"wt":4,"rng":5,"mv":2,"init":12,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":80},"def":{"heavy_melee":30,"heavy_ranged":70},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Pretended Pacifism","t":"attack","v":-50,"d":2}],"retal":0},"mob_hbhm_2":{"id":"mob_hbhm_2","base":"mob_hbhm","name":"Knight","cls":"heavy_melee","hp":400,"dmg":101,"wt":4,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"heavy_ranged":70},"def":{"light_melee":20,"heavy_ranged":50},"str":{"heavy_ranged":3,"light_melee":1},"ab":[],"retal":1},"mob_hbhr_2":{"id":"mob_hbhr_2","base":"mob_hbhr","name":"Cannoneer","cls":"heavy_ranged","hp":240,"dmg":46,"wt":6,"rng":9,"mv":1,"init":4,"ret":0,"atk":{"light_melee":70,"light_ranged":70},"def":{"light_melee":20,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[],"retal":0},"mob_eblm_2":{"id":"mob_eblm_2","base":"mob_eblm","name":"Thief","cls":"light_melee","hp":108,"dmg":23,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":60,"mage":60},"def":{},"str":{"light_ranged":2,"mage":2},"ab":[],"retal":1},"mob_eblr_2":{"id":"mob_eblr_2","base":"mob_eblr","name":"Wild Archer","cls":"light_ranged","hp":55,"dmg":13,"wt":1,"rng":4,"mv":3,"init":17,"ret":0,"atk":{"heavy_melee":80,"mage":60},"def":{"heavy_melee":40,"mage":20},"str":{"mage":2,"heavy_melee":2},"ab":[],"retal":0},"mob_ebma_2":{"id":"mob_ebma_2","base":"mob_ebma","name":"Enchantress","cls":"mage","hp":167,"dmg":84,"wt":4,"rng":3,"mv":4,"init":13,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":80},"def":{"heavy_melee":40,"heavy_ranged":70},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Weird Witchcraft","t":"defense","v":-40,"d":2}],"retal":0},"mob_ebhm_2":{"id":"mob_ebhm_2","base":"mob_ebhm","name":"Swamp Monster","cls":"heavy_melee","hp":590,"dmg":191,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"light_melee":20,"heavy_ranged":30},"def":{"light_melee":20,"heavy_ranged":60},"str":{"heavy_ranged":2,"light_melee":2},"ab":[],"retal":1},"mob_ebhr_2":{"id":"mob_ebhr_2","base":"mob_ebhr","name":"Steinling","cls":"heavy_ranged","hp":230,"dmg":79,"wt":4,"rng":3,"mv":3,"init":6,"ret":0,"atk":{"light_melee":50,"light_ranged":70},"def":{"light_ranged":40},"str":{"light_melee":1,"light_ranged":3},"ab":[],"retal":0},"mob_tglm_2":{"id":"mob_tglm_2","base":"mob_tglm","name":"Hellhound","cls":"light_melee","hp":68,"dmg":21,"wt":1,"rng":1,"mv":6,"init":7,"ret":2,"atk":{"light_ranged":20,"mage":70},"def":{"light_ranged":30,"mage":70},"str":{"light_ranged":1,"mage":3},"ab":[],"retal":2},"mob_tglr_2":{"id":"mob_tglr_2","base":"mob_tglr","name":"Mist Walker","cls":"light_ranged","hp":97,"dmg":31,"wt":2,"rng":4,"mv":4,"init":21,"ret":1,"atk":{"heavy_melee":30,"mage":90},"def":{"heavy_melee":30,"mage":70},"str":{"mage":3,"heavy_melee":1},"ab":[],"retal":1},"mob_mcma_2":{"id":"mob_mcma_2","base":"mob_mcma","name":"Thornrose Mage","cls":"mage","hp":86,"dmg":53,"wt":3,"rng":5,"mv":2,"init":15,"ret":1,"atk":{"heavy_melee":90,"heavy_ranged":20},"def":{"heavy_melee":80,"heavy_ranged":60},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Thorn Winds","t":"attack","v":-40,"d":3}],"retal":1},"mob_tghm_2":{"id":"mob_tghm_2","base":"mob_tghm","name":"Orc General","cls":"heavy_melee","hp":187,"dmg":66,"wt":2,"rng":1,"mv":2,"init":3,"ret":2,"atk":{"light_melee":60,"heavy_ranged":30},"def":{"light_melee":30,"heavy_ranged":20},"str":{"heavy_ranged":1,"light_melee":3},"ab":[],"retal":2},"mob_tghr_2":{"id":"mob_tghr_2","base":"mob_tghr","name":"Orc Deserter","cls":"heavy_ranged","hp":380,"dmg":106,"wt":6,"rng":3,"mv":3,"init":5,"ret":1,"atk":{"light_melee":80,"light_ranged":30},"def":{"light_melee":70},"str":{"light_melee":3,"light_ranged":1},"ab":[],"retal":1},"hb_lm_3":{"id":"hb_lm_3","base":"hb_lm","name":"Storm Barbarian","cls":"light_melee","hp":104,"dmg":27,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":70,"mage":70},"def":{"light_ranged":20,"mage":20},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Charged Strike","t":"defense","v":-30,"d":1}],"retal":1},"hb_lr_3":{"id":"hb_lr_3","base":"hb_lr","name":"Master Crossbowman","cls":"light_ranged","hp":70,"dmg":17,"wt":1,"rng":4,"mv":3,"init":19,"ret":0,"atk":{"heavy_melee":60,"mage":60},"def":{"heavy_melee":60,"mage":30},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Numb Shot","t":"attack","v":-20,"d":3}],"retal":0},"hb_ma_3":{"id":"hb_ma_3","base":"hb_ma","name":"Sacred Priest","cls":"mage","hp":184,"dmg":77,"wt":4,"rng":5,"mv":2,"init":13,"ret":0,"atk":{"heavy_melee":70,"heavy_ranged":80},"def":{"heavy_ranged":80},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Heavenly Curse","t":"defense","v":-40,"d":2},{"n":"Heavenly Interruption","t":"attack","v":-30,"d":2}],"retal":0},"hb_hm_3":{"id":"hb_hm_3","base":"hb_hm","name":"Blessed Paladin","cls":"heavy_melee","hp":680,"dmg":196,"wt":6,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"light_melee":30,"heavy_ranged":40},"def":{"heavy_ranged":70},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Pierced Armor","t":"defense","v":-10,"d":3}],"retal":1},"hb_hr_3":{"id":"hb_hr_3","base":"hb_hr","name":"Rad Mortar","cls":"heavy_ranged","hp":300,"dmg":94,"wt":6,"rng":10,"mv":1,"init":5,"ret":0,"atk":{"light_melee":60,"light_ranged":70},"def":{"light_melee":40,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Nap Grenade","t":"attack","v":-20,"d":3}],"retal":0},"eb_lm_3":{"id":"eb_lm_3","base":"eb_lm","name":"Sword Acrobat","cls":"light_melee","hp":109,"dmg":25,"wt":1,"rng":1,"mv":3,"init":11,"ret":1,"atk":{"light_ranged":30,"mage":30},"def":{"light_ranged":50,"mage":50},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Disarming Dance","t":"attack","v":-30,"d":2}],"retal":1},"eb_lr_3":{"id":"eb_lr_3","base":"eb_lr","name":"Elite Archer","cls":"light_ranged","hp":65,"dmg":18,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":70,"mage":90},"def":{"heavy_melee":50},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Bull's Eye","t":"defense","v":-20,"d":2}],"retal":0},"eb_ma_3":{"id":"eb_ma_3","base":"eb_ma","name":"Bud Sorceress","cls":"mage","hp":200,"dmg":73,"wt":4,"rng":3,"mv":4,"init":14,"ret":0,"atk":{"heavy_melee":60,"heavy_ranged":70},"def":{"heavy_melee":60,"heavy_ranged":50},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Broken Valor","t":"attack","v":-50,"d":2},{"n":"Leaden Arms","t":"defense","v":-20,"d":2}],"retal":0},"eb_hm_3":{"id":"eb_hm_3","base":"eb_hm","name":"Elder Treant","cls":"heavy_melee","hp":910,"dmg":200,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"heavy_ranged":50},"def":{"light_melee":40,"heavy_ranged":80},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Dazing Lash","t":"attack","v":-30,"d":2}],"retal":1},"eb_hr_3":{"id":"eb_hr_3","base":"eb_hr","name":"Granite Golem","cls":"heavy_ranged","hp":460,"dmg":167,"wt":6,"rng":3,"mv":3,"init":7,"ret":0,"atk":{"light_melee":80,"light_ranged":20},"def":{"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Shield Slicer","t":"defense","v":-10,"d":3}],"retal":0},"tg_lm_3":{"id":"tg_lm_3","base":"tg_lm","name":"Sinister Cerberus","cls":"light_melee","hp":94,"dmg":23,"wt":1,"rng":1,"mv":7,"init":9,"ret":3,"atk":{"light_ranged":30,"mage":70},"def":{"mage":40},"str":{"light_ranged":1,"mage":3},"ab":[{"n":"Laceration","t":"defense","v":-20,"d":2}],"retal":3},"tg_lr_3":{"id":"tg_lr_3","base":"tg_lr","name":"Poison Dryad","cls":"light_ranged","hp":106,"dmg":44,"wt":2,"rng":4,"mv":3,"init":17,"ret":1,"atk":{"heavy_melee":90},"def":{"heavy_melee":80,"mage":40},"str":{"mage":1,"heavy_melee":3},"ab":[{"n":"Poison Dart","t":"attack","v":-30,"d":2}],"retal":1},"tg_ma_3":{"id":"tg_ma_3","base":"tg_ma","name":"Ghastly Banshee ","cls":"mage","hp":160,"dmg":69,"wt":3,"rng":3,"mv":4,"init":15,"ret":0,"atk":{"heavy_melee":10,"heavy_ranged":90},"def":{"heavy_melee":70,"heavy_ranged":80},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Silver Scream ","t":"defense","v":-50,"d":1},{"n":"Nasty Nightmare","t":"attack","v":-40,"d":1}],"retal":0},"tg_hm_3":{"id":"tg_hm_3","base":"tg_hm","name":"Gruff Orc Warrior","cls":"heavy_melee","hp":310,"dmg":77,"wt":2,"rng":1,"mv":2,"init":4,"ret":3,"atk":{"light_melee":80,"heavy_ranged":20},"def":{"light_melee":40,"heavy_ranged":30},"str":{"heavy_ranged":1,"light_melee":3},"ab":[{"n":"Knockdown","t":"defense","v":-20,"d":2}],"retal":3},"tg_hr_3":{"id":"tg_hr_3","base":"tg_hr","name":"Senior Orc Strategist","cls":"heavy_ranged","hp":160,"dmg":58,"wt":2,"rng":3,"mv":3,"init":6,"ret":1,"atk":{"light_ranged":70},"def":{"light_melee":40,"light_ranged":80},"str":{"light_melee":1,"light_ranged":3},"ab":[{"n":"Head Hitter","t":"attack","v":-30,"d":2}],"retal":1},"mc_lm_3":{"id":"mc_lm_3","base":"mc_lm","name":"Venom Drone Rider","cls":"light_melee","hp":210,"dmg":56,"wt":2,"rng":1,"mv":4,"init":12,"ret":1,"atk":{"light_ranged":90,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[{"n":"Poison Sting","t":"attack","v":-20,"d":3}],"retal":1},"mc_lr_3":{"id":"mc_lr_3","base":"mc_lr","name":"Pro Ranger","cls":"light_ranged","hp":56,"dmg":19,"wt":1,"rng":4,"mv":4,"init":20,"ret":1,"atk":{"heavy_melee":40,"mage":90},"def":{"heavy_melee":40,"mage":90},"str":{"mage":3,"heavy_melee":1},"ab":[{"n":"Eagle Eye","t":"defense","v":-30,"d":1}],"retal":1},"mc_ma_3":{"id":"mc_ma_3","base":"mc_ma","name":"Blossom Princess","cls":"mage","hp":116,"dmg":73,"wt":3,"rng":5,"mv":2,"init":16,"ret":0,"atk":{"heavy_melee":90,"heavy_ranged":30},"def":{"heavy_melee":70,"heavy_ranged":70},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Blossom Winds","t":"defense","v":-30,"d":3},{"n":"Flower Power","t":"attack","v":-20,"d":3}],"retal":0},"mc_hm_3":{"id":"mc_hm_3","base":"mc_hm","name":"Vallorian Veteran","cls":"heavy_melee","hp":700,"dmg":220,"wt":6,"rng":2,"mv":2,"init":3,"ret":1,"atk":{"heavy_ranged":70},"def":{"light_melee":20,"heavy_ranged":80},"str":{"heavy_ranged":3,"light_melee":1},"ab":[{"n":"Lizard Lash ","t":"defense","v":-30,"d":1}],"retal":1},"mc_hr_3":{"id":"mc_hr_3","base":"mc_hr","name":"Frog Prince","cls":"heavy_ranged","hp":250,"dmg":68,"wt":4,"rng":10,"mv":1,"init":8,"ret":0,"atk":{"light_melee":90,"light_ranged":40},"def":{"light_melee":70,"light_ranged":40},"str":{"light_melee":3,"light_ranged":1},"ab":[{"n":"Acid Spit ","t":"defense","v":-30,"d":1}],"retal":0},"mob_hblm_3":{"id":"mob_hblm_3","base":"mob_hblm","name":"Brutal Ancient Orc","cls":"light_melee","hp":179,"dmg":53,"wt":2,"rng":1,"mv":4,"init":11,"ret":3,"atk":{"light_ranged":70,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[{"n":"Guts Cutter","t":"attack","v":-30,"d":2}],"retal":3},"mob_hblr_3":{"id":"mob_hblr_3","base":"mob_hblr","name":"Wily Bandit","cls":"light_ranged","hp":56,"dmg":18,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":80,"mage":20},"def":{"heavy_melee":70,"mage":20},"str":{"mage":1,"heavy_melee":3},"ab":[{"n":"Dishonorable Tactics","t":"defense","v":-10,"d":3}],"retal":0},"mob_hbma_3":{"id":"mob_hbma_3","base":"mob_hbma","name":"Dark Abbot","cls":"mage","hp":165,"dmg":82,"wt":4,"rng":5,"mv":2,"init":12,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":80},"def":{"heavy_melee":30,"heavy_ranged":70},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Pretended Pacifism","t":"attack","v":-50,"d":2},{"n":"Last Supper","t":"defense","v":-20,"d":2}],"retal":0},"mob_hbhm_3":{"id":"mob_hbhm_3","base":"mob_hbhm","name":"Brave Knight","cls":"heavy_melee","hp":450,"dmg":111,"wt":4,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"heavy_ranged":70},"def":{"light_melee":20,"heavy_ranged":50},"str":{"heavy_ranged":3,"light_melee":1},"ab":[{"n":"Noble Strike","t":"attack","v":-30,"d":2}],"retal":1},"mob_hbhr_3":{"id":"mob_hbhr_3","base":"mob_hbhr","name":"Crazy Cannoneer","cls":"heavy_ranged","hp":260,"dmg":51,"wt":6,"rng":10,"mv":1,"init":4,"ret":0,"atk":{"light_melee":70,"light_ranged":70},"def":{"light_melee":20,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Crazy Cannon","t":"defense","v":-30,"d":1}],"retal":0},"mob_eblm_3":{"id":"mob_eblm_3","base":"mob_eblm","name":"Nasty Thief","cls":"light_melee","hp":119,"dmg":25,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":60,"mage":60},"def":{},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Pickpocket","t":"defense","v":-30,"d":1}],"retal":1},"mob_eblr_3":{"id":"mob_eblr_3","base":"mob_eblr","name":"Feral Wild Archer","cls":"light_ranged","hp":61,"dmg":15,"wt":1,"rng":4,"mv":3,"init":17,"ret":0,"atk":{"heavy_melee":80,"mage":60},"def":{"heavy_melee":40,"mage":20},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Enar's Arrow","t":"attack","v":-30,"d":2}],"retal":0},"mob_ebma_3":{"id":"mob_ebma_3","base":"mob_ebma","name":"Devilish Enchantress","cls":"mage","hp":184,"dmg":92,"wt":4,"rng":3,"mv":4,"init":13,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":80},"def":{"heavy_melee":40,"heavy_ranged":70},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Weird Witchcraft","t":"defense","v":-40,"d":2},{"n":"Haunting Hex","t":"attack","v":-30,"d":2}],"retal":0},"mob_ebhm_3":{"id":"mob_ebhm_3","base":"mob_ebhm","name":"Ferocious Swamp Monster","cls":"heavy_melee","hp":650,"dmg":210,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"light_melee":20,"heavy_ranged":30},"def":{"light_melee":20,"heavy_ranged":60},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Mud Blow","t":"defense","v":-20,"d":2}],"retal":1},"mob_ebhr_3":{"id":"mob_ebhr_3","base":"mob_ebhr","name":"Rigid Steinling","cls":"heavy_ranged","hp":260,"dmg":87,"wt":4,"rng":3,"mv":3,"init":6,"ret":0,"atk":{"light_melee":50,"light_ranged":70},"def":{"light_ranged":40},"str":{"light_melee":1,"light_ranged":3},"ab":[{"n":"Sand Throw","t":"attack","v":-30,"d":2}],"retal":0},"mob_tglm_3":{"id":"mob_tglm_3","base":"mob_tglm","name":"Furious Hellhound","cls":"light_melee","hp":75,"dmg":23,"wt":1,"rng":1,"mv":7,"init":7,"ret":3,"atk":{"light_ranged":20,"mage":70},"def":{"light_ranged":30,"mage":70},"str":{"light_ranged":1,"mage":3},"ab":[{"n":"Bloody Bite","t":"attack","v":-30,"d":2}],"retal":3},"mob_tglr_3":{"id":"mob_tglr_3","base":"mob_tglr","name":"Sneaky Mist Walker","cls":"light_ranged","hp":106,"dmg":34,"wt":2,"rng":4,"mv":4,"init":21,"ret":1,"atk":{"heavy_melee":30,"mage":90},"def":{"heavy_melee":30,"mage":70},"str":{"mage":3,"heavy_melee":1},"ab":[{"n":"Tricky Distraction","t":"attack","v":-20,"d":3}],"retal":1},"mob_mcma_3":{"id":"mob_mcma_3","base":"mob_mcma","name":"Withered Thornrose Mage","cls":"mage","hp":94,"dmg":58,"wt":3,"rng":5,"mv":2,"init":15,"ret":0,"atk":{"heavy_melee":90,"heavy_ranged":20},"def":{"heavy_melee":80,"heavy_ranged":60},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Thorn Winds","t":"attack","v":-40,"d":3},{"n":"Withering Will","t":"defense","v":-10,"d":3}],"retal":0},"mob_tghm_3":{"id":"mob_tghm_3","base":"mob_tghm","name":"Mutated Orc General","cls":"heavy_melee","hp":210,"dmg":73,"wt":2,"rng":1,"mv":2,"init":3,"ret":3,"atk":{"light_melee":60,"heavy_ranged":30},"def":{"light_melee":30,"heavy_ranged":20},"str":{"heavy_ranged":1,"light_melee":3},"ab":[{"n":"Wild Rage","t":"attack","v":-20,"d":3}],"retal":3},"mob_tghr_3":{"id":"mob_tghr_3","base":"mob_tghr","name":"Mucky Orc Deserter","cls":"heavy_ranged","hp":410,"dmg":116,"wt":6,"rng":3,"mv":3,"init":5,"ret":1,"atk":{"light_melee":80,"light_ranged":30},"def":{"light_melee":70},"str":{"light_melee":3,"light_ranged":1},"ab":[{"n":"Stinky Stick","t":"attack","v":-20,"d":3}],"retal":1},"hb_lm_4":{"id":"hb_lm_4","base":"hb_lm","name":"Storm Barbarian II","cls":"light_melee","hp":114,"dmg":29,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":70,"mage":70},"def":{"light_ranged":40,"mage":40},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Charged Strike","t":"defense","v":-30,"d":1}],"retal":1},"hb_lr_4":{"id":"hb_lr_4","base":"hb_lr","name":"Master Crossbowman II","cls":"light_ranged","hp":77,"dmg":19,"wt":1,"rng":4,"mv":3,"init":19,"ret":0,"atk":{"heavy_melee":70,"mage":70},"def":{"heavy_melee":60,"mage":30},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Numb Shot","t":"attack","v":-20,"d":3}],"retal":0},"hb_ma_4":{"id":"hb_ma_4","base":"hb_ma","name":"Sacred Priest II","cls":"mage","hp":200,"dmg":85,"wt":4,"rng":5,"mv":2,"init":13,"ret":0,"atk":{"heavy_melee":80,"heavy_ranged":90},"def":{"heavy_ranged":80},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Heavenly Curse","t":"defense","v":-40,"d":2},{"n":"Heavenly Interruption","t":"attack","v":-30,"d":2}],"retal":0},"hb_hm_4":{"id":"hb_hm_4","base":"hb_hm","name":"Blessed Paladin II","cls":"heavy_melee","hp":750,"dmg":220,"wt":6,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"light_melee":40,"heavy_ranged":50},"def":{"heavy_ranged":70},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Pierced Armor","t":"defense","v":-10,"d":3}],"retal":1},"hb_hr_4":{"id":"hb_hr_4","base":"hb_hr","name":"Rad Mortar II","cls":"heavy_ranged","hp":340,"dmg":104,"wt":6,"rng":10,"mv":1,"init":5,"ret":0,"atk":{"light_melee":70,"light_ranged":80},"def":{"light_melee":40,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Nap Grenade","t":"attack","v":-20,"d":3}],"retal":0},"eb_lm_4":{"id":"eb_lm_4","base":"eb_lm","name":"Sword Acrobat II","cls":"light_melee","hp":120,"dmg":28,"wt":1,"rng":1,"mv":3,"init":11,"ret":1,"atk":{"light_ranged":40,"mage":40},"def":{"light_ranged":60,"mage":60},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Disarming Dance","t":"attack","v":-30,"d":2}],"retal":1},"eb_lr_4":{"id":"eb_lr_4","base":"eb_lr","name":"Elite Archer II","cls":"light_ranged","hp":72,"dmg":20,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":70,"mage":90},"def":{"heavy_melee":60,"mage":10},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Bull's Eye","t":"defense","v":-20,"d":2}],"retal":0},"eb_ma_4":{"id":"eb_ma_4","base":"eb_ma","name":"Bud Sorceress II","cls":"mage","hp":220,"dmg":80,"wt":4,"rng":3,"mv":4,"init":14,"ret":0,"atk":{"heavy_melee":70,"heavy_ranged":80},"def":{"heavy_melee":70,"heavy_ranged":60},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Broken Valor","t":"attack","v":-50,"d":2},{"n":"Leaden Arms","t":"defense","v":-20,"d":2}],"retal":0},"eb_hm_4":{"id":"eb_hm_4","base":"eb_hm","name":"Elder Treant II","cls":"heavy_melee","hp":1000,"dmg":220,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"heavy_ranged":60},"def":{"light_melee":50,"heavy_ranged":80},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Dazing Lash","t":"attack","v":-30,"d":2}],"retal":1},"eb_hr_4":{"id":"eb_hr_4","base":"eb_hr","name":"Granite Golem II","cls":"heavy_ranged","hp":510,"dmg":184,"wt":6,"rng":3,"mv":3,"init":7,"ret":0,"atk":{"light_melee":90,"light_ranged":30},"def":{"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Shield Slicer","t":"defense","v":-10,"d":3}],"retal":0},"tg_lm_4":{"id":"tg_lm_4","base":"tg_lm","name":"Sinister Cerberus II","cls":"light_melee","hp":104,"dmg":25,"wt":1,"rng":1,"mv":7,"init":9,"ret":3,"atk":{"light_ranged":30,"mage":80},"def":{"light_ranged":20,"mage":60},"str":{"light_ranged":1,"mage":3},"ab":[{"n":"Laceration","t":"defense","v":-20,"d":2}],"retal":3},"tg_lr_4":{"id":"tg_lr_4","base":"tg_lr","name":"Poison Dryad II","cls":"light_ranged","hp":117,"dmg":48,"wt":2,"rng":4,"mv":3,"init":17,"ret":1,"atk":{"heavy_melee":100},"def":{"heavy_melee":90,"mage":40},"str":{"mage":1,"heavy_melee":3},"ab":[{"n":"Poison Dart","t":"attack","v":-30,"d":2}],"retal":1},"tg_ma_4":{"id":"tg_ma_4","base":"tg_ma","name":"Ghastly Banshee  II","cls":"mage","hp":176,"dmg":76,"wt":3,"rng":3,"mv":4,"init":15,"ret":0,"atk":{"heavy_melee":10,"heavy_ranged":120},"def":{"heavy_melee":70,"heavy_ranged":80},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Silver Scream ","t":"defense","v":-50,"d":1},{"n":"Nasty Nightmare","t":"attack","v":-40,"d":1}],"retal":0},"tg_hm_4":{"id":"tg_hm_4","base":"tg_hm","name":"Gruff Orc Warrior II","cls":"heavy_melee","hp":350,"dmg":85,"wt":2,"rng":1,"mv":2,"init":4,"ret":3,"atk":{"light_melee":90,"heavy_ranged":20},"def":{"light_melee":50,"heavy_ranged":30},"str":{"heavy_ranged":1,"light_melee":3},"ab":[{"n":"Knockdown","t":"defense","v":-20,"d":2}],"retal":3},"tg_hr_4":{"id":"tg_hr_4","base":"tg_hr","name":"Senior Orc Strategist II","cls":"heavy_ranged","hp":176,"dmg":64,"wt":2,"rng":3,"mv":3,"init":6,"ret":1,"atk":{"light_ranged":90},"def":{"light_melee":40,"light_ranged":80},"str":{"light_melee":1,"light_ranged":3},"ab":[{"n":"Head Hitter","t":"attack","v":-30,"d":2}],"retal":1},"mc_lm_4":{"id":"mc_lm_4","base":"mc_lm","name":"Venom Drone Rider II","cls":"light_melee","hp":230,"dmg":61,"wt":2,"rng":1,"mv":4,"init":12,"ret":1,"atk":{"light_ranged":90,"mage":30},"def":{"light_ranged":60,"mage":20},"str":{"light_ranged":3,"mage":1},"ab":[{"n":"Poison Sting","t":"attack","v":-20,"d":3}],"retal":1},"mc_lr_4":{"id":"mc_lr_4","base":"mc_lr","name":"Pro Ranger II","cls":"light_ranged","hp":61,"dmg":21,"wt":1,"rng":4,"mv":4,"init":20,"ret":1,"atk":{"heavy_melee":40,"mage":110},"def":{"heavy_melee":40,"mage":90},"str":{"mage":3,"heavy_melee":1},"ab":[{"n":"Eagle Eye","t":"defense","v":-30,"d":1}],"retal":1},"mc_ma_4":{"id":"mc_ma_4","base":"mc_ma","name":"Blossom Princess II","cls":"mage","hp":128,"dmg":80,"wt":3,"rng":5,"mv":2,"init":16,"ret":0,"atk":{"heavy_melee":100,"heavy_ranged":30},"def":{"heavy_melee":80,"heavy_ranged":70},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Blossom Winds","t":"defense","v":-30,"d":3},{"n":"Flower Power","t":"attack","v":-20,"d":3}],"retal":0},"mc_hm_4":{"id":"mc_hm_4","base":"mc_hm","name":"Vallorian Veteran II","cls":"heavy_melee","hp":770,"dmg":240,"wt":6,"rng":2,"mv":2,"init":3,"ret":1,"atk":{"heavy_ranged":90},"def":{"light_melee":20,"heavy_ranged":80},"str":{"heavy_ranged":3,"light_melee":1},"ab":[{"n":"Lizard Lash ","t":"defense","v":-30,"d":1}],"retal":1},"mc_hr_4":{"id":"mc_hr_4","base":"mc_hr","name":"Frog Prince II","cls":"heavy_ranged","hp":280,"dmg":75,"wt":4,"rng":10,"mv":1,"init":8,"ret":0,"atk":{"light_melee":90,"light_ranged":40},"def":{"light_melee":90,"light_ranged":40},"str":{"light_melee":3,"light_ranged":1},"ab":[{"n":"Acid Spit ","t":"defense","v":-30,"d":1}],"retal":0},"mob_hblm_4":{"id":"mob_hblm_4","base":"mob_hblm","name":"Brutal Ancient Orc","cls":"light_melee","hp":197,"dmg":59,"wt":2,"rng":1,"mv":4,"init":11,"ret":3,"atk":{"light_ranged":90,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[{"n":"Guts Cutter","t":"attack","v":-30,"d":2}],"retal":3},"mob_hblr_4":{"id":"mob_hblr_4","base":"mob_hblr","name":"Wily Bandit","cls":"light_ranged","hp":61,"dmg":20,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":100,"mage":20},"def":{"heavy_melee":70,"mage":20},"str":{"mage":1,"heavy_melee":3},"ab":[{"n":"Dishonorable Tactics","t":"defense","v":-10,"d":3}],"retal":0},"mob_hbma_4":{"id":"mob_hbma_4","base":"mob_hbma","name":"Dark Abbot","cls":"mage","hp":181,"dmg":91,"wt":4,"rng":5,"mv":2,"init":12,"ret":0,"atk":{"heavy_melee":50,"heavy_ranged":90},"def":{"heavy_melee":30,"heavy_ranged":70},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Pretended Pacifism","t":"attack","v":-50,"d":2},{"n":"Last Supper","t":"defense","v":-20,"d":2}],"retal":0},"mob_hbhm_4":{"id":"mob_hbhm_4","base":"mob_hbhm","name":"Brave Knight","cls":"heavy_melee","hp":490,"dmg":122,"wt":4,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"heavy_ranged":80},"def":{"light_melee":20,"heavy_ranged":60},"str":{"heavy_ranged":3,"light_melee":1},"ab":[{"n":"Noble Strike","t":"attack","v":-30,"d":2}],"retal":1},"mob_hbhr_4":{"id":"mob_hbhr_4","base":"mob_hbhr","name":"Crazy Cannoneer","cls":"heavy_ranged","hp":290,"dmg":56,"wt":6,"rng":11,"mv":1,"init":4,"ret":0,"atk":{"light_melee":80,"light_ranged":80},"def":{"light_melee":20,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Crazy Cannon","t":"defense","v":-30,"d":1}],"retal":0},"mob_eblm_4":{"id":"mob_eblm_4","base":"mob_eblm","name":"Nasty Thief","cls":"light_melee","hp":130,"dmg":28,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":70,"mage":70},"def":{},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Pickpocket","t":"defense","v":-30,"d":1}],"retal":1},"mob_eblr_4":{"id":"mob_eblr_4","base":"mob_eblr","name":"Feral Wild Archer","cls":"light_ranged","hp":67,"dmg":16,"wt":1,"rng":4,"mv":3,"init":17,"ret":0,"atk":{"heavy_melee":90,"mage":70},"def":{"heavy_melee":40,"mage":20},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Enar's Arrow","t":"attack","v":-30,"d":2}],"retal":0},"mob_ebma_4":{"id":"mob_ebma_4","base":"mob_ebma","name":"Devilish Enchantress","cls":"mage","hp":200,"dmg":101,"wt":4,"rng":3,"mv":4,"init":13,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":100},"def":{"heavy_melee":40,"heavy_ranged":70},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Weird Witchcraft","t":"defense","v":-40,"d":2},{"n":"Haunting Hex","t":"attack","v":-30,"d":2}],"retal":0},"mob_ebhm_4":{"id":"mob_ebhm_4","base":"mob_ebhm","name":"Ferocious Swamp Monster","cls":"heavy_melee","hp":720,"dmg":230,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"light_melee":30,"heavy_ranged":40},"def":{"light_melee":20,"heavy_ranged":60},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Mud Blow","t":"defense","v":-20,"d":2}],"retal":1},"mob_ebhr_4":{"id":"mob_ebhr_4","base":"mob_ebhr","name":"Rigid Steinling","cls":"heavy_ranged","hp":280,"dmg":96,"wt":4,"rng":3,"mv":3,"init":6,"ret":0,"atk":{"light_melee":50,"light_ranged":80},"def":{"light_ranged":50},"str":{"light_melee":1,"light_ranged":3},"ab":[{"n":"Sand Throw","t":"attack","v":-30,"d":2}],"retal":0},"mob_tglm_4":{"id":"mob_tglm_4","base":"mob_tglm","name":"Furious Hellhound","cls":"light_melee","hp":83,"dmg":25,"wt":1,"rng":1,"mv":8,"init":7,"ret":3,"atk":{"light_ranged":20,"mage":90},"def":{"light_ranged":30,"mage":70},"str":{"light_ranged":1,"mage":3},"ab":[{"n":"Bloody Bite","t":"attack","v":-30,"d":2}],"retal":3},"mob_tglr_4":{"id":"mob_tglr_4","base":"mob_tglr","name":"Sneaky Mist Walker","cls":"light_ranged","hp":117,"dmg":37,"wt":2,"rng":4,"mv":4,"init":21,"ret":1,"atk":{"heavy_melee":30,"mage":100},"def":{"heavy_melee":30,"mage":80},"str":{"mage":3,"heavy_melee":1},"ab":[{"n":"Tricky Distraction","t":"attack","v":-20,"d":3}],"retal":1},"mob_mcma_4":{"id":"mob_mcma_4","base":"mob_mcma","name":"Withered Thornrose Mage","cls":"mage","hp":104,"dmg":64,"wt":3,"rng":5,"mv":2,"init":15,"ret":0,"atk":{"heavy_melee":100,"heavy_ranged":20},"def":{"heavy_melee":90,"heavy_ranged":60},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Thorn Winds","t":"attack","v":-40,"d":3},{"n":"Withering Will","t":"defense","v":-10,"d":3}],"retal":0},"mob_tghm_4":{"id":"mob_tghm_4","base":"mob_tghm","name":"Mutated Orc General","cls":"heavy_melee","hp":230,"dmg":80,"wt":2,"rng":1,"mv":2,"init":3,"ret":3,"atk":{"light_melee":70,"heavy_ranged":30},"def":{"light_melee":40,"heavy_ranged":20},"str":{"heavy_ranged":1,"light_melee":3},"ab":[{"n":"Wild Rage","t":"attack","v":-20,"d":3}],"retal":3},"mob_tghr_4":{"id":"mob_tghr_4","base":"mob_tghr","name":"Mucky Orc Deserter","cls":"heavy_ranged","hp":460,"dmg":128,"wt":6,"rng":3,"mv":3,"init":5,"ret":1,"atk":{"light_melee":90,"light_ranged":30},"def":{"light_melee":80},"str":{"light_melee":3,"light_ranged":1},"ab":[{"n":"Stinky Stick","t":"attack","v":-20,"d":3}],"retal":1},"hb_lm_5":{"id":"hb_lm_5","base":"hb_lm","name":"Divine Axe Barbarian","cls":"light_melee","hp":126,"dmg":32,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":70,"mage":70},"def":{"light_ranged":40,"mage":40},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Charged Strike","t":"defense","v":-30,"d":1},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"hb_lr_5":{"id":"hb_lr_5","base":"hb_lr","name":"Divine Crossbowman","cls":"light_ranged","hp":85,"dmg":20,"wt":1,"rng":4,"mv":3,"init":19,"ret":0,"atk":{"heavy_melee":70,"mage":70},"def":{"heavy_melee":60,"mage":30},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Numb Shot","t":"attack","v":-20,"d":3},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"hb_ma_5":{"id":"hb_ma_5","base":"hb_ma","name":"Divine Priest","cls":"mage","hp":220,"dmg":94,"wt":4,"rng":5,"mv":2,"init":13,"ret":0,"atk":{"heavy_melee":80,"heavy_ranged":90},"def":{"heavy_ranged":80},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Heavenly Curse","t":"defense","v":-40,"d":2},{"n":"Heavenly Interruption","t":"attack","v":-30,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"hb_hm_5":{"id":"hb_hm_5","base":"hb_hm","name":"Divine Paladin","cls":"heavy_melee","hp":830,"dmg":240,"wt":6,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"light_melee":40,"heavy_ranged":50},"def":{"heavy_ranged":70},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Pierced Armor","t":"defense","v":-10,"d":3},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"hb_hr_5":{"id":"hb_hr_5","base":"hb_hr","name":"Divine Mortar","cls":"heavy_ranged","hp":370,"dmg":114,"wt":6,"rng":10,"mv":1,"init":5,"ret":0,"atk":{"light_melee":70,"light_ranged":80},"def":{"light_melee":40,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Nap Grenade","t":"attack","v":-20,"d":3},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"eb_lm_5":{"id":"eb_lm_5","base":"eb_lm","name":"Divine Sword Dancer","cls":"light_melee","hp":132,"dmg":31,"wt":1,"rng":1,"mv":3,"init":11,"ret":1,"atk":{"light_ranged":40,"mage":40},"def":{"light_ranged":60,"mage":60},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Disarming Dance","t":"attack","v":-30,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"eb_lr_5":{"id":"eb_lr_5","base":"eb_lr","name":"Divine Archer","cls":"light_ranged","hp":79,"dmg":22,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":70,"mage":90},"def":{"heavy_melee":60,"mage":10},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Bull's Eye","t":"defense","v":-20,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"eb_ma_5":{"id":"eb_ma_5","base":"eb_ma","name":"Divine Sorceress","cls":"mage","hp":250,"dmg":88,"wt":4,"rng":3,"mv":4,"init":14,"ret":0,"atk":{"heavy_melee":70,"heavy_ranged":80},"def":{"heavy_melee":70,"heavy_ranged":60},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Broken Valor","t":"attack","v":-50,"d":2},{"n":"Leaden Arms","t":"defense","v":-20,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"eb_hm_5":{"id":"eb_hm_5","base":"eb_hm","name":"Divine Treant","cls":"heavy_melee","hp":1100,"dmg":250,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"heavy_ranged":60},"def":{"light_melee":50,"heavy_ranged":80},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Dazing Lash","t":"attack","v":-30,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"eb_hr_5":{"id":"eb_hr_5","base":"eb_hr","name":"Divine Golem","cls":"heavy_ranged","hp":560,"dmg":200,"wt":6,"rng":3,"mv":3,"init":7,"ret":0,"atk":{"light_melee":90,"light_ranged":30},"def":{"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Shield Slicer","t":"defense","v":-10,"d":3},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"tg_lm_5":{"id":"tg_lm_5","base":"tg_lm","name":"Divine Cerberus","cls":"light_melee","hp":114,"dmg":28,"wt":1,"rng":1,"mv":7,"init":9,"ret":3,"atk":{"light_ranged":30,"mage":80},"def":{"light_ranged":20,"mage":60},"str":{"light_ranged":1,"mage":3},"ab":[{"n":"Laceration","t":"defense","v":-20,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":3},"tg_lr_5":{"id":"tg_lr_5","base":"tg_lr","name":"Divine Dryad","cls":"light_ranged","hp":129,"dmg":53,"wt":2,"rng":4,"mv":3,"init":17,"ret":1,"atk":{"heavy_melee":100},"def":{"heavy_melee":90,"mage":40},"str":{"mage":1,"heavy_melee":3},"ab":[{"n":"Poison Dart","t":"attack","v":-30,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"tg_ma_5":{"id":"tg_ma_5","base":"tg_ma","name":"Divine Banshee","cls":"mage","hp":193,"dmg":83,"wt":3,"rng":3,"mv":4,"init":15,"ret":0,"atk":{"heavy_melee":10,"heavy_ranged":120},"def":{"heavy_melee":70,"heavy_ranged":80},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Silver Scream ","t":"defense","v":-50,"d":1},{"n":"Nasty Nightmare","t":"attack","v":-40,"d":1},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"tg_hm_5":{"id":"tg_hm_5","base":"tg_hm","name":"Divine Orc Warrior","cls":"heavy_melee","hp":380,"dmg":94,"wt":2,"rng":1,"mv":2,"init":4,"ret":3,"atk":{"light_melee":90,"heavy_ranged":20},"def":{"light_melee":50,"heavy_ranged":30},"str":{"heavy_ranged":1,"light_melee":3},"ab":[{"n":"Knockdown","t":"defense","v":-20,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":3},"tg_hr_5":{"id":"tg_hr_5","base":"tg_hr","name":"Divine Orc Strategist","cls":"heavy_ranged","hp":193,"dmg":70,"wt":2,"rng":3,"mv":3,"init":6,"ret":1,"atk":{"light_ranged":90},"def":{"light_melee":40,"light_ranged":80},"str":{"light_melee":1,"light_ranged":3},"ab":[{"n":"Head Hitter","t":"attack","v":-30,"d":2},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"mc_lm_5":{"id":"mc_lm_5","base":"mc_lm","name":"Divine Drone Rider","cls":"light_melee","hp":260,"dmg":67,"wt":2,"rng":1,"mv":4,"init":12,"ret":1,"atk":{"light_ranged":90,"mage":30},"def":{"light_ranged":60,"mage":20},"str":{"light_ranged":3,"mage":1},"ab":[{"n":"Poison Sting","t":"attack","v":-20,"d":3},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"mc_lr_5":{"id":"mc_lr_5","base":"mc_lr","name":"Divine Ranger","cls":"light_ranged","hp":67,"dmg":23,"wt":1,"rng":4,"mv":4,"init":20,"ret":1,"atk":{"heavy_melee":40,"mage":110},"def":{"heavy_melee":40,"mage":90},"str":{"mage":3,"heavy_melee":1},"ab":[{"n":"Eagle Eye","t":"defense","v":-30,"d":1},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"mc_ma_5":{"id":"mc_ma_5","base":"mc_ma","name":"Divine Blossom Mage","cls":"mage","hp":141,"dmg":88,"wt":3,"rng":5,"mv":2,"init":16,"ret":0,"atk":{"heavy_melee":100,"heavy_ranged":30},"def":{"heavy_melee":80,"heavy_ranged":70},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Blossom Winds","t":"defense","v":-30,"d":3},{"n":"Flower Power","t":"attack","v":-20,"d":3},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"mc_hm_5":{"id":"mc_hm_5","base":"mc_hm","name":"Divine Vallorian Guard","cls":"heavy_melee","hp":840,"dmg":260,"wt":6,"rng":2,"mv":2,"init":3,"ret":1,"atk":{"heavy_ranged":90},"def":{"light_melee":20,"heavy_ranged":80},"str":{"heavy_ranged":3,"light_melee":1},"ab":[{"n":"Lizard Lash ","t":"defense","v":-30,"d":1},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":1},"mc_hr_5":{"id":"mc_hr_5","base":"mc_hr","name":"Divine Faineant Frog","cls":"heavy_ranged","hp":300,"dmg":82,"wt":4,"rng":10,"mv":1,"init":8,"ret":0,"atk":{"light_melee":100,"light_ranged":50},"def":{"light_melee":90,"light_ranged":40},"str":{"light_melee":3,"light_ranged":1},"ab":[{"n":"Acid Spit ","t":"defense","v":-30,"d":1},{"n":"Divine Protection","t":"prevention","v":0,"d":1}],"retal":0},"mob_hblm_5":{"id":"mob_hblm_5","base":"mob_hblm","name":"Brutal Ancient Orc","cls":"light_melee","hp":220,"dmg":64,"wt":2,"rng":1,"mv":4,"init":11,"ret":3,"atk":{"light_ranged":90,"mage":30},"def":{"light_ranged":30},"str":{"light_ranged":3,"mage":1},"ab":[{"n":"Guts Cutter","t":"attack","v":-30,"d":2}],"retal":3},"mob_hblr_5":{"id":"mob_hblr_5","base":"mob_hblr","name":"Wily Bandit","cls":"light_ranged","hp":67,"dmg":22,"wt":1,"rng":4,"mv":3,"init":18,"ret":0,"atk":{"heavy_melee":100,"mage":20},"def":{"heavy_melee":70,"mage":20},"str":{"mage":1,"heavy_melee":3},"ab":[{"n":"Dishonorable Tactics","t":"defense","v":-10,"d":3}],"retal":0},"mob_hbma_5":{"id":"mob_hbma_5","base":"mob_hbma","name":"Dark Abbot","cls":"mage","hp":199,"dmg":100,"wt":4,"rng":5,"mv":2,"init":12,"ret":0,"atk":{"heavy_melee":50,"heavy_ranged":90},"def":{"heavy_melee":30,"heavy_ranged":70},"str":{"heavy_melee":2,"heavy_ranged":2},"ab":[{"n":"Pretended Pacifism","t":"attack","v":-50,"d":2},{"n":"Last Supper","t":"defense","v":-20,"d":2}],"retal":0},"mob_hbhm_5":{"id":"mob_hbhm_5","base":"mob_hbhm","name":"Brave Knight","cls":"heavy_melee","hp":540,"dmg":135,"wt":4,"rng":2,"mv":2,"init":2,"ret":1,"atk":{"heavy_ranged":80},"def":{"light_melee":20,"heavy_ranged":60},"str":{"heavy_ranged":3,"light_melee":1},"ab":[{"n":"Noble Strike","t":"attack","v":-30,"d":2}],"retal":1},"mob_hbhr_5":{"id":"mob_hbhr_5","base":"mob_hbhr","name":"Crazy Cannoneer","cls":"heavy_ranged","hp":320,"dmg":61,"wt":6,"rng":11,"mv":1,"init":4,"ret":0,"atk":{"light_melee":80,"light_ranged":80},"def":{"light_melee":20,"light_ranged":50},"str":{"light_melee":2,"light_ranged":2},"ab":[{"n":"Crazy Cannon","t":"defense","v":-30,"d":1}],"retal":0},"mob_eblm_5":{"id":"mob_eblm_5","base":"mob_eblm","name":"Nasty Thief","cls":"light_melee","hp":143,"dmg":31,"wt":1,"rng":1,"mv":3,"init":10,"ret":1,"atk":{"light_ranged":70,"mage":70},"def":{},"str":{"light_ranged":2,"mage":2},"ab":[{"n":"Pickpocket","t":"defense","v":-30,"d":1}],"retal":1},"mob_eblr_5":{"id":"mob_eblr_5","base":"mob_eblr","name":"Feral Wild Archer","cls":"light_ranged","hp":73,"dmg":18,"wt":1,"rng":4,"mv":3,"init":17,"ret":0,"atk":{"heavy_melee":90,"mage":70},"def":{"heavy_melee":40,"mage":20},"str":{"mage":2,"heavy_melee":2},"ab":[{"n":"Enar's Arrow","t":"attack","v":-30,"d":2}],"retal":0},"mob_ebma_5":{"id":"mob_ebma_5","base":"mob_ebma","name":"Devilish Enchantress","cls":"mage","hp":220,"dmg":111,"wt":4,"rng":3,"mv":4,"init":13,"ret":0,"atk":{"heavy_melee":40,"heavy_ranged":100},"def":{"heavy_melee":40,"heavy_ranged":70},"str":{"heavy_melee":1,"heavy_ranged":3},"ab":[{"n":"Weird Witchcraft","t":"defense","v":-40,"d":2},{"n":"Haunting Hex","t":"attack","v":-30,"d":2}],"retal":0},"mob_ebhm_5":{"id":"mob_ebhm_5","base":"mob_ebhm","name":"Ferocious Swamp Monster","cls":"heavy_melee","hp":790,"dmg":250,"wt":6,"rng":1,"mv":2,"init":1,"ret":1,"atk":{"light_melee":30,"heavy_ranged":40},"def":{"light_melee":20,"heavy_ranged":60},"str":{"heavy_ranged":2,"light_melee":2},"ab":[{"n":"Mud Blow","t":"defense","v":-20,"d":2}],"retal":1},"mob_ebhr_5":{"id":"mob_ebhr_5","base":"mob_ebhr","name":"Rigid Steinling","cls":"heavy_ranged","hp":310,"dmg":105,"wt":4,"rng":3,"mv":3,"init":6,"ret":0,"atk":{"light_melee":50,"light_ranged":80},"def":{"light_ranged":50},"str":{"light_melee":1,"light_ranged":3},"ab":[{"n":"Sand Throw","t":"attack","v":-30,"d":2}],"retal":0},"mob_tglm_5":{"id":"mob_tglm_5","base":"mob_tglm","name":"Furious Hellhound","cls":"light_melee","hp":91,"dmg":28,"wt":1,"rng":1,"mv":8,"init":7,"ret":3,"atk":{"light_ranged":20,"mage":90},"def":{"light_ranged":30,"mage":70},"str":{"light_ranged":1,"mage":3},"ab":[{"n":"Bloody Bite","t":"attack","v":-30,"d":2}],"retal":3},"mob_tglr_5":{"id":"mob_tglr_5","base":"mob_tglr","name":"Sneaky Mist Walker","cls":"light_ranged","hp":129,"dmg":41,"wt":2,"rng":4,"mv":4,"init":21,"ret":1,"atk":{"heavy_melee":30,"mage":100},"def":{"heavy_melee":30,"mage":80},"str":{"mage":3,"heavy_melee":1},"ab":[{"n":"Tricky Distraction","t":"attack","v":-20,"d":3}],"retal":1},"mob_mcma_5":{"id":"mob_mcma_5","base":"mob_mcma","name":"Withered Thornrose Mage","cls":"mage","hp":114,"dmg":70,"wt":3,"rng":5,"mv":2,"init":15,"ret":0,"atk":{"heavy_melee":100,"heavy_ranged":20},"def":{"heavy_melee":90,"heavy_ranged":60},"str":{"heavy_melee":3,"heavy_ranged":1},"ab":[{"n":"Thorn Winds","t":"attack","v":-40,"d":3},{"n":"Withering Will","t":"defense","v":-10,"d":3}],"retal":0},"mob_tghm_5":{"id":"mob_tghm_5","base":"mob_tghm","name":"Mutated Orc General","cls":"heavy_melee","hp":250,"dmg":88,"wt":2,"rng":1,"mv":2,"init":3,"ret":3,"atk":{"light_melee":70,"heavy_ranged":30},"def":{"light_melee":40,"heavy_ranged":20},"str":{"heavy_ranged":1,"light_melee":3},"ab":[{"n":"Wild Rage","t":"attack","v":-20,"d":3}],"retal":3},"mob_tghr_5":{"id":"mob_tghr_5","base":"mob_tghr","name":"Mucky Orc Deserter","cls":"heavy_ranged","hp":500,"dmg":141,"wt":6,"rng":3,"mv":3,"init":5,"ret":1,"atk":{"light_melee":90,"light_ranged":30},"def":{"light_melee":80},"str":{"light_melee":3,"light_ranged":1},"ab":[{"n":"Stinky Stick","t":"attack","v":-20,"d":3}],"retal":1}};
@@ -3759,8 +3788,11 @@
     function syncLiveEncounterNow() {
       isManualOverride = false;
       customPlayerSlots = [null, null, null, null, null];
-      if (state.enc && Array.isArray(state.enc.waves) && state.enc.waves.length > 0) {
-        advisorWaves = JSON.parse(JSON.stringify(state.enc.waves));
+      const liveEnc = advisorEnc || state.enc; // [CR-U502] đọc advisorEnc (cùng gói với số đội, bản đồ)
+      if (liveEnc && Array.isArray(liveEnc.waves) && liveEnc.waves.length > 0) {
+        advisorWaves = JSON.parse(JSON.stringify(liveEnc.waves));
+        advisorWavesEncTs = Number(liveEnc.ts) || 0;
+        advisorWavesProvKey = liveEnc.provKey || "";
         activeWaveIdx = 0;
         showToast("🎯 Synced with Live In-Game Encounter!");
       }
@@ -3874,7 +3906,7 @@
       const isCustomized = (customPlayerSlots[slotIdx] !== null);
 
       const armUnits = (state.arm && Array.isArray(state.arm.units)) ? state.arm.units : [];
-      const pSq = (state.enc && Number(state.enc.playerSquadSize)) || (state.arm && Number(state.arm.squadSize)) || 1000;
+      const pSq = (advisorEnc && Number(advisorEnc.playerSquadSize)) || (state.enc && Number(state.enc.playerSquadSize)) || (state.arm && Number(state.arm.squadSize)) || 1000; // [CR-U502]
 
       let html = `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -4118,24 +4150,190 @@
       if (modal) modal.style.display = "none";
     }
 
+    // [CR-U504] ---- Nhãn thẻ đề xuất: tỉnh, sao, giờ, nguồn bản đồ, lý do đổi, KẾT QUẢ TẠM, TỈNH CŨ ----
+    const OBS_ORIGIN_NAMES = { packet: "Gói tin", cloud: "Cloud", seed: "Seed", cache: "Cache máy", payload: "Userscript" };
+    let advisorPrev = null;        // lần vẽ trước: { encTs, provKey, lineupKey, lineup, sig, since }
+    let advisorChangeNote = null;  // lý do đổi, giữ tới khi advisorEnc.ts đổi: { encTs, at, why, prev, keep, sameProv }
+    let advLabelErrOnce = false;
+
+    function agoText(sec) {
+      sec = Math.max(0, Math.round(sec));
+      if (sec < 60) return sec + " giây trước";
+      if (sec < 3600) return Math.floor(sec / 60) + " phút trước";
+      if (sec < 172800) return Math.floor(sec / 3600) + " giờ trước";
+      return Math.floor(sec / 86400) + " ngày trước";
+    }
+
+    // ctx = { enc, slotRecs }. Trả { html, dimStyle }. Không ném lỗi (lỗi nhãn không được làm hỏng thẻ đề xuất).
+    function buildAdvisorLabels(ctx) {
+      try {
+        const enc = ctx.enc || {};
+        const nowMs = Date.now();
+        const nowSec = Math.floor(nowMs / 1000);
+        const live = Boolean(!isManualOverride && advisorEnc && enc === advisorEnc);
+        const encTsNow = Number(enc.ts) || 0;
+        const srcName = OBS_ORIGIN_NAMES[enc.obsOrigin] || "Không rõ nguồn";
+
+        // --- lý do đổi đề xuất so với lần vẽ trước ---
+        const lineup = ctx.slotRecs.map((c, i) => customPlayerSlots[i] || (c[0] && c[0].unit ? c[0].unit.id : "?"));
+        const lineupKey = lineup.join(",");
+        const sigNow = {
+          prov: enc.provKey || "", waves: JSON.stringify(advisorWaves),
+          sq: [enc.playerSquadSize, enc.enemySquadSize].join("/"),
+          obs: Array.isArray(enc.obstacles) ? JSON.stringify(enc.obstacles) : "null",
+          arm: JSON.stringify((state.arm && state.arm.units) || []),
+          buff: JSON.stringify((state.arm && state.arm.buffs) || []),
+          mode: advisorMode + "|" + isManualOverride + "|" + JSON.stringify(customPlayerSlots)
+        };
+        if (advisorPrev && advisorPrev.lineupKey !== lineupKey) {
+          const why = [];
+          if (advisorPrev.sig.prov !== sigNow.prov) why.push("tỉnh mới");
+          else {
+            if (advisorPrev.sig.waves !== sigNow.waves) why.push("đợt địch đổi");
+            if (advisorPrev.sig.obs !== sigNow.obs) why.push(advisorPrev.sig.obs === "null" ? "bản đồ vừa về (" + srcName + ")" : "bản đồ đổi");
+            if (advisorPrev.sig.sq !== sigNow.sq) why.push("số đội đổi");
+            if (advisorPrev.sig.buff !== sigNow.buff) why.push("buff đổi");
+            if (advisorPrev.sig.arm !== sigNow.arm) why.push("kho đổi");
+            if (advisorPrev.sig.mode !== sigNow.mode) why.push("bạn đổi lựa chọn");
+          }
+          advisorChangeNote = { encTs: encTsNow, at: nowMs, why: why.length ? why : ["không rõ"], prev: advisorPrev.lineup, keep: false };
+        } else if (advisorPrev && advisorPrev.encTs !== encTsNow) {
+          advisorChangeNote = { encTs: encTsNow, at: nowMs, why: [], prev: null, keep: true, sameProv: advisorPrev.provKey === sigNow.prov };
+        }
+        if (advisorChangeNote && advisorChangeNote.encTs !== encTsNow) advisorChangeNote = null; // giữ tới khi advisorEnc.ts đổi
+        const sinceMs = (advisorPrev && advisorPrev.lineupKey === lineupKey && advisorPrev.encTs === encTsNow) ? advisorPrev.since : nowMs;
+        advisorPrev = { encTs: encTsNow, provKey: sigNow.prov, lineupKey, lineup, sig: sigNow, since: sinceMs };
+
+        if (!live) return { html: "", dimStyle: "" };
+
+        const band = (bg, bd, fg, txt) => `<div style="background:${bg};border:1px solid ${bd};color:${fg};padding:4px 9px;border-radius:6px;font-size:10.5px;font-weight:800;margin-top:4px;">${txt}</div>`;
+        const provTxt = provLabelOf(enc.provKey);
+
+        // --- dòng nhãn chính ---
+        const head = enc.source === "spire" ? "🗼 Spire of Eternity" : (enc.source === "province" ? "🗺️ World Province " + provTxt : "Tỉnh " + provTxt);
+        const starN = (enc.pts && enc.pts >= 30 && enc.pts <= 60) ? Math.max(1, Math.min(6, Math.round((enc.pts - 24) / 6))) : null;
+        const parts = [];
+        if (starN) parts.push(`${starN}★`);
+        if (enc.good) parts.push(escHtml(String(enc.good).charAt(0).toUpperCase() + String(enc.good).slice(1)));
+        if (encTsNow > 0) parts.push(`chạm lúc ${hmsOf(encTsNow * 1000)} (${agoText(nowSec - encTsNow)})`);
+        parts.push(`tính lúc ${hmsOf(nowMs)}`);
+        parts.push(Array.isArray(enc.obstacles) ? `Bản đồ: ${srcName}` : `Bản đồ: CHƯA CÓ`);
+        let notes = "";
+
+        // --- KẾT QUẢ TẠM ---
+        const tent = [];
+        if (enc.source === "tournament" && !Array.isArray(enc.obstacles)) tent.push("CHƯA CÓ BẢN ĐỒ");
+        if (!getActiveArmyBuffs().hasSynced) tent.push("CHƯA CÓ BUFF");
+        let dimStyle = "";
+        if (tent.length) {
+          dimStyle = "opacity:.55;";
+          notes += band("rgba(245,158,11,0.18)", "#f59e0b", "#fcd34d", `⏳ KẾT QUẢ TẠM — ${tent.join(" + ")} (đội có thể đổi khi dữ liệu về)`);
+        }
+        // --- trận đã đánh xong mà không có bản trước trận (dashboard mở sau trận) / đã bấm "Tính lại" ---
+        const fz = (advisorFrozen && advisorFrozen.encTs === encTsNow) ? advisorFrozen : null;
+        if (fz) {
+          notes += band("rgba(16,185,129,0.14)", "#10b981", "#a7f3d0", fz.userUnfrozen
+            ? `✅ Trận này đã đánh xong lúc ${hmsOf(fz.at).slice(0, 5)}; đề xuất đã TÍNH LẠI với kho / buff hiện tại (sau trận).`
+            : `✅ Trận này đã đánh xong lúc ${hmsOf(fz.at).slice(0, 5)}; không có bản trước trận — đề xuất tính với kho SAU trận.`);
+        }
+        // --- TỈNH CŨ (không áp khi trận đã đánh xong) ---
+        if (!fz && encTsNow > 0 && (nowSec - encTsNow) > STALE_PROVINCE_SEC) {
+          notes += band("rgba(148,163,184,0.18)", "#94a3b8", "#cbd5e1", `🕓 TỈNH CŨ (chạm ${agoText(nowSec - encTsNow)}) — chưa phải trận đang đánh`);
+        }
+        // --- lý do đổi / giữ nguyên ---
+        const unitShort = id => { try { return escHtml(resolveUnit(id).short || id); } catch (e) { return escHtml(id); } };
+        if (advisorChangeNote && advisorChangeNote.keep) {
+          notes += band("rgba(56,189,248,0.10)", "rgba(56,189,248,0.4)", "#7dd3fc", advisorChangeNote.sameProv
+            ? `↻ Chạm lại ${provTxt} lúc ${hmsOf(advisorChangeNote.at)} — đề xuất giữ nguyên`
+            : `↻ Tỉnh mới ${provTxt} lúc ${hmsOf(advisorChangeNote.at)} — đề xuất giữ nguyên`);
+        } else if (advisorChangeNote) {
+          notes += band("rgba(56,189,248,0.14)", "rgba(56,189,248,0.5)", "#7dd3fc", `↻ Đề xuất ĐỔI lúc ${hmsOf(advisorChangeNote.at)} vì: ${advisorChangeNote.why.map(escHtml).join(", ")}. Trước: ${advisorChangeNote.prev.map(unitShort).join(", ")}`);
+        } else {
+          notes += band("rgba(255,255,255,0.04)", "rgba(255,255,255,0.10)", "#94a3b8", `Đề xuất giữ nguyên từ ${hmsOf(sinceMs)}`);
+        }
+        // --- khóa tỉnh không khớp số đội (chỉ cảnh báo, không chặn) ---
+        if (enc.source === "tournament" && enc.pts && enc.provKey) {
+          const calc = getTournamentProvinceKey(enc.good, enc.playerSquadSize, enc.enemySquadSize, enc.pts);
+          if (calc && String(calc).toLowerCase() !== String(enc.provKey).toLowerCase()) {
+            notes += band("rgba(234,179,8,0.14)", "#eab308", "#fde68a", `⚠️ Khóa tỉnh không khớp số đội (${provLabelOf(enc.provKey)} ≠ ${provLabelOf(calc)})`);
+          }
+        }
+        const html = `
+          <div class="adv-label-box" style="background:rgba(15,23,42,0.55);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 9px;margin:6px 0;">
+            <div style="display:flex;flex-wrap:wrap;gap:3px 10px;align-items:baseline;">
+              <span style="font-size:16px;font-weight:900;color:#f8fafc;">${head}</span>
+              ${parts.map(p => `<span style="font-size:10.5px;font-weight:700;color:#cbd5e1;">${p}</span>`).join("")}
+            </div>
+            ${notes}
+          </div>`;
+        return { html, dimStyle };
+      } catch (e) {
+        if (!advLabelErrOnce) { advLabelErrOnce = true; try { console.warn("[Advisor] lỗi dựng nhãn:", e); } catch (e2) {} }
+        return { html: "", dimStyle: "" };
+      }
+    }
+
+    // [CR-U505] Băng "ĐÃ ĐÁNH XONG" (thẻ giữ bản trước trận) và nút thoát "Tính lại với kho hiện tại"
+    function advisorFrozenBanner(fz) {
+      const lr = fz.lr || {};
+      const waveTxt = (Number(lr.totalWaves) || 1) > 1 ? ` (đợt ${Number(lr.wave) || 1}/${Number(lr.totalWaves)})` : "";
+      return `<div class="adv-frozen-banner" style="background:rgba(16,185,129,0.14);border:1px solid #10b981;color:#a7f3d0;padding:7px 10px;border-radius:8px;font-size:11.5px;font-weight:800;margin:0 0 6px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;">`
+        + `<span>✅ ĐÃ ĐÁNH XONG lúc ${hmsOf(fz.at).slice(0, 5)} — ${lr.won ? "Thắng" : "Thua"}, mất thật ${fmt1(Number(lr.lossPct) || 0)}%${waveTxt}. Đề xuất bên dưới là bản TRƯỚC TRẬN (không tính lại). Chạm tỉnh mới trong game để có đề xuất mới.</span>`
+        + `<button class="wave-btn" onclick="unfreezeAdvisor()" title="Tính lại đề xuất với kho / buff hiện tại (sau trận)">Tính lại với kho hiện tại</button></div>`;
+    }
+    function unfreezeAdvisor() {
+      if (advisorFrozen) advisorFrozen.userUnfrozen = true;
+      renderAdvisorUI();
+    }
+
     function renderAdvisorUI() {
       const container = document.getElementById("advisorContent");
       if (!container) return;
 
-      // Auto-sync from state.enc if a newer encounter arrived or if advisorWaves is empty
-      if (state.enc && Array.isArray(state.enc.waves) && state.enc.waves.length > 0) {
-        const encTs = Number(state.enc.ts) || 0;
-        const isNewEncounter = Boolean(encTs > 0 && encTs > lastSyncedEncounterTs);
+      // [CR-U502] Auto-sync đợt địch từ advisorEnc (cùng gói với số đội, bản đồ). enc.ts chỉ tăng nhờ cổng nhận gói (CR-U501),
+      // nên "khác" nghĩa là chạm tỉnh mới (hoặc chuyển nguồn bằng tay). Trước đây: state.enc và điều kiện `>` nên gói cũ/lạ vẫn lọt.
+      let advForcedMix = false; // advisorEnc đổi ngoài đường hợp lệ (cổng nhận gói / Live Sync) => báo đỏ
+      const advSrc = advisorEnc;
+      if (advSrc && Array.isArray(advSrc.waves) && advSrc.waves.length > 0) {
+        const encTs = Number(advSrc.ts) || 0;
+        const isNewEncounter = Boolean(encTs > 0 && encTs !== advisorWavesEncTs);
         const isEmpty = (!advisorWaves || advisorWaves.length === 0);
 
         if (isNewEncounter || (isEmpty && !isManualOverride)) {
-          advisorWaves = JSON.parse(JSON.stringify(state.enc.waves));
-          lastSyncedEncounterTs = encTs || Date.now();
+          if (isNewEncounter && !advisorSyncOk && advisorWavesEncTs > 0 && !isManualOverride) advForcedMix = true;
+          const sameProv = (advSrc.provKey || "") === advisorWavesProvKey && JSON.stringify(advSrc.waves) === JSON.stringify(advisorWaves);
+          advisorWaves = JSON.parse(JSON.stringify(advSrc.waves));
+          advisorWavesEncTs = encTs;
+          advisorWavesProvKey = advSrc.provKey || "";
+          lastSyncedEncounterTs = Math.max(lastSyncedEncounterTs, encTs);
           if (isNewEncounter) {
-            customPlayerSlots = [null, null, null, null, null];
+            isManualOverride = false;                                              // tỉnh mới trong game thắng chế độ tự xếp địch
+            if (!sameProv) customPlayerSlots = [null, null, null, null, null];     // chạm lại đúng tỉnh, cùng đợt địch: giữ ô bạn đã chỉnh
           }
           if (activeWaveIdx >= advisorWaves.length) activeWaveIdx = 0;
         }
+      }
+      advisorSyncOk = false;
+      // [CR-U502 / F6] Lưới an toàn: đợt địch, số đội, bản đồ phải cùng một gói. Lệch → khung đỏ, đội hình mờ, console.warn một lần.
+      const advMixed = (!isManualOverride && advisorEnc) ? (() => {
+        const stEnc = state.enc;
+        const stOther = Boolean(stEnc && stEnc !== advisorEnc && (Number(stEnc.ts) || 0) !== advisorWavesEncTs);
+        const encProv = advisorEnc.provKey || "";
+        if (advForcedMix || advisorWavesEncTs !== (Number(advisorEnc.ts) || 0) || advisorWavesProvKey !== encProv || stOther) {
+          return { waveProv: advisorWavesProvKey, otherProv: stOther ? (stEnc.provKey || "") : encProv };
+        }
+        return null;
+      })() : null;
+      if (advMixed) {
+        const mixTag = advisorWavesProvKey + "|" + advMixed.otherProv + "|" + advisorWavesEncTs;
+        if (mixTag !== advMixedWarned) { advMixedWarned = mixTag; try { console.warn("[Advisor] DỮ LIỆU LẪN TỈNH:", advisorWavesProvKey || "?", "vs", advMixed.otherProv || "?"); } catch (e) {} }
+      }
+      let lineupDimStyle = advMixed ? "opacity:.35;" : "";
+      // [CR-U505] Trận của advisorEnc đã đánh xong: giữ bản đề xuất TRƯỚC TRẬN (HTML đã vẽ), KHÔNG gọi Engine / không tính lại.
+      // Thoát bằng nút "Tính lại" (userUnfrozen) hoặc chạm tỉnh mới (NEW_ENC xóa advisorFrozen). Tự xếp địch (isManualOverride) không bị đóng băng.
+      if (!advMixed && !isManualOverride && advisorFrozen && advisorFrozen.html && !advisorFrozen.userUnfrozen && advisorFrozen.encTs === advisorWavesEncTs) {
+        container.innerHTML = advisorFrozenBanner(advisorFrozen) + advisorFrozen.html;
+        return;
       }
 
       if (!advisorWaves || advisorWaves.length === 0) {
@@ -4189,6 +4387,12 @@
       // Determine allowed unit pool based on advisorMode ("optimal" vs "fast1tab")
       let recResult = null;
       let chosenBuildingName = "Mixed (All 3 Buildings)";
+      // [CR-U502] Truyền TƯỜNG MINH bản đồ + số đội từ advisorEnc cho Engine (trước đây Engine tự đọc state.enc). customBuffs để null.
+      // Chế độ tự xếp địch (isManualOverride): giữ hành vi cũ (Engine tự đọc số đội từ state.enc, bỏ bản đồ).
+      const engSrc = (!isManualOverride && advisorEnc) ? advisorEnc : null;
+      const argObs = engSrc && Array.isArray(engSrc.obstacles) ? engSrc.obstacles : null;
+      const argPSq = engSrc && Number(engSrc.playerSquadSize) > 0 ? Number(engSrc.playerSquadSize) : null;
+      const argESq = engSrc && Number(engSrc.enemySquadSize) > 0 ? Number(engSrc.enemySquadSize) : null;
       if (advisorMode === "fast1tab") {
         const bPools = [
           { name: "Barracks", keys: ["eb_lm", "eb_lr", "eb_ma", "eb_hm", "eb_hr"] },
@@ -4197,7 +4401,7 @@
         ];
         let bestB = null;
         // [CR-U422] Bỏ qua tòa có cờ stockExhausted (mọi quân trong tòa đã hết kho) khi còn tòa khác chưa hết
-        const bResults = bPools.map(bp => ({ name: bp.name, res: recommendLineupForWaves(advisorWaves, bp.keys) }));
+        const bResults = bPools.map(bp => ({ name: bp.name, res: recommendLineupForWaves(advisorWaves, bp.keys, argObs, null, argPSq, argESq) }));
         const bUsable = bResults.filter(b => !b.res.stockExhausted);
         (bUsable.length > 0 ? bUsable : bResults).forEach(b => {
           if (!bestB || b.res.avgTeamScore > bestB.res.avgTeamScore) {
@@ -4207,11 +4411,11 @@
         recResult = bestB.res;
         chosenBuildingName = `1-Tab Only: ${bestB.name}`;
       } else {
-        recResult = recommendLineupForWaves(advisorWaves, PLAYER_UNIT_KEYS);
+        recResult = recommendLineupForWaves(advisorWaves, PLAYER_UNIT_KEYS, argObs, null, argPSq, argESq);
       }
 
       const slotRecs = recResult.slots;
-      const enc = state.enc || {};
+      const enc = (!isManualOverride && advisorEnc) ? advisorEnc : (state.enc || {}); // [CR-U502] cùng gói với đợt địch (tên `enc` giữ nguyên: mốc G13)
       const hasLiveEnc = Boolean(enc.ts && enc.ts > 0 && !isManualOverride);
       const srcLabel = enc.source === "spire" ? "🗼 Spire of Eternity" : (enc.source === "province" ? "🗺️ World Province" : "🏆 Tournament");
       const goodLabel = enc.good ? ` (${enc.good.toUpperCase()})` : "";
@@ -4229,6 +4433,10 @@
         }
       });
 
+      // [CR-U504] Nhãn tỉnh / sao / giờ / nguồn bản đồ / lý do đổi / KẾT QUẢ TẠM / TỈNH CŨ (lẫn tỉnh của CR-U502 đè lên tất cả)
+      const advLabels = buildAdvisorLabels({ enc, slotRecs });
+      if (!advMixed && advLabels.dimStyle) lineupDimStyle = advLabels.dimStyle;
+
       let html = `
         <div class="advisor-card">
           <!-- 1. Live Encounter Status Banner -->
@@ -4244,6 +4452,11 @@
             </div>
             <button class="wave-btn" onclick="syncLiveEncounterNow()" title="Reset to latest live in-game encounter">🔄 Live Sync</button>
           </div>
+          ${advMixed ? `
+            <div class="adv-mixed-warning" style="background:rgba(220,38,38,0.22);border:2px solid #ef4444;color:#fecaca;padding:7px 10px;border-radius:8px;font-size:11.5px;font-weight:800;margin:6px 0;">
+              ⛔ DỮ LIỆU LẪN TỈNH: quân địch của ${provLabelOf(advMixed.waveProv)} nhưng số đội / bản đồ của ${provLabelOf(advMixed.otherProv)} — KHÔNG DÙNG ĐỀ XUẤT NÀY. Bấm Live Sync.
+            </div>
+          ` : (advLabels.html || '')}
 
           <!-- 1.B Active City Military Buffs Bar (Wonders / Fire Phoenix / Armorer) -->
           ${(() => {
@@ -4361,7 +4574,7 @@
               <span style="color:#38bdf8;font-size:10.5px;">Chạm vào ô để đổi lính</span>
             </div>
           </div>
-          <div class="slot-grid-5">
+          <div class="slot-grid-5" style="${lineupDimStyle}">
             ${slotRecs.map((cands, sIdx) => {
               const isCustom = (customPlayerSlots[sIdx] !== null);
               const customKey = customPlayerSlots[sIdx];
@@ -4385,7 +4598,7 @@
                     firstStrike: (u.init > targetEu.init) && (u.rng >= 3)
                   };
                   const rawStock = (state.arm && Array.isArray(state.arm.units) && u.uIdx !== undefined) ? (Number(state.arm.units[u.uIdx]) || 0) : 0;
-                  const pSq = (state.enc && Number(state.enc.playerSquadSize)) || 1000;
+                  const pSq = (advisorEnc && Number(advisorEnc.playerSquadSize)) || (state.enc && Number(state.enc.playerSquadSize)) || 1000; // [CR-U502]
                   stockVal = Math.floor(rawStock); // [CR-U416] arm.units đã là số ĐỘI, không chia thêm pSq
                 }
               } else {
@@ -4706,7 +4919,7 @@
           ${enc.lastResult ? `
             <div style="margin-top:10px;background:rgba(15,23,42,0.65);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;">
               <div style="font-size:10.5px;color:#cbd5e1;">
-                📊 <strong>Last Auto-Battle Result:</strong>
+                📊 <strong title="Có thể là trận của tỉnh trước (gói chạm tỉnh mang theo kết quả trận trước)">Kết quả trận gần nhất:</strong>
                 <span style="color:${enc.lastResult.won ? '#34d399' : '#f87171'};font-weight:800;margin-left:4px;">
                   ${enc.lastResult.won ? '🏆 VICTORY' : '💀 DEFEAT'}
                 </span>
@@ -4732,6 +4945,7 @@
       `;
 
       container.innerHTML = html;
+      if (!isManualOverride && !advMixed) advisorLastRender = { encTs: advisorWavesEncTs, html, at: Date.now() }; // [CR-U505] bản trước trận
     }
 
     // Render Initial UI Shell
@@ -4830,20 +5044,122 @@
       switchTab(currentTabId);
     }
 
+    // [CR-U501] Chữ ký nội dung gói (để phân biệt hai gói cùng giây `t`)
+    let sigErrN = 0;
+    function payloadSig(d) {
+      try {
+        return JSON.stringify([d.t, d.enc && d.enc.ts, d.enc && d.enc.lastResult, d.enc && d.enc.obstacles, d.arm, d.mil, d.ws, d.res]);
+      } catch (e) { return "sig-err-" + (++sigErrN); }
+    }
+
+    // [CR-U502] "scrolls_P33" -> "P33"; không có số thì "?" (đã thoát ký tự, dùng được trong HTML)
+    function provLabelOf(key) {
+      const m = key ? String(key).match(/_P(\d+)/i) : null;
+      return m ? "P" + m[1] : (key ? escHtml(key) : "?");
+    }
+
+    // [CR-U504 / A1] Dòng vàng "gói lạc" + nút "Chuyển sang nguồn này" ở vùng đầu trang (mọi tab). Hiện khi có gói lạc trong STRAY_LINE_SEC qua.
+    function pad2(n) { return String(n).padStart(2, "0"); }
+    function hmsOf(ms) { const d = new Date(ms); return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds()); }
+    function strayLineHtml() {
+      if (!strayInfo.count || !strayInfo.lastAt || (Date.now() - strayInfo.lastAt) > STRAY_LINE_SEC * 1000) return "";
+      const d = new Date(strayInfo.lastAt);
+      return `<div style="background:rgba(234,179,8,0.16);border:1px solid #eab308;color:#fde68a;border-radius:8px;padding:5px 9px;margin:6px 0;font-size:11px;font-weight:700;display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;">`
+        + `<span>⚠️ Có nơi khác đang gửi dữ liệu (tỉnh ${provLabelOf(strayInfo.lastProv)}, ${strayInfo.count} lần, lần cuối ${pad2(d.getHours())}:${pad2(d.getMinutes())}) — đang bỏ qua.</span>`
+        + `<button class="wave-btn" onclick="switchToStraySource()" title="Nhận dữ liệu của nơi khác đó thay cho nguồn đang theo dõi">Chuyển sang nguồn này</button></div>`;
+    }
+    let strayLineLast = null;
+    function refreshStrayLine() {
+      try {
+        const el = document.getElementById("strayLine");
+        if (!el) return;
+        const h = strayLineHtml();
+        if (h === strayLineLast) return;
+        strayLineLast = h;
+        el.innerHTML = h;
+        el.style.display = h ? "block" : "none";
+      } catch (e) {}
+    }
+
+    // [CR-U501] Cổng nhận gói DUY NHẤT: websocket, REST, Cloudflare, tin ghim, nút chuyển nguồn đều đi qua đây.
+    // Trả về "NEW_ENC" | "SAME_ENC" | "SWITCH" (đã nhận), "la" (gói lạc, bị bỏ), "bo" (gói cũ / lặp, bị bỏ), "loi" (vẽ lỗi, đã hoàn tác).
+    function acceptIncoming(decoded, channel) {
+      if (!decoded || !decoded.t) return "bo";
+      const encTs = (decoded.enc && Number(decoded.enc.ts)) || 0;
+      const t = Number(decoded.t) || 0;
+      const sig = payloadSig(decoded);
+      let v;
+      if (state.isDemo || liveAnchor.t === 0) v = "NEW_ENC";
+      else if (forceNextAccept) v = "SWITCH";                                   // chuyển nguồn bằng tay
+      else if (encTs > liveAnchor.encFloor) v = "NEW_ENC";                      // lần chạm tỉnh thật sự mới, ở bất kỳ máy nào
+      else if (encTs === liveAnchor.encTs) v = (t > liveAnchor.t || (t === liveAnchor.t && sig !== liveAnchor.sig)) ? "SAME_ENC" : "OLD";
+      else v = (t > liveAnchor.t) ? "STRAY" : "OLD";
+      const prevAnchor = liveAnchor;
+      const floor = Math.max(Number(prevAnchor.encFloor) || 0, encTs);
+      if (v === "OLD") return "bo";
+      if (v === "STRAY") {
+        liveAnchor.encFloor = floor;
+        if (Date.now() - strayInfo.lastAt > STRAY_LINE_SEC * 1000) strayInfo.count = 0;
+        strayInfo.count++; strayInfo.lastAt = Date.now();
+        strayInfo.lastProv = (decoded.enc && decoded.enc.provKey) || "";
+        strayInfo.lastPayload = decoded;
+        refreshStrayLine();
+        return "la";
+      }
+      forceNextAccept = false;
+      liveAnchor = { t, encTs, encFloor: floor, sig, s: decoded.s || null, g: Number(decoded.g) || 0, recvAt: Date.now(), ch: String(channel || "") };
+      const ok = applyFreshState(decoded, v);
+      if (ok === false) { liveAnchor = prevAnchor; return "loi"; }   // vẽ lỗi: hoàn tác cả mốc neo, gói đúng gửi lại vẫn được nhận
+      return v;
+    }
+
+    // [CR-U501] Nút "Chuyển sang nguồn này": nhận gói lạc gần nhất (mức trần encFloor giữ nguyên nên nhịp tim nguồn cũ không tự bật lại)
+    function switchToStraySource() {
+      const p = strayInfo.lastPayload;
+      if (!p) return "bo";
+      forceNextAccept = true;
+      const r = acceptIncoming(p, "manual");
+      forceNextAccept = false;
+      strayInfo.count = 0; strayInfo.lastPayload = null;
+      refreshStrayLine();
+      return r;
+    }
+
     // Apply Realtime Fresh State from Live Stream (Silent & Seamless)
-    function applyFreshState(freshState) {
-      if (!freshState || !freshState.t) return;
+    // [CR-U501] tham số 2 = loại gói do acceptIncoming xếp (CR-U502/U505 dùng); trả false khi vẽ lỗi (đã hoàn tác state)
+    function applyFreshState(freshState, kind) {
+      if (!freshState || !freshState.t) return false;
       const prevState = state; // [CR-U418_r3]
+      const prevAdvisorEnc = advisorEnc; // [CR-U502]
+      const prevFrozen = advisorFrozen, prevLrSnap = advisorLrAtSnap; // [CR-U505]
       freshState.isDemo = false;
       state = freshState;
+      if (freshState.enc) { advisorEnc = freshState.enc; advisorSyncOk = true; } // [CR-U502] đợt địch, số đội, bản đồ đi theo CÙNG gói
+      if (freshState.enc) {
+        // [CR-U505] Gói chạm tỉnh mới (NEW_ENC/SWITCH): bỏ đóng băng, ghi lại kết quả trận TRƯỚC mà gói mang theo.
+        // Gói cùng tỉnh (SAME_ENC) mà kết quả trận đổi => trận của advisorEnc đã đánh xong => đóng băng bản trước trận (không áp cho Spire).
+        const lrNow = JSON.stringify(freshState.enc.lastResult || null);
+        const ftTs = Number(freshState.enc.ts) || 0;
+        if (kind === "NEW_ENC" || kind === "SWITCH") {
+          advisorFrozen = null;
+          advisorLrAtSnap = lrNow;
+        } else if (kind === "SAME_ENC" && freshState.enc.source !== "spire" && lrNow !== "null" && lrNow !== advisorLrAtSnap) {
+          const keepHtml = (advisorFrozen && advisorFrozen.encTs === ftTs) ? advisorFrozen.html
+            : ((advisorLastRender && advisorLastRender.encTs === ftTs) ? advisorLastRender.html : null);
+          advisorFrozen = { encTs: ftTs, html: keepHtml, lr: freshState.enc.lastResult, at: Date.now(), userUnfrozen: Boolean(advisorFrozen && advisorFrozen.encTs === ftTs && advisorFrozen.userUnfrozen) };
+          advisorLrAtSnap = lrNow;
+        }
+      }
       try {
         initUI();
         tick();
       } catch (e) {
         reportUiErrorOnce("applyFreshState", e);
         state = prevState;
+        advisorFrozen = prevFrozen; advisorLrAtSnap = prevLrSnap; // [CR-U505]
+        advisorEnc = prevAdvisorEnc; advisorSyncOk = true; // [CR-U502] hoàn tác cả advisorEnc; lần vẽ lại kế tiếp là đồng bộ hợp lệ
         try { initUI(); } catch (e2) {}
-        return;
+        return false;
       }
 
       const badge = document.getElementById("liveBadgeText");
@@ -4851,6 +5167,7 @@
         badge.innerText = "STREAMING (LIVE)";
         badge.style.color = "#34d399";
       }
+      return true;
     }
 
     let lastTickTimestamp = Date.now();
@@ -4867,6 +5184,7 @@
       }
 
       const now = Math.floor(nowMs / 1000);
+      refreshStrayLine(); // [CR-U504] dòng gói lạc tự ẩn sau STRAY_LINE_SEC
 
       // Header Sync Time
       const syncEl = document.getElementById("syncTime");
@@ -5197,6 +5515,32 @@
       const base = str.replace(/_\d+$/, "");
       return Boolean(UNIT_STATS_DB[base] || UNIT_STATS_DB[str]);
     }
+    // [CR-U508] Chuỗi trong `enc` đến từ cloud ghi công khai và mã nền chèn thô vào HTML (goodLabel, nhãn bản đồ).
+    // Làm sạch MỘT chỗ khi tạo đối tượng enc: chỉ giữ [A-Za-z0-9_.-], tối đa 64 ký tự (giá trị thật như "scrolls", "magic_dust", "scrolls_P33", "tournament", "pkt" không đổi).
+    function cleanEncStr(v) {
+      return String(v == null ? "" : v).replace(/[^A-Za-z0-9_\-.]/g, "").slice(0, 64);
+    }
+    // [CR-U508] Trường số của gói cloud được chèn thô vào HTML (mil[].s, mil[].m, aw[].l): ép số hữu hạn, không âm, không thì 0.
+    function cleanNum(v) {
+      const n = Number(v);
+      return (typeof v !== "object" && Number.isFinite(n) && n >= 0) ? n : 0;
+    }
+    function sanitizeStateNums(st) {
+      if (!st || typeof st !== "object") return st;
+      if (Array.isArray(st.mil)) st.mil.forEach(q => { if (q && typeof q === "object") { q.s = cleanNum(q.s); q.m = cleanNum(q.m) || 5; } });
+      if (Array.isArray(st.aw)) st.aw.forEach(a => { if (a && typeof a === "object") a.l = cleanNum(a.l); });
+      // [CR-U508b / L10] Chuỗi hiển thị của link #d= dạng đầy đủ (mil[].n/ic, aw[].n, pet[].n/ic) được chèn thô vào HTML: bỏ các ký tự < > " ' & ` (tên và biểu tượng thật giữ nguyên)
+      const cleanText = v => (v == null ? v : String(v).replace(/[<>"'&`]/g, ""));
+      if (Array.isArray(st.mil)) st.mil.forEach(q => { if (q && typeof q === "object") { q.n = cleanText(q.n); q.ic = cleanText(q.ic); } });
+      if (Array.isArray(st.aw)) st.aw.forEach(a => { if (a && typeof a === "object") a.n = cleanText(a.n); });
+      if (Array.isArray(st.pet)) st.pet.forEach(p => { if (p && typeof p === "object") { p.n = cleanText(p.n); p.ic = cleanText(p.ic); } });
+      return st;
+    }
+    function sanitizeEncStrings(e) {
+      if (!e || typeof e !== "object") return e;
+      ["good", "provKey", "source", "obsOrigin"].forEach(k => { if (e[k] != null) e[k] = cleanEncStr(e[k]); });
+      return e;
+    }
     function escHtml(s) {
       return String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
     }
@@ -5222,8 +5566,8 @@
         ic: milDefs[idx]?.ic || "⚔️",
         f: arr[0] || 0,
         f1: arr[1] || 0,
-        s: arr[2] || 0,
-        m: arr[3] || 5
+        s: cleanNum(arr[2]), // [CR-U508] số hữu hạn không âm (chuỗi cloud không lọt vào HTML)
+        m: cleanNum(arr[3]) || 5
       }));
 
       const w = Array.isArray(compact.w) ? compact.w : [0, 0, 0, 0, 0, 0, 0, 0]; // [CR-U418_r3]
@@ -5248,7 +5592,7 @@
         const status = sChar === "P" ? "Producing" : (sChar === "R" ? "Ready" : (sChar === "U" ? "Upgrading" : "Idle"));
         return {
           n: awDefs[idx]?.n || `AW ${idx+1}`,
-          l: arr[0] || 0,
+          l: cleanNum(arr[0]), // [CR-U508]
           s: status,
           f: arr[2] || 0
         };
@@ -5353,21 +5697,22 @@
         }
         enc = {
           ts: compact.enc[0] || 0,
-          source: asStr(compact.enc[1]) || "tournament", // [CR-U418_r3]
-          good: asStr(compact.enc[2]),
-          playerSquadSize: compact.enc[3] || 0,
-          enemySquadSize: compact.enc[4] || 0,
+          source: cleanEncStr(asStr(compact.enc[1])) || "tournament", // [CR-U418_r3] [CR-U508] chuỗi cloud làm sạch
+          good: cleanEncStr(asStr(compact.enc[2])), // [CR-U508]
+          playerSquadSize: cleanNum(compact.enc[3]), // [CR-U508b / L9] số hữu hạn không âm (chuỗi cloud không lọt vào HTML)
+          enemySquadSize: cleanNum(compact.enc[4]),
           waves: compact.enc[5],
+          pts: Number(compact.enc[10]) > 0 ? Number(compact.enc[10]) : null, // [CR-U504] điểm tỉnh thật (userscript 6.7.7+) để suy số sao
           lastResult: Array.isArray(lr) ? {
             won: lr[0] || 0,
-            lossPct: lr[1] || 0,
+            lossPct: cleanNum(lr[1]), // [CR-U508b / L9]
             wave: Number(lr[2]) || 1,        // [CR-U415] userscript gửi [win, lossPct, wave, totalWaves] (trước đây đặt nhầm tên used/lost)
             totalWaves: Number(lr[3]) || 1
           } : null,
           obstacles: encObs,
           obsSrc: obsSrc, // [CR-U46]
           obsOrigin: obsOrigin, // [CR-U48]
-          provKey: rawProvKey
+          provKey: cleanEncStr(rawProvKey) // [CR-U508]
         };
       }
 
@@ -5403,6 +5748,7 @@
     let isFetchingTelegram = false;
     let fetchStartTime = 0;
     let isFirebaseListening = false;
+    let lastWsEventAt = 0; // [CR-U503] giờ sự kiện websocket gần nhất (ms)
 
     // --- 1. GOOGLE FIREBASE REALTIME WEBSOCKET LISTENER (<50ms INSTANT PUSH) ---
     function initFirebaseWebSocket() {
@@ -5417,12 +5763,10 @@
           liveRef.on("value", snapshot => {
             try { // [CR-U418_r3] payload hỏng trên nhánh live: báo một lần, không ném lỗi lặp
               const data = snapshot.val();
+              lastWsEventAt = Date.now(); // [CR-U503]
               if (data && data.t) {
                 const decoded = decodeCompactPayload(data);
-                const encChanged = Boolean(decoded && decoded.enc && decoded.enc.ts !== (state.enc?.ts || 0));
-                if (decoded && (state.isDemo || decoded.t !== (state.t || 0) || encChanged)) {
-                  applyFreshState(decoded);
-                }
+                if (decoded) acceptIncoming(decoded, "ws"); // [CR-U501] cổng nhận gói duy nhất
                 const badgeText = document.getElementById("liveBadgeText");
                 if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
               }
@@ -5469,17 +5813,25 @@
             console.log(`[CloudMap] Loaded ${Object.keys(data).length} maps from Firebase maps.json`);
             // [CR-U46] Cloud hợp lệ thay seed: vá khi chưa có vật cản, HOẶC khi vật cản hiện tại lấy từ seed và mục cloud
             // (đã qua validObs/ts của CR-U44) khác seed. Không bao giờ đè vật cản lấy từ payload (gói tin của userscript).
-            if (state && state.enc && state.enc.provKey && (!state.enc.obstacles || state.enc.obsSrc === "seed")) {
-              const pk = state.enc.provKey;
-              const cloudEntry = window.cloudTourneyMaps[pk];
-              const obs = cloudEntryObs(pk, cloudEntry, Math.floor(Date.now() / 1000)); // [CR-U44]
-              if (Array.isArray(obs) && (!state.enc.obstacles || !sameObsSet(obs, state.enc.obstacles))) {
-                state.enc.obstacles = obs;
-                state.enc.obsSrc = "cloud";
-                state.enc.obsOrigin = "cloud"; // [CR-U48]
-                renderAdvisorUI();
+            // [CR-U502] Đường DUY NHẤT sửa `enc` mà không qua gói: vá vào ĐÚNG advisorEnc (cùng đối tượng với state.enc sau CR-U501);
+            // state.enc chỉ được vá khi cùng khóa tỉnh với advisorEnc. Bản đồ cloud của tỉnh KHÁC không bao giờ được vá.
+            let mapPatched = false;
+            const patchTargets = advisorEnc ? [advisorEnc] : [];
+            if (state && state.enc && state.enc !== advisorEnc && (!advisorEnc || state.enc.provKey === advisorEnc.provKey)) patchTargets.push(state.enc);
+            patchTargets.forEach(te => {
+              if (te && te.provKey && (!te.obstacles || te.obsSrc === "seed")) {
+                const pk = te.provKey;
+                const cloudEntry = window.cloudTourneyMaps[pk];
+                const obs = cloudEntryObs(pk, cloudEntry, Math.floor(Date.now() / 1000)); // [CR-U44]
+                if (Array.isArray(obs) && (!te.obstacles || !sameObsSet(obs, te.obstacles))) {
+                  te.obstacles = obs;
+                  te.obsSrc = "cloud";
+                  te.obsOrigin = "cloud"; // [CR-U48]
+                  mapPatched = true;
+                }
               }
-            }
+            });
+            if (mapPatched) renderAdvisorUI();
           }
         })
         .catch(err => {
@@ -5560,34 +5912,29 @@
       isFetchingTelegram = true;
       fetchStartTime = Date.now();
 
-      // AbortController prevents hanging indefinitely on network loss
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        try { controller.abort(); } catch(e) {}
-      }, 5000);
+      // [CR-U501 / F4] Mỗi bước có AbortController 5 s RIÊNG (trước đây một bộ hủy chung cho cả chuỗi).
+      // Bước sau chỉ chạy khi bước trước trả rỗng (giữ thứ tự ưu tiên). Trả { d, ch } để cổng nhận gói biết kênh.
+      const runStep = (ch, fetcher) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          try { controller.abort(); } catch(e) {}
+        }, FETCH_STEP_TIMEOUT_MS);
+        return Promise.resolve(fetcher(controller.signal)).then(
+          data => { clearTimeout(timeoutId); return (data && data.t) ? { d: data, ch } : null; },
+          err => { clearTimeout(timeoutId); throw err; }
+        );
+      };
 
       // Priority 1: Google Firebase REST
-      fetchFirebaseRest(controller.signal)
-        .then(data => {
-          if (data && data.t) return data;
-          // Priority 2: Cloudflare Edge Worker
-          return fetchCloudflarePayload(controller.signal);
-        })
-        .then(data => {
-          if (data && data.t) return data;
-          // Priority 3 (Fallback): Telegram Group Chat Topic 26
-          return fetchChatPayload(PRIMARY_CHAT_ID, controller.signal);
-        })
-        .then(data => {
-          if (data && data.t) return data;
-          // Priority 4 (Fallback): Telegram Private Chat
-          return fetchChatPayload(FALLBACK_CHAT_ID, controller.signal);
-        })
-        .then(decoded => {
-          const encChanged = Boolean(decoded && decoded.enc && decoded.enc.ts !== (state.enc?.ts || 0));
-          if (decoded && decoded.t && (state.isDemo || decoded.t !== (state.t || 0) || encChanged)) {
-            applyFreshState(decoded);
-          }
+      runStep("rest", fetchFirebaseRest)
+        // Priority 2: Cloudflare Edge Worker
+        .then(r => r || runStep("cf", fetchCloudflarePayload))
+        // Priority 3 (Fallback): Telegram Group Chat Topic 26
+        .then(r => r || runStep("tg1", sig => fetchChatPayload(PRIMARY_CHAT_ID, sig)))
+        // Priority 4 (Fallback): Telegram Private Chat
+        .then(r => r || runStep("tg2", sig => fetchChatPayload(FALLBACK_CHAT_ID, sig)))
+        .then(r => {
+          if (r && r.d && r.d.t) acceptIncoming(r.d, r.ch); // [CR-U501] chỉ nhận gói MỚI hơn mốc neo
           const badgeText = document.getElementById("liveBadgeText");
           if (badgeText) badgeText.innerText = "STREAMING (LIVE)";
         })
@@ -5599,16 +5946,21 @@
           if (badgeText && state.isDemo) badgeText.innerText = "CONNECTING...";
         })
         .finally(() => {
-          clearTimeout(timeoutId);
           isFetchingTelegram = false;
         });
     }
 
     // --- SLEEP / RESUME LIFECYCLE & AUTOMATIC RECONNECTION ENGINE ---
     function onWakeUp(reason) {
-      console.log(`[Lifecycle] Wake up (${reason}) -> Resyncing immediately`);
-      isFetchingTelegram = false;
-      syncFromTelegramCloud(true);
+      // [CR-U503] Khi websocket còn sống (có sự kiện trong WS_FRESH_MS) thì KHÔNG kéo REST: bớt đua REST/websocket.
+      // Bấm tay ("manual click") luôn kéo REST. Websocket treo ngầm (không còn sự kiện) thì thức dậy vẫn kéo.
+      const wsFresh = isFirebaseListening && (Date.now() - lastWsEventAt) < WS_FRESH_MS;
+      const pullRest = !wsFresh || reason === "manual click";
+      console.log(`[Lifecycle] Wake up (${reason}) -> ${pullRest ? "Resyncing immediately" : "websocket còn sống, bỏ qua REST"}`);
+      if (pullRest) {
+        isFetchingTelegram = false;
+        syncFromTelegramCloud(true);
+      }
       fetchCloudTourneyMaps();
       tick();
     }
@@ -5640,12 +5992,25 @@
     if (deferredHashCompact) { // [CR-U417]
       try {
         const fromHash = decodeCompactPayload(deferredHashCompact);
-        if (fromHash && fromHash.t) state = fromHash;
+        if (fromHash && fromHash.t) {
+          state = fromHash;
+          // [CR-U501] #d= đặt mốc neo (lúc này chưa có giao diện nên không gọi applyFreshState)
+          const hEncTs = (fromHash.enc && Number(fromHash.enc.ts)) || 0;
+          liveAnchor = { t: Number(fromHash.t) || 0, encTs: hEncTs, encFloor: hEncTs, sig: payloadSig(fromHash), s: null, g: 0, recvAt: Date.now(), ch: "hash" };
+          advisorLrAtSnap = JSON.stringify((fromHash.enc && fromHash.enc.lastResult) || null); // [CR-U505] mốc kết quả trận như nhánh NEW_ENC (tránh băng "ĐÃ ĐÁNH XONG" sai)
+        }
       } catch (e) {
         console.error("Payload decoding error (#d=):", e);
       }
       deferredHashCompact = null;
     }
+    try { // [CR-U509] huy hiệu tên bản (chỉ hiển thị)
+      const bb = document.getElementById("buildBadge");
+      if (bb) { bb.textContent = BUILD_LABEL; bb.style.background = BUILD_BADGE_BG; bb.title = BUILD_LABEL; }
+      if (typeof document.title === "string" && document.title && document.title.indexOf(BUILD_TAG) !== 0) document.title = BUILD_TAG + document.title;
+    } catch (e) {}
+    if (!state.isDemo) sanitizeStateNums(state); // [CR-U508] đường nạp trực tiếp không qua decodeCompactPayload
+    if (!state.isDemo && state.enc) advisorEnc = sanitizeEncStrings(state.enc); // [CR-U508] đường nạp trực tiếp (định dạng cũ có `mil`) không đi qua decodeCompactPayload // [CR-U502] trạng thái nạp từ #d= có sẵn enc: đợt địch, số đội, bản đồ cùng một gói
     initUI();
     tick();
     setInterval(tick, 1000);
